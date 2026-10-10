@@ -1,6 +1,6 @@
 # ADR-0001: Archive format — raw .eml blobs, metadata journal, SQLite as a projection
 
-- Status: proposed (2026-10-10, informed by spikes S1, S4)
+- Status: accepted (TJ, 2026-10-10)
 - Deciders: TJ
 
 ## Context

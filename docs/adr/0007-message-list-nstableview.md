@@ -1,6 +1,6 @@
 # ADR-0007: Message list is an NSTableView, not a SwiftUI Table
 
-- Status: proposed (2026-10-10, after spike S2)
+- Status: accepted (TJ, 2026-10-10)
 - Deciders: TJ
 
 ## Context

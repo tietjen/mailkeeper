@@ -1,6 +1,6 @@
 # ADR-0002: IMAP stack — swift-nio-imap on NIOPosix + NIOSSL
 
-- Status: proposed (2026-10-10, after spike S1)
+- Status: accepted (TJ, 2026-10-10)
 - Deciders: TJ
 
 ## Context

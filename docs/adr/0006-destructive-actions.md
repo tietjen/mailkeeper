@@ -1,6 +1,6 @@
 # ADR-0006: Destructive actions — plan, execute, verify; archive first
 
-- Status: proposed (2026-10-10, informed by spike S1)
+- Status: accepted (TJ, 2026-10-10)
 - Deciders: TJ
 
 ## Context

@@ -1,6 +1,6 @@
 # ADR-0003: App Sandbox, ATS and keychain
 
-- Status: proposed (2026-10-10, after spike S4)
+- Status: accepted (TJ, 2026-10-10)
 - Deciders: TJ
 
 ## Context

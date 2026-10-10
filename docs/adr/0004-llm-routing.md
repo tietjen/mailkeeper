@@ -1,6 +1,6 @@
 # ADR-0004: LLM routing and data classes
 
-- Status: proposed (2026-10-10, informed by spike S3)
+- Status: accepted (TJ, 2026-10-10)
 - Deciders: TJ
 
 ## Context

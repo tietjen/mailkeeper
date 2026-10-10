@@ -1,6 +1,6 @@
 # ADR-0005: Per-user memory — typed, attributed, inspectable
 
-- Status: proposed (2026-10-10)
+- Status: accepted (TJ, 2026-10-10)
 - Deciders: TJ
 
 ## Context
