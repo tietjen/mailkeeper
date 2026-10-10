@@ -8,22 +8,6 @@ public enum SearchText {
         return s.replacingOccurrences(of: "ß", with: "ss").replacingOccurrences(of: "ẞ", with: "SS")
     }
 
-    /// User input → FTS5 MATCH expression. Every term is quoted (no FTS syntax injection);
-    /// German spelling variants are OR-ed in both directions (Mueller ↔ Müller); the last term
-    /// matches as prefix while typing. Returns nil for input without searchable terms.
-    public static func ftsQuery(_ input: String, prefixLast: Bool = true) -> String? {
-        let terms = input
-            .split(whereSeparator: { $0.isWhitespace })
-            .map { normalize(String($0)).replacingOccurrences(of: "\"", with: "") }
-            .filter { $0.contains(where: { $0.isLetter || $0.isNumber }) }
-        guard !terms.isEmpty else { return nil }
-        return terms.enumerated().map { n, term in
-            let prefix = prefixLast && n == terms.count - 1 && !input.hasSuffix(" ")
-            let variants = spellingVariants(term).map { "\"\($0)\"" + (prefix ? "*" : "") }
-            return variants.count == 1 ? variants[0] : "(" + variants.joined(separator: " OR ") + ")"
-        }.joined(separator: " AND ")  // FTS5 has no implicit AND after a parenthesised group
-    }
-
     static func spellingVariants(_ term: String) -> [String] {
         var out = [term]
         let lower = term.lowercased()

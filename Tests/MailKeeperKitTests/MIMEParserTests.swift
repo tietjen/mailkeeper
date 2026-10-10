@@ -297,13 +297,6 @@ struct HeaderPieceTests {
         #expect(String(decoding: TransferEncoding.quotedPrintable(Data("a=3Db=\r\nc= \r\nd=ZZ".utf8)), as: UTF8.self) == "a=bcd=ZZ")
         #expect(String(decoding: TransferEncoding.base64(Data("SGFs\r\nbG8".utf8)), as: UTF8.self) == "Hallo")
     }
-
-    @Test func searchQuery() {
-        #expect(SearchText.ftsQuery("Grüße") == #"("Grüsse"* OR "gruesse"*)"#)
-        #expect(SearchText.ftsQuery("mueller rechnung ") == #"("mueller" OR "müller") AND "rechnung""#)
-        #expect(SearchText.ftsQuery("\"\" ;") == nil)
-        #expect(SearchText.ftsQuery("a\"b") == #""ab"*"#)
-    }
 }
 
 @Suite("Attachments")

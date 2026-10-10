@@ -17,7 +17,9 @@ usage: mkctl [--archive <dir>] <command>
   import eml <dir> --account <id>             import a folder of .eml files
   stats                                       counts and sizes
   accounts                                    accounts and mailboxes
-  search <terms…> [--limit <n>]               full-text search (newest first)
+  search <query…> [--limit <n>]               search (newest first), e.g. from:amazon has:pdf after:2024
+                                              fields: from to subject body filename sender has larger smaller
+                                              after before until date account folder label list is on only msgid
   show <id>                                   one message: headers, locations, text
   account add gmail <address> --id <id>       add a Gmail account (app password, All Mail + labels)
   account add proton <address> --id <id> [--port 1143] [--trust <fingerprint>]

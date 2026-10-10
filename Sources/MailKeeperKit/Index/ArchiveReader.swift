@@ -61,12 +61,16 @@ public enum MessageSort: String, Sendable, CaseIterable {
 public struct MessageFilter: Sendable, Equatable {
     public var account: String?
     public var mailbox: String?
+    /// Query text (ADR-0008), e.g. `from:amazon has:pdf after:2024`.
     public var text: String?
+    /// Reference time for relative dates ("30d").
+    public var now: Date
 
-    public init(account: String? = nil, mailbox: String? = nil, text: String? = nil) {
+    public init(account: String? = nil, mailbox: String? = nil, text: String? = nil, now: Date = Date()) {
         self.account = account
         self.mailbox = mailbox
         self.text = text
+        self.now = now
     }
 }
 
@@ -133,9 +137,11 @@ public final class ArchiveReader {
             }
             conditions.append(c + ")")
         }
-        if let text = filter.text, let match = SearchText.ftsQuery(text) {
-            conditions.append("m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)")
-            params.append(.text(match))
+        // ADR-0008 query language; an invalid query throws QueryError instead of widening.
+        if let text = filter.text, let root = try QueryParser.parse(text, now: filter.now).root {
+            var compiled = QuerySQL()
+            conditions.append(compiled.condition(root))
+            params += compiled.params
         }
         if !conditions.isEmpty { sql += " WHERE " + conditions.joined(separator: " AND ") }
         let dir = ascending ? "ASC" : "DESC"
