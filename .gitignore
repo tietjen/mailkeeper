@@ -8,3 +8,4 @@ DerivedData/
 # probe config and pins live in ~/.config/mailkeeper, never here
 test-accounts*.json
 pins.json
+Spikes/*/build/

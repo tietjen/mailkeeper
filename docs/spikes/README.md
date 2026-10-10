@@ -91,7 +91,35 @@ Findings:
 → Classification signals never drive destructive actions on their own; the on-device model
 is a fast pre-sorter with a mandatory timeout, LiteLLM the quality path.
 
-## Not done yet
+## S4 — App Sandbox, keychain, network/ATS, Sparkle (`Spikes/S4-Sandbox`)
 
-- Throughput on a large real mailbox (read-only).
-- S4 App Sandbox + Sparkle + keychain + security-scoped bookmarks.
+A sandboxed probe app (Developer ID, hardened runtime; entitlements `app-sandbox`,
+`network.client`, `files.user-selected.read-write`, `files.bookmarks.app-scope`, Sparkle's
+mach-lookup exceptions `<bundle-id>-spks/-spki`; `SUEnableInstallerLauncherService`). Results
+leave the sandbox through a local HTTP server's access log — a non-sandboxed process reading
+the app container triggers a TCC "access data from other apps" prompt.
+
+| Check | Result |
+|---|---|
+| Sandbox active, container path | yes, `~/Library/Containers/<bundle-id>/Data/Library/Application Support/…` |
+| Reading `~/.config`, the repo, `~/Documents` | denied |
+| SQLite 3.54.0 with FTS5 in the container | ok; `unicode61 remove_diacritics 2` folds ü→u but **not ß→ss** (`GRÜSSE`/`grusse` do not find „Grüße“) |
+| Keychain, file-based (login keychain), own item | add/read/delete ok |
+| Keychain, data protection (`kSecUseDataProtectionKeychain`) | **-34018** missing entitlement (needs a provisioning profile) |
+| Keychain item created by another program (`security`) | **shows an access prompt** even with `kSecUseAuthenticationUIFail` — the app must own its items |
+| IMAPS to mail.parasec.de:993, TCP to Bridge 127.0.0.1:1143 | ok (Network.framework; NIO needs the same `network.client`) |
+| `https://` | ok |
+| `http://litellm.rk1.ziti:4000` without ATS keys | blocked, `-1022` |
+| … with `NSExceptionDomains { ziti: includeSubdomains, allowInsecureHTTP }` | HTTP 200 |
+| `http://127.0.0.1`, `http://localhost` | allowed even without ATS keys |
+| **Sparkle 2.10 update v1 → v2** from a local EdDSA-signed feed, custom user driver | **ok**: check → found → download → extract → install → relaunch; v2 runs sandboxed, signature valid, no quarantine xattr left |
+
+Not covered: security-scoped bookmarks with a real folder pick (needs a user click) — first
+real use is the archive-location picker in Phase 1.
+
+Gotcha: a global `let version` is shadowed by `NSObject.version()` inside NSObject subclasses
+(AppDelegate, user driver) — "static member 'version' cannot be used on instance".
+
+## Still open
+
+- Throughput on a large real mailbox (read-only), security-scoped bookmark round trip.
