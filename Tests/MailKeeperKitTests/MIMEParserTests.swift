@@ -302,19 +302,36 @@ struct AttachmentTests {
         #expect(AttachmentSafety.sanitizedFilename(raw, mimeType: mime) == expected)
     }
 
-    @Test func longNamesKeepTheirExtension() {
-        let name = AttachmentSafety.sanitizedFilename(String(repeating: "x", count: 500) + ".pdf", mimeType: "application/pdf")
-        #expect(name.count <= AttachmentSafety.maxNameLength && name.hasSuffix(".pdf"))
+    @Test func longNamesKeepTheirExtensionAndFitTheFileSystem() throws {
+        let ascii = AttachmentSafety.sanitizedFilename(String(repeating: "x", count: 500) + ".pdf", mimeType: "application/pdf")
+        #expect(ascii.utf8.count <= AttachmentSafety.maxNameBytes && ascii.hasSuffix(".pdf"))
+        for long in [String(repeating: "ä", count: 300), String(repeating: "請", count: 200), String(repeating: "😀", count: 100)] {
+            let name = AttachmentSafety.sanitizedFilename(long + ".pdf", mimeType: "application/pdf")
+            #expect(name.utf8.count <= AttachmentSafety.maxNameBytes && name.hasSuffix(".pdf"))
+            try AttachmentSafety.writeQuarantined(Data("x".utf8), to: tempDir().appending(path: name))  // must be writable
+        }
     }
 
-    @Test func riskDetection() {
-        #expect(AttachmentSafety.isRisky(filename: "setup.pkg", mimeType: "application/octet-stream"))
-        #expect(AttachmentSafety.isRisky(filename: "tool.command", mimeType: "text/plain"))
-        #expect(AttachmentSafety.isRisky(filename: "Rechnung.xlsm", mimeType: "application/vnd.ms-excel"))
-        #expect(AttachmentSafety.isRisky(filename: "harmlos.pdf", mimeType: "application/x-msdownload"))
-        #expect(!AttachmentSafety.isRisky(filename: "Rechnung.pdf", mimeType: "application/pdf"))
-        #expect(!AttachmentSafety.isRisky(filename: "foto.jpg", mimeType: "image/jpeg"))
-        #expect(!AttachmentSafety.isRisky(filename: "daten.zip", mimeType: "application/zip"))
+    @Test(arguments: [
+        ("rechnung.pdf\u{2028}.exe", "rechnung.pdf.exe", "rechnung.pdf .exe"),
+        ("rechnung.pdf" + String(repeating: "\u{00A0}", count: 60) + ".docm", "rechnung.pdf.docm", "rechnung.pdf .docm"),
+        ("a\u{3164}\u{2800}b\u{E000}c\u{0378}.txt", "a bc.txt", "a bc.txt"),
+    ])
+    func invisiblePaddingIsCollapsed(raw: String, file: String, display: String) {
+        // The real extension always ends up visible; nothing hides behind invisible padding.
+        #expect(AttachmentSafety.sanitizedFilename(raw, mimeType: "application/octet-stream") == file)
+        #expect(DisplayText.safe(raw) == display)
+    }
+
+    @Test func webContentIsRiskyAndPreviewedAsText() {
+        for name in ["phish.html", "x.htm", "x.svg", "x.webarchive", "x.mhtml", "link.url", "x.webloc",
+                     "profile.mobileconfig", "a.shortcut", "b.wflow"] {
+            #expect(AttachmentSafety.isRisky(filename: name, mimeType: "application/octet-stream"), "\(name)")
+        }
+        #expect(AttachmentSafety.isWebContent(filename: "phish.html", mimeType: "text/html"))
+        #expect(AttachmentSafety.isWebContent(filename: "anhang", mimeType: "text/html"))
+        #expect(!AttachmentSafety.isWebContent(filename: "Rechnung.pdf", mimeType: "application/pdf"))
+        #expect(AttachmentSafety.textPreview(Data("<b>\u{202E}hi\u{0007}</b>\n".utf8)) == "<b>hi</b>\n")
     }
 
     @Test func writtenAttachmentsAreQuarantinedAndPrivate() throws {
@@ -338,11 +355,16 @@ struct AttachmentTests {
         #expect(DisplayText.safe("Familie 👨\u{200D}👩\u{200D}👧") == "Familie 👨\u{200D}👩\u{200D}👧")  // ZWJ kept
     }
 
-    @Test func uniqueNames() throws {
+    @Test func uniqueWritesNeverOverwrite() throws {
         let dir = tempDir()
-        try Data().write(to: dir.appending(path: "a.pdf"))
-        try Data().write(to: dir.appending(path: "a 2.pdf"))
-        #expect(AttachmentSafety.uniqueURL(in: dir, name: "a.pdf").lastPathComponent == "a 3.pdf")
-        #expect(AttachmentSafety.uniqueURL(in: dir, name: "b").lastPathComponent == "b")
+        try Data("A".utf8).write(to: dir.appending(path: "a.pdf"))
+        try Data("B".utf8).write(to: dir.appending(path: "a 2.pdf"))
+        let url = try AttachmentSafety.writeQuarantinedUnique(Data("C".utf8), in: dir, name: "a.pdf")
+        #expect(url.lastPathComponent == "a 3.pdf")
+        #expect(try Data(contentsOf: dir.appending(path: "a.pdf")) == Data("A".utf8))
+        #expect(throws: (any Error).self) {
+            try AttachmentSafety.writeQuarantined(Data("D".utf8), to: dir.appending(path: "a.pdf"), replace: false)
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { $0.hasSuffix(".part") }.isEmpty)
     }
 }

@@ -11,6 +11,7 @@ struct AttachmentBar: View {
     let message: ParsedMessage
     let attachments: [AttachmentInfo]
     @State private var previewURL: URL?
+    @State private var textPreview: TextPreview?
     @State private var errorText: String?
 
     var body: some View {
@@ -36,6 +37,7 @@ struct AttachmentBar: View {
             }
         }
         .quickLookPreview($previewURL)
+        .sheet(item: $textPreview) { TextPreviewSheet(preview: $0) }
         .alert("Anhang", isPresented: Binding(get: { errorText != nil }, set: { if !$0 { errorText = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -51,8 +53,14 @@ struct AttachmentBar: View {
     }
 
     private func preview(_ attachment: AttachmentInfo, as name: String) {
+        let asText = AttachmentSafety.isWebContent(filename: name, mimeType: attachment.mimeType)
         Task {
             guard let data = await bytes(attachment) else { return fail() }
+            if asText {
+                // Never hand web content or link files to Quick Look (it may load remote parts).
+                textPreview = TextPreview(name: name, text: AttachmentSafety.textPreview(data))
+                return
+            }
             do { previewURL = try AttachmentFiles.materialize(data, name: name) } catch { fail(error) }
         }
     }
@@ -87,7 +95,7 @@ struct AttachmentBar: View {
             for attachment in attachments {
                 let name = AttachmentSafety.sanitizedFilename(attachment.filename, mimeType: attachment.mimeType)
                 guard let data = await bytes(attachment) else { continue }
-                do { try AttachmentFiles.write(data, to: AttachmentSafety.uniqueURL(in: dir, name: name)) } catch { fail(error) }
+                do { try AttachmentSafety.writeQuarantinedUnique(data, in: dir, name: name) } catch { fail(error) }
             }
         }
     }
@@ -132,13 +140,18 @@ struct AttachmentChip: View {
 }
 
 /// Temporary copies for Quick Look and "open", private to the user and quarantined as mail
-/// attachments, so Gatekeeper treats them like downloads. Removed at launch and quit.
-@MainActor
+/// attachments, so Gatekeeper treats them like downloads. Copies stay while other apps may
+/// have them open; at launch, copies older than a day are removed (like Mail's "Mail Downloads").
 enum AttachmentFiles {
     static let root = FileManager.default.temporaryDirectory.appending(path: "MailKeeper-Anhaenge", directoryHint: .isDirectory)
 
-    static func cleanUp() {
-        try? FileManager.default.removeItem(at: root)
+    static func removeStale(olderThan age: TimeInterval = 86_400) {
+        let fm = FileManager.default
+        let cutoff = Date().addingTimeInterval(-age)
+        for dir in (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [] {
+            let modified = (try? dir.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            if modified < cutoff { try? fm.removeItem(at: dir) }
+        }
     }
 
     static func materialize(_ data: Data, name: String) throws -> URL {
@@ -146,12 +159,49 @@ enum AttachmentFiles {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         chmod(root.path, 0o700)
         let url = dir.appending(path: name)
-        try write(data, to: url)
+        try AttachmentSafety.writeQuarantined(data, to: url, replace: false)
         return url
     }
 
     static func write(_ data: Data, to url: URL) throws {
-        try AttachmentSafety.writeQuarantined(data, to: url)
+        try AttachmentSafety.writeQuarantined(data, to: url)  // the save panel confirmed replacing
+    }
+}
+
+struct TextPreview: Identifiable {
+    let id = UUID()
+    let name: String
+    let text: String
+}
+
+/// Web content and link files shown as their source text — nothing is rendered or loaded.
+struct TextPreviewSheet: View {
+    let preview: TextPreview
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label(preview.name, systemImage: "doc.plaintext")
+                    .font(.headline)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Button("Schließen") { dismiss() }.keyboardShortcut(.cancelAction)
+            }
+            Text("Webinhalt oder Link-Datei: MailKeeper zeigt den Quelltext und führt nichts aus.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            ScrollView {
+                Text(preview.text)
+                    .font(.system(.body, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .background(.background.secondary)
+        }
+        .padding(16)
+        .frame(width: 640, height: 480)
     }
 }
 
