@@ -72,6 +72,12 @@ func relativePath(of url: URL, to root: URL) -> String {
     return u.dropFirst(r.count).joined(separator: "/")
 }
 
+func isSameDirectory(_ a: URL, _ b: URL?) -> Bool {
+    guard let b else { return false }
+    return a.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        == b.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+}
+
 /// Importing the archive's own blobs would register every stored message as a new location.
 func refuseArchiveSource(_ source: URL, archive: URL) throws {
     let s = source.resolvingSymlinksInPath().standardizedFileURL.pathComponents
@@ -94,7 +100,7 @@ public struct MaildirImporter: Sendable {
         self.account = account
     }
 
-    public func mailboxes() -> [(name: String, url: URL)] {
+    public func mailboxes(excluding archive: URL? = nil) -> [(name: String, url: URL)] {
         let fm = FileManager.default
         var out: [(String, URL)] = []
         func isMaildir(_ url: URL) -> Bool {
@@ -106,7 +112,7 @@ public struct MaildirImporter: Sendable {
         if let e = fm.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsPackageDescendants]) {
             for case let url as URL in e {
                 let last = url.lastPathComponent
-                if ["cur", "new", "tmp"].contains(last) { e.skipDescendants(); continue }
+                if ["cur", "new", "tmp"].contains(last) || isSameDirectory(url, archive) { e.skipDescendants(); continue }
                 guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true, isMaildir(url) else { continue }
                 out.append((Self.mailboxName(relative: relativePath(of: url, to: root)), url))
             }
@@ -143,7 +149,7 @@ public struct MaildirImporter: Sendable {
         try await writer.register(AccountInfo(id: account, kind: "maildir", name: account))
         var feeder = BatchFeeder(writer: writer, progress: progress)
         let fm = FileManager.default
-        for (name, url) in mailboxes() {
+        for (name, url) in mailboxes(excluding: writer.layout.root) {
             for sub in ["cur", "new"] {
                 let dir = url.appending(path: sub)
                 let files = ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? []).filter { !$0.hasPrefix(".") }.sorted()
@@ -182,10 +188,13 @@ public struct EMLImporter: Sendable {
     }
 
     /// Directory enumeration is synchronous API (unavailable in async contexts).
-    func emlFiles() -> [URL] {
+    func emlFiles(excluding archive: URL? = nil) -> [URL] {
         var files: [URL] = []
         if let e = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]) {
-            for case let url as URL in e where url.pathExtension.lowercased() == "eml" { files.append(url) }
+            for case let url as URL in e {
+                if isSameDirectory(url, archive) { e.skipDescendants(); continue }  // archive inside the source
+                if url.pathExtension.lowercased() == "eml" { files.append(url) }
+            }
         }
         return files.sorted { $0.path < $1.path }
     }
@@ -194,7 +203,7 @@ public struct EMLImporter: Sendable {
         try refuseArchiveSource(root, archive: writer.layout.root)
         try await writer.register(AccountInfo(id: account, kind: "eml", name: account))
         var feeder = BatchFeeder(writer: writer, progress: progress)
-        for url in emlFiles() {
+        for url in emlFiles(excluding: writer.layout.root) {
             guard let data = try? Data(contentsOf: url) else { feeder.state.failed += 1; continue }
             let relative = relativePath(of: url, to: root)
             let folder = (relative as NSString).deletingLastPathComponent
@@ -228,8 +237,12 @@ public struct MboxImporter: Sendable {
     public func run(writer: ArchiveWriter, progress: @escaping @Sendable (ImportProgress) -> Void = { _ in }) async throws -> ImportProgress {
         try await writer.register(AccountInfo(id: account, kind: "mbox", name: account))
         var feeder = BatchFeeder(writer: writer, progress: progress)
-        guard let handle = FileHandle(forReadingAtPath: file.path) else { throw ArchiveError.io("open mbox", path: file.path) }
-        defer { try? handle.close() }
+        // POSIX read(2) into one reused buffer: FileHandle.read(upToCount:) returns autoreleased
+        // data that a long-running Swift task never drains — a 20 GB Takeout would stay resident.
+        let fd = open(file.path, O_RDONLY | O_CLOEXEC)
+        guard fd >= 0 else { throw ArchiveError.io("open mbox", path: file.path) }
+        defer { close(fd) }
+        var chunk = [UInt8](repeating: 0, count: max(1, chunkSize))
         let fromPrefix = Data("From ".utf8)
         let separator = Data("\nFrom ".utf8)
         // A read cursor instead of slicing the buffer per message (that would copy the rest of
@@ -244,7 +257,10 @@ public struct MboxImporter: Sendable {
                 scanFrom = max(0, scanFrom - pos)
                 pos = 0
             }
-            if let chunk = try handle.read(upToCount: chunkSize), !chunk.isEmpty { buffer.append(chunk) } else { eof = true }
+            var n: Int
+            repeat { n = chunk.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) } } while n < 0 && errno == EINTR
+            guard n >= 0 else { throw ArchiveError.io("read mbox: \(String(cString: strerror(errno)))", path: file.path) }
+            if n == 0 { eof = true } else { buffer.append(contentsOf: chunk[0..<n]) }
         }
         try refill()
         while true {

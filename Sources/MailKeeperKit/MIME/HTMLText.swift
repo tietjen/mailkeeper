@@ -20,7 +20,8 @@ enum HTMLText {
 
     static func toText(_ html: String, limit: Int = 1_000_000) -> String {
         let s = Array(html.unicodeScalars.prefix(limit * 4))
-        var out = String.UnicodeScalarView()
+        var out: [Unicode.Scalar] = []  // see EncodedWords: UnicodeScalarView appends are O(n)
+        out.reserveCapacity(s.count)
         var i = 0
         while i < s.count {
             let c = s[i]
@@ -66,7 +67,7 @@ enum HTMLText {
             out.append(c)
             i += 1
         }
-        return tidy(String(out))
+        return tidy(String(String.UnicodeScalarView(out)))
     }
 
     private static func decodeEntity(_ e: String) -> String? {

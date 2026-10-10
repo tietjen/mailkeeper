@@ -15,6 +15,51 @@ struct ReviewRegressionTests {
         #expect(elapsed2 < .seconds(2))
     }
 
+    @Test("N2/N3: long headers are linear, long valid words still decode") func longHeaders() {
+        let clock = ContinuousClock()
+        let literal = "=?" + String(repeating: "x", count: 1_000_000) + "?="
+        #expect(clock.measure { _ = EncodedWords.decode(literal) } < .seconds(1))
+        let lateClose = String(repeating: "=?a?B?z", count: 150_000) + "?="
+        #expect(clock.measure { _ = EncodedWords.decode(lateClose) } < .seconds(1))
+        let umlauts = String(repeating: "Ü", count: 200)
+        let word = "=?utf-8?B?\(Data(umlauts.utf8).base64EncodedString())?="
+        #expect(EncodedWords.decode(word) == umlauts)
+        let entities = String(repeating: "&amp;", count: 800_000)
+        #expect(clock.measure { _ = HTMLText.toText(entities) } < .seconds(2))
+    }
+
+    @Test("N4: short Content-IDs keep inline images") func shortContentID() {
+        let p = MIMEParser.parse(eml("""
+        Content-Type: multipart/related; boundary=r
+
+        --r
+        Content-Type: text/html
+
+        <img src="cid:1">
+        --r
+        Content-Type: image/png
+        Content-ID: <1>
+        Content-Transfer-Encoding: base64
+
+        iVBORw0KGgo=
+        --r--
+        """))
+        #expect(p.attachments.first?.contentID == "<1>")
+        #expect(p.attachments.first?.isInline == true)
+    }
+
+    @Test("N5: an archive inside the import source is skipped") func archiveInsideSource() async throws {
+        let docs = tempDir()
+        try sampleMessage(id: "<doc@x>", subject: "Dokument").write(to: docs.appending(path: "brief.eml"))
+        let layout = try ArchiveLayout.open(at: docs.appending(path: "MailKeeper"), create: true)
+        let writer = try ArchiveWriter(layout: layout)
+        _ = try await EMLImporter(root: docs, account: "docs").run(writer: writer)
+        let second = try await EMLImporter(root: docs, account: "docs").run(writer: writer)
+        #expect(second.messages == 1 && second.unchanged == 1)
+        // blobs written by the first run are .eml files inside docs/ — they must not be imported
+        #expect(try ArchiveReader(layout: layout).stats().locations == 1)
+    }
+
     @Test("B2: a reused Message-ID does not hide a different mail") func messageIDCollision() async throws {
         let layout = try ArchiveLayout.open(at: tempDir().appending(path: "b2"), create: true)
         let writer = try ArchiveWriter(layout: layout)
@@ -32,10 +77,12 @@ struct ReviewRegressionTests {
     }
 
     @Test("B2: degenerate Message-IDs and empty mails are not identities") func degenerateIDs() async throws {
-        #expect(MessageIDs.first("<>") == nil)
-        #expect(MessageIDs.first("<unknown>") == nil)
-        #expect(MessageIDs.first("<1>") == nil)
-        #expect(MessageIDs.first("abc@x.test") == "<abc@x.test>")
+        #expect(MessageIDs.identity("<>") == nil)
+        #expect(MessageIDs.identity("<unknown>") == nil)
+        #expect(MessageIDs.identity("<1>") == nil)
+        #expect(MessageIDs.identity("abc@x.test") == "<abc@x.test>")
+        #expect(MessageIDs.first("<>") == nil)  // never "<<>>"
+        #expect(MessageIDs.first("<1>") == "<1>")  // fine for Content-ID / In-Reply-To
         let layout = try ArchiveLayout.open(at: tempDir().appending(path: "b2b"), create: true)
         let writer = try ArchiveWriter(layout: layout)
         let r1 = try await writer.ingest(Data("Message-ID: <>\r\nSubject: eins\r\n\r\nx".utf8), at: LocationInfo(account: "a", mailbox: "M", providerID: "1"))

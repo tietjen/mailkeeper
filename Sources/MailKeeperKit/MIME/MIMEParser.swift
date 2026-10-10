@@ -97,7 +97,7 @@ public enum MIMEParser {
             cc: AddressParser.parse(h.all("Cc").joined(separator: ", ")),
             replyTo: AddressParser.parse(h["Reply-To"]),
             date: MailDate.parse(h["Date"]),
-            messageID: MessageIDs.first(h["Message-ID"]),
+            messageID: MessageIDs.identity(h["Message-ID"]),
             inReplyTo: MessageIDs.first(h["In-Reply-To"]),
             references: MessageIDs.all(h["References"]),
             listID: h["List-Id"].map { MessageIDs.all($0).first.map { String($0.dropFirst().dropLast()) } ?? $0 }

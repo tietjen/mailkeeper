@@ -14,8 +14,11 @@ enum EncodedWords {
             if scalars[k] == "=", scalars[k - 1] == "?" { lastClose = k - 1; break }
             k -= 1
         }
-        var out = String.UnicodeScalarView()
-        var pendingGap = String.UnicodeScalarView()  // whitespace after an encoded word
+        // Arrays, not String.UnicodeScalarView: its append(contentsOf:) costs O(length of the
+        // result) even for an empty argument, which made long headers quadratic.
+        var out: [Unicode.Scalar] = []
+        out.reserveCapacity(scalars.count)
+        var pendingGap: [Unicode.Scalar] = []  // whitespace after an encoded word
         var lastWasEncoded = false
         var i = 0
         while i < scalars.count {
@@ -40,12 +43,13 @@ enum EncodedWords {
             i += 1
         }
         out.append(contentsOf: pendingGap)
-        return String(out)
+        return String(String.UnicodeScalarView(out))
     }
 
-    /// RFC 2047 allows 75 characters per word; real mail exceeds that, but not by orders of
-    /// magnitude. The cap bounds the work per "=?" attempt.
-    static let maxWordLength = 512
+    /// RFC 2047 allows 75 characters per word; real mail exceeds that (long CJK or umlaut
+    /// subjects in one word). Failed attempts end at the first "?" anyway, so this cap only
+    /// bounds a single pathological word.
+    static let maxWordLength = 8192
 
     /// Parses one encoded word starting at `start` ("=?"). Returns decoded text and the index
     /// after the closing "?=".
@@ -64,6 +68,7 @@ enum EncodedWords {
         var text = ""
         while i + 1 < s.count, !(s[i] == "?" && s[i + 1] == "=") {
             if s[i] == " " || s[i] == "\t" { return nil }  // spaces are not allowed inside a word
+            if s[i] == "?" { return nil }  // encoded-text never contains "?" (RFC 2047 §2)
             if i - start > maxWordLength { return nil }
             text.unicodeScalars.append(s[i])
             i += 1
