@@ -10,17 +10,17 @@ hard mailbox allowlist (Proton: only `Folders/MailKeeper-Test`, `Labels/MailKeep
 
 | Check | mailcow (Dovecot) | Gmail | Proton Bridge 3.27 |
 |---|---|---|---|
-| TLS | implicit 993, full verification | implicit 993 | STARTTLS on 127.0.0.1:1143, leaf pinned (TOFU) |
-| LOGIN | ok | **rejected** (see below) | ok (Bridge-generated password) |
-| Capabilities of note | UIDPLUS MOVE CONDSTORE QRESYNC SPECIAL-USE ESEARCH COMPRESS | — | UIDPLUS MOVE IDLE only (no CONDSTORE/QRESYNC) |
-| LIST special-use | Trash Archive Sent Drafts Junk | — | Drafts Trash Archive Spam(\Junk) Starred(\Flagged) Sent All Mail(\All) |
-| APPEND + APPENDUID | ok, ~70 ms | — | ok, **1.4–1.8 s per message** (encrypt + upload) |
-| Round trip byte-identical | **5/5** | — | **0/5** — Bridge rebuilds headers (X-Pm-*, Date in UTC, adds Reply-To, References with internal id), transcodes ISO-8859-1 to UTF-8; Message-ID kept |
-| INTERNALDATE from APPEND | honoured | — | **ignored** — Proton uses the `Date:` header |
-| BODY.PEEK leaves \Seen alone | yes | — | yes |
-| Re-run idempotent (search by Message-ID) | yes | — | yes |
-| Labels | n/a | — | COPY into `Labels/x` adds, \Deleted+EXPUNGE there removes the label |
-| Delete → restore → purge | MOVE to \Trash, re-APPEND, EXPUNGE from Trash: all ok | — | not run (outside allowlist) |
+| TLS | implicit 993, full verification | implicit 993, full verification | STARTTLS on 127.0.0.1:1143, leaf pinned (TOFU) |
+| LOGIN | ok | ok (app password, spaces stripped) | ok (Bridge-generated password) |
+| Capabilities of note | UIDPLUS MOVE CONDSTORE QRESYNC SPECIAL-USE ESEARCH COMPRESS | UIDPLUS MOVE CONDSTORE (no QRESYNC) SPECIAL-USE X-GM-EXT-1 ESEARCH COMPRESS UTF8=ACCEPT | UIDPLUS MOVE IDLE only (no CONDSTORE/QRESYNC) |
+| LIST special-use | Trash Archive Sent Drafts Junk | localised: `[Gmail]/Alle Nachrichten` (\All), `[Gmail]/Papierkorb` (\Trash), `[Gmail]/Entw&APw-rfe` (modified UTF-7) | Drafts Trash Archive Spam(\Junk) Starred(\Flagged) Sent All Mail(\All) |
+| APPEND + APPENDUID | ok, ~70 ms | ok, 0.6–0.9 s | ok, **1.4–1.8 s per message** (encrypt + upload) |
+| Round trip byte-identical | **5/5** | **5/5** | **0/5** — Bridge rebuilds headers (X-Pm-*, Date in UTC, adds Reply-To, References with internal id), transcodes ISO-8859-1 to UTF-8; Message-ID kept |
+| INTERNALDATE from APPEND | honoured | honoured (returned in UTC) | **ignored** — Proton uses the `Date:` header |
+| BODY.PEEK leaves \Seen alone | yes | yes | yes |
+| Re-run idempotent (search by Message-ID) | yes | yes | yes |
+| Labels | n/a | `STORE +X-GM-LABELS` ok; X-GM-LABELS omits the label of the selected mailbox | COPY into `Labels/x` adds, \Deleted+EXPUNGE there removes the label |
+| Delete → restore → purge | MOVE to \Trash, re-APPEND, EXPUNGE from Trash: all ok | MOVE ok; **re-APPEND reuses the trashed message** (same X-GM-MSGID, pulled out of Trash) | not run (outside allowlist) |
 
 Findings:
 - **Network.framework cannot do STARTTLS** (no TLS upgrade of an existing connection), and
@@ -34,10 +34,14 @@ Findings:
 - **Archive integrity must be defined per provider.** The archive stores exactly what was
   fetched (hash of that). "Restored correctly" cannot mean "same bytes" for Proton; it means
   Message-ID present in the target plus equal decoded text.
-- **Gmail login failed with `AUTHENTICATIONFAILED Invalid credentials`**, also with Python
-  `imaplib`, with and without spaces — an account/app-password issue, not the client. The
-  app password was stored as Google displays it (`abcd efgh ijkl mnop`); MailKeeper strips
-  spaces for Gmail app passwords anyway.
+- **Gmail dedupes APPEND by Message-ID across the whole account.** Restoring a message that
+  still sits in Trash brings the same message back (same X-GM-MSGID, new UID in the target
+  label) instead of creating a copy. Restore is therefore idempotent on Gmail; "restore" of a
+  trashed message equals "untrash".
+- Gmail: read labels from `\All` — X-GM-LABELS leaves out the label of the selected mailbox.
+  Folder names are localised and modified-UTF-7 encoded; always resolve via SPECIAL-USE.
+- Gmail app passwords are displayed as `abcd efgh ijkl mnop`; IMAP needs them without spaces.
+  (A first login failure was a wrong address in the test setup, not the client.)
 
 ## S2 — message list with 200 000 rows (`Spikes/S2-LargeTable`)
 
@@ -89,5 +93,5 @@ is a fast pre-sorter with a mandatory timeout, LiteLLM the quality path.
 
 ## Not done yet
 
-- S1 Gmail (needs a working app password), throughput on a large real mailbox (read-only).
+- Throughput on a large real mailbox (read-only).
 - S4 App Sandbox + Sparkle + keychain + security-scoped bookmarks.

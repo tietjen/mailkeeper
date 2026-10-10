@@ -1,12 +1,107 @@
 {
   "account" : "gmail",
+  "capabilities" : [
+    "IMAP4rev1",
+    "UNSELECT",
+    "IDLE",
+    "NAMESPACE",
+    "QUOTA",
+    "ID",
+    "XLIST",
+    "CHILDREN",
+    "X-GM-EXT-1",
+    "UIDPLUS",
+    "COMPRESS=DEFLATE",
+    "ENABLE",
+    "MOVE",
+    "CONDSTORE",
+    "ESEARCH",
+    "UTF8=ACCEPT",
+    "LIST-EXTENDED",
+    "LIST-STATUS",
+    "LITERAL-",
+    "SPECIAL-USE",
+    "APPENDLIMIT=35651584"
+  ],
   "host" : "imap.gmail.com",
   "kind" : "gmail",
+  "messages" : [
+    {
+      "bodyBytes" : 433,
+      "bytesIdentical" : true,
+      "fixtureBytes" : 433,
+      "flags" : "",
+      "gmLabels" : "",
+      "gmMsgID" : "1627970863650190566",
+      "gmThrID" : "1627970863650190566",
+      "internalDate" : "2019-03-14 09:00:00 +0000",
+      "messageID" : "<mk-s1-001@mailkeeper.test>",
+      "modseq" : "1847",
+      "size" : 433,
+      "uid" : 1
+    },
+    {
+      "bodyBytes" : 676,
+      "bytesIdentical" : true,
+      "fixtureBytes" : 676,
+      "flags" : "\\Flagged",
+      "gmLabels" : "GmailLabel(buffer: [5c53746172726564](8 bytes))",
+      "gmMsgID" : "1628061460612888854",
+      "gmThrID" : "1628061460612888854",
+      "internalDate" : "2019-03-15 09:00:00 +0000",
+      "messageID" : "<mk-s1-002@mailkeeper.test>",
+      "modseq" : "1875",
+      "size" : 676,
+      "uid" : 2
+    },
+    {
+      "bodyBytes" : 577,
+      "bytesIdentical" : true,
+      "fixtureBytes" : 577,
+      "flags" : "",
+      "gmLabels" : "",
+      "gmMsgID" : "1628152057034236723",
+      "gmThrID" : "1628152057034236723",
+      "internalDate" : "2019-03-16 09:00:00 +0000",
+      "messageID" : "<mk-s1-003@mailkeeper.test>",
+      "modseq" : "1907",
+      "size" : 577,
+      "uid" : 3
+    },
+    {
+      "bodyBytes" : 676,
+      "bytesIdentical" : true,
+      "fixtureBytes" : 676,
+      "flags" : "",
+      "gmLabels" : "",
+      "gmMsgID" : "1628242654219422205",
+      "gmThrID" : "1628242654219422205",
+      "internalDate" : "2019-03-17 09:00:00 +0000",
+      "messageID" : "<mk-s1-004@mailkeeper.test>",
+      "modseq" : "1933",
+      "size" : 676,
+      "uid" : 4
+    },
+    {
+      "bodyBytes" : 358,
+      "bytesIdentical" : true,
+      "fixtureBytes" : 358,
+      "flags" : "",
+      "gmLabels" : "",
+      "gmMsgID" : "1628333251070363758",
+      "gmThrID" : "1628333251070363758",
+      "internalDate" : "2019-03-18 09:00:00 +0000",
+      "messageID" : "<mk-s1-005@mailkeeper.test>",
+      "modseq" : "1959",
+      "size" : 358,
+      "uid" : 5
+    }
+  ],
   "steps" : [
     {
-      "greeting" : "* OK Gimap ready for requests from <ip> cdcc0902adbc2-43a773cc198mb133764438d76\r\n",
+      "greeting" : "* OK Gimap ready for requests from <ip> cdcc0902adbc2-43a7725502amb120433805d76\r\n",
       "ok" : true,
-      "seconds" : 0.081000000000000003,
+      "seconds" : 0.090999999999999998,
       "step" : "connect",
       "tls" : "tls"
     },
@@ -14,14 +109,130 @@
       "auth" : "AUTH=XOAUTH2,AUTH=PLAIN,AUTH=PLAIN-CLIENTTOKEN,AUTH=OAUTHBEARER",
       "count" : 15,
       "ok" : true,
-      "seconds" : 0.025999999999999999,
+      "seconds" : 0.017999999999999999,
       "step" : "capability (pre-login)"
     },
     {
-      "error" : "LOGIN failed: Invalid credentials (Failure)",
-      "ok" : false,
-      "seconds" : 0.025999999999999999,
+      "ok" : true,
+      "seconds" : 0.34499999999999997,
       "step" : "login"
+    },
+    {
+      "count" : 21,
+      "has" : "UIDPLUS,MOVE,CONDSTORE,SPECIAL-USE,X-GM-EXT-1,LITERAL-,IDLE,ESEARCH,COMPRESS=DEFLATE,APPENDLIMIT,ID,ENABLE,UTF8=ACCEPT",
+      "ok" : true,
+      "seconds" : 0.14499999999999999,
+      "step" : "capability"
+    },
+    {
+      "count" : 9,
+      "names" : "INBOX | [Gmail] | [Gmail]\/Alle Nachrichten | [Gmail]\/Entw&APw-rfe | [Gmail]\/Gesendet | [Gmail]\/Markiert | [Gmail]\/Papierkorb | [Gmail]\/Spam | [Gmail]\/Wichtig",
+      "ok" : true,
+      "seconds" : 0.14999999999999999,
+      "specialUse" : "\\All=[Gmail]\/Alle Nachrichten \\Drafts=[Gmail]\/Entw&APw-rfe \\Sent=[Gmail]\/Gesendet \\Flagged=[Gmail]\/Markiert \\Trash=[Gmail]\/Papierkorb \\Junk=[Gmail]\/Spam \\Important=[Gmail]\/Wichtig",
+      "step" : "list"
+    },
+    {
+      "ok" : true,
+      "seconds" : 0.21199999999999999,
+      "step" : "create MailKeeper-Test"
+    },
+    {
+      "ok" : true,
+      "seconds" : 0.27100000000000002,
+      "step" : "create MailKeeper-Label"
+    },
+    {
+      "exists" : 0,
+      "highestModSeq" : "1832",
+      "ok" : true,
+      "readWrite" : true,
+      "seconds" : 0.161,
+      "step" : "select MailKeeper-Test",
+      "uidNext" : 1,
+      "uidValidity" : "UIDValidity(rawValue: 13)"
+    },
+    {
+      "appendUID" : [
+        1
+      ],
+      "bytes" : 433,
+      "ok" : true,
+      "seconds" : 0.76000000000000001,
+      "step" : "append <mk-s1-001@mai"
+    },
+    {
+      "appendUID" : [
+        2
+      ],
+      "bytes" : 676,
+      "ok" : true,
+      "seconds" : 0.83199999999999996,
+      "step" : "append <mk-s1-002@mai"
+    },
+    {
+      "appendUID" : [
+        3
+      ],
+      "bytes" : 577,
+      "ok" : true,
+      "seconds" : 0.81599999999999995,
+      "step" : "append <mk-s1-003@mai"
+    },
+    {
+      "appendUID" : [
+        4
+      ],
+      "bytes" : 676,
+      "ok" : true,
+      "seconds" : 0.92600000000000005,
+      "step" : "append <mk-s1-004@mai"
+    },
+    {
+      "appendUID" : [
+        5
+      ],
+      "bytes" : 358,
+      "ok" : true,
+      "seconds" : 0.623,
+      "step" : "append <mk-s1-005@mai"
+    },
+    {
+      "bytesIdentical" : 5,
+      "messages" : 5,
+      "ok" : true,
+      "seconds" : 0.34100000000000003,
+      "seenAfterPeek" : 0,
+      "step" : "fetch BODY.PEEK[]"
+    },
+    {
+      "labels" : "GmailLabel(buffer: [4d61696c4b65657065722d4c6162656c](16 bytes))",
+      "ok" : true,
+      "seconds" : 0.36799999999999999,
+      "step" : "gmail +X-GM-LABELS"
+    },
+    {
+      "ok" : true,
+      "remainingInTest" : 0,
+      "seconds" : 0.375,
+      "step" : "move → [Gmail]\/Papierkorb"
+    },
+    {
+      "appendUID" : [
+        6
+      ],
+      "bytesIdentical" : true,
+      "internalDate" : "2019-03-18 09:00:00 +0000",
+      "ok" : true,
+      "seconds" : 0.75700000000000001,
+      "step" : "restore (APPEND)"
+    },
+    {
+      "inTrashAfter" : 0,
+      "inTrashBefore" : 0,
+      "ok" : true,
+      "seconds" : 0.45400000000000001,
+      "step" : "purge from [Gmail]\/Papierkorb"
     }
   ]
 }
