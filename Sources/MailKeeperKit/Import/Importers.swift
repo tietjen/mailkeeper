@@ -155,8 +155,10 @@ public struct MaildirImporter: Sendable {
                 let files = ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? []).filter { !$0.hasPrefix(".") }.sorted()
                 for file in files {
                     let path = dir.appending(path: file)
-                    guard let data = try? Data(contentsOf: path, options: .mappedIfSafe) else {
+                    let data: Data
+                    do { data = try readFile(path.path) } catch {
                         feeder.state.failed += 1
+                        feeder.state.lastError = "\(error)"
                         continue
                     }
                     // "<time>.<unique>.<host>[,U=<uid>]:2,<flags>" (some systems use "!" for ":")
@@ -167,7 +169,7 @@ public struct MaildirImporter: Sendable {
                         ?? (try? path.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
                     let loc = LocationInfo(account: account, mailbox: name, providerID: base,
                                            internalDate: delivered, flags: Self.flags(fromInfo: info))
-                    try await feeder.add(Data(data), loc)
+                    try await feeder.add(data, loc)
                 }
             }
         }
@@ -204,7 +206,12 @@ public struct EMLImporter: Sendable {
         try await writer.register(AccountInfo(id: account, kind: "eml", name: account))
         var feeder = BatchFeeder(writer: writer, progress: progress)
         for url in emlFiles(excluding: writer.layout.root) {
-            guard let data = try? Data(contentsOf: url) else { feeder.state.failed += 1; continue }
+            let data: Data
+            do { data = try readFile(url.path) } catch {
+                feeder.state.failed += 1
+                feeder.state.lastError = "\(error)"
+                continue
+            }
             let relative = relativePath(of: url, to: root)
             let folder = (relative as NSString).deletingLastPathComponent
             let loc = LocationInfo(account: account, mailbox: folder.isEmpty ? "Import" : folder, providerID: relative,

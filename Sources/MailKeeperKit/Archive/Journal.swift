@@ -121,7 +121,7 @@ public final class Journal {
             let dir = root.appending(path: account)
             let files = ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? []).filter { $0.hasSuffix(".jsonl") }.sorted()
             for file in files {
-                let data = try Data(contentsOf: dir.appending(path: file))
+                let data = try readFile(dir.appending(path: file).path)
                 for line in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
                     // A torn last line after a crash is skipped, not fatal.
                     guard let event = try? decoder.decode(JournalEvent.self, from: Data(line)) else { continue }

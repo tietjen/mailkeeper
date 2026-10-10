@@ -23,6 +23,57 @@ public func sha256Hex(_ data: Data) -> String {
     SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 }
 
+/// Largest file the archive reads into memory (IMAP caps literals the same way).
+let maxFileBytes = 1 << 30
+
+/// A whole regular file via read(2) into Swift-owned memory. Foundation's
+/// `Data(contentsOf:)` can hand back autoreleased storage that threads of the concurrency
+/// pool do not drain: importing large mails grew to 4–5× their size.
+func readFile(_ path: String, limit: Int = maxFileBytes) throws -> Data {
+    let fd = open(path, O_RDONLY | O_CLOEXEC)
+    guard fd >= 0 else { throw ArchiveError.io("open: \(String(cString: strerror(errno)))", path: path) }
+    defer { close(fd) }
+    var st = stat()
+    guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else { throw ArchiveError.io("not a regular file", path: path) }
+    let size = Int(st.st_size)
+    guard size <= limit else { throw ArchiveError.io("file too large (\(size) bytes)", path: path) }
+    var data = Data(count: size)
+    let got = try data.withUnsafeMutableBytes { buf -> Int in
+        var offset = 0
+        while offset < size {
+            let n = read(fd, buf.baseAddress! + offset, size - offset)
+            if n < 0 {
+                if errno == EINTR { continue }
+                throw ArchiveError.io("read: \(String(cString: strerror(errno)))", path: path)
+            }
+            if n == 0 { break }  // the file shrank meanwhile
+            offset += n
+        }
+        return offset
+    }
+    if got < size { data.removeSubrange(got...) }
+    return data
+}
+
+/// SHA-256 of a file, streamed through one 1 MiB buffer.
+func sha256OfFile(_ path: String) throws -> String {
+    let fd = open(path, O_RDONLY | O_CLOEXEC)
+    guard fd >= 0 else { throw ArchiveError.io("open: \(String(cString: strerror(errno)))", path: path) }
+    defer { close(fd) }
+    var hasher = SHA256()
+    var buffer = [UInt8](repeating: 0, count: 1 << 20)
+    while true {
+        let n = buffer.withUnsafeMutableBytes { read(fd, $0.baseAddress!, $0.count) }
+        if n < 0 {
+            if errno == EINTR { continue }
+            throw ArchiveError.io("read: \(String(cString: strerror(errno)))", path: path)
+        }
+        if n == 0 { break }
+        buffer.withUnsafeBytes { hasher.update(bufferPointer: UnsafeRawBufferPointer(rebasing: $0[0..<n])) }
+    }
+    return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+}
+
 /// Content-addressed store of raw messages: `<root>/<aa>/<bb>/<sha256>.eml`, written once,
 /// never modified (ADR-0001). Files and directories are private to the user (0600/0700).
 public struct BlobStore: Sendable {
@@ -60,10 +111,10 @@ public struct BlobStore: Sendable {
         try makePrivateDirectory(dest.deletingLastPathComponent())
         let tmpFile = tmp.appending(path: "\(sha).\(UUID().uuidString).part")
         try writeDurably(data, to: tmpFile)
-        let reread = try Data(contentsOf: tmpFile)
-        guard sha256Hex(reread) == sha else {
+        let onDisk = try sha256OfFile(tmpFile.path)  // what actually landed, streamed
+        guard onDisk == sha else {
             try? FileManager.default.removeItem(at: tmpFile)
-            throw ArchiveError.integrity(sha256: sha, actual: sha256Hex(reread))
+            throw ArchiveError.integrity(sha256: sha, actual: onDisk)
         }
         if rename(tmpFile.path, dest.path) != 0 {
             let err = errno
@@ -78,14 +129,15 @@ public struct BlobStore: Sendable {
 
     public func read(_ sha: String) throws -> Data {
         guard Self.isValidSHA(sha) else { throw ArchiveError.io("invalid blob id", path: sha) }
-        do { return try Data(contentsOf: url(for: sha)) } catch {
+        do { return try readFile(url(for: sha).path) } catch {
             throw ArchiveError.io("read", path: url(for: sha).path)
         }
     }
 
-    /// Re-hashes a stored blob.
+    /// Re-hashes a stored blob (streamed: verifying a 7 GB archive stays small).
     public func verify(_ sha: String) throws -> Bool {
-        sha256Hex(try read(sha)) == sha
+        guard Self.isValidSHA(sha) else { throw ArchiveError.io("invalid blob id", path: sha) }
+        return try sha256OfFile(url(for: sha).path) == sha
     }
 }
 

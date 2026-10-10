@@ -79,7 +79,8 @@ public enum MIMEParser {
     public static func parse(_ data: Data) -> ParsedMessage {
         var budget = maxParts
         var truncated = false
-        let root = parsePart(Data(data), depth: 0, budget: &budget, truncated: &truncated, defaultType: "text/plain")
+        let root = parsePart(data, range: data.startIndex..<data.endIndex, depth: 0, budget: &budget,
+                             truncated: &truncated, defaultType: "text/plain")
         var collector = BodyCollector()
         collector.collect(root)
         // Embedded = an image the HTML actually shows via cid:. Everything else is an attachment,
@@ -144,10 +145,15 @@ public enum MIMEParser {
 
     private static let cidTerminators: Set<UInt8> = Set("\"' <>()\t\r\n".utf8)
 
-    static func parsePart(_ data: Data, depth: Int, budget: inout Int, truncated: inout Bool, defaultType: String) -> MIMEPart {
+    /// Parses the part at `range` of the raw message. Containers work on ranges of the original
+    /// bytes; only leaves copy their own body, so a parsed message costs about its size once
+    /// (copies per nesting level made a 40 MB mail peak at ~5×).
+    static func parsePart(_ data: Data, range: Range<Int>, depth: Int, budget: inout Int, truncated: inout Bool,
+                          defaultType: String) -> MIMEPart {
         budget -= 1
-        let (headers, bodyOffset) = HeaderParser.parse(data)
-        let body = bodyOffset < data.count ? data.subdata(in: bodyOffset..<data.count) : Data()
+        let (headers, bodyOffset) = HeaderParser.parse(data[range])
+        let bodyRange = min(range.lowerBound + bodyOffset, range.upperBound)..<range.upperBound
+        let leafBody = { bodyRange.isEmpty ? Data() : data.subdata(in: bodyRange) }
         let ct = headers["Content-Type"].map(ParameterizedValue.init)
         var contentType = ct?.value ?? defaultType
         if !contentType.contains("/") { contentType = defaultType }  // garbage type → default
@@ -160,17 +166,23 @@ public enum MIMEParser {
             dispositionParams: disposition?.params ?? [:],
             transferEncoding: headers["Content-Transfer-Encoding"],
             contentID: MessageIDs.first(headers["Content-ID"]),
-            body: body,
+            body: Data(),
             children: []
         )
-        guard contentType.hasPrefix("multipart/") else { return part }
-        guard depth < maxDepth, budget > 0 else { truncated = true; return part }
-        guard let boundary = part.params["boundary"], !boundary.isEmpty else { return part }
-        let childDefault = contentType == "multipart/digest" ? "message/rfc822" : "text/plain"
-        for chunk in splitMultipart(body, boundary: boundary, limit: budget + 1) {
-            guard budget > 0 else { truncated = true; break }
-            part.children.append(parsePart(chunk, depth: depth + 1, budget: &budget, truncated: &truncated, defaultType: childDefault))
+        guard contentType.hasPrefix("multipart/"), depth < maxDepth, budget > 0,
+              let boundary = part.params["boundary"], !boundary.isEmpty else {
+            if contentType.hasPrefix("multipart/"), depth >= maxDepth || budget <= 0 { truncated = true }
+            part.body = leafBody()
+            return part
         }
+        let childDefault = contentType == "multipart/digest" ? "message/rfc822" : "text/plain"
+        for child in multipartRanges(data[bodyRange], boundary: boundary, limit: budget + 1) {
+            guard budget > 0 else { truncated = true; break }
+            part.children.append(parsePart(data, range: child, depth: depth + 1, budget: &budget,
+                                           truncated: &truncated, defaultType: childDefault))
+        }
+        // A container's raw body is never read once it has children; without any it is a leaf.
+        if part.children.isEmpty { part.body = leafBody() }
         return part
     }
 
@@ -178,6 +190,11 @@ public enum MIMEParser {
     /// The line break before a delimiter belongs to the delimiter. A missing closing
     /// delimiter ends the last part at the end of the data.
     static func splitMultipart(_ body: Data, boundary: String, limit: Int = .max) -> [Data] {
+        multipartRanges(body, boundary: boundary, limit: limit).map { $0.isEmpty ? Data() : body.subdata(in: $0) }
+    }
+
+    /// Byte ranges of the parts, in the indices of `body` (a slice of the message works).
+    static func multipartRanges(_ body: Data, boundary: String, limit: Int = .max) -> [Range<Int>] {
         let delim = Data("--\(boundary)".utf8)
         var starts: [(lineStart: Int, contentStart: Int, isClose: Bool)] = []
         var from = body.startIndex
@@ -195,14 +212,14 @@ public enum MIMEParser {
             from = contentStart
             if isClose || starts.count > limit { break }  // the part budget caps the scan, too
         }
-        var parts: [Data] = []
+        var parts: [Range<Int>] = []
         for (n, s) in starts.enumerated() where !s.isClose {
             var end = n + 1 < starts.count ? starts[n + 1].lineStart : body.endIndex
             if n + 1 < starts.count {
                 if end > s.contentStart, body[end - 1] == 0x0A { end -= 1 }
                 if end > s.contentStart, body[end - 1] == 0x0D { end -= 1 }
             }
-            parts.append(end > s.contentStart ? body.subdata(in: s.contentStart..<end) : Data())
+            parts.append(end > s.contentStart ? s.contentStart..<end : s.contentStart..<s.contentStart)
         }
         return parts
     }

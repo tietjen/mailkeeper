@@ -153,6 +153,38 @@ struct MIMEParserTests {
         #expect(byName["daten.zip"] == false)       // Outlook puts CIDs on every file
     }
 
+    @Test("Containers keep no raw bytes, leaves keep their own (memory ~1× the message)")
+    func containersDropTheirBody() {
+        let p = MIMEParser.parse(eml("""
+        Content-Type: multipart/mixed; boundary=m
+
+        --m
+        Content-Type: multipart/alternative; boundary=a
+
+        --a
+        Content-Type: text/plain
+
+        eins
+        --a--
+        --m
+        Content-Type: application/octet-stream
+        Content-Transfer-Encoding: base64
+
+        AAEC
+        --m
+        Content-Type: multipart/related
+
+        no boundary: stays a leaf
+        --m--
+        """))
+        #expect(p.root.body.isEmpty && p.root.children.count == 3)
+        #expect(p.root.children[0].body.isEmpty && p.root.children[0].children[0].body == Data("eins".utf8))
+        #expect(p.root.children[1].body == Data("AAEC".utf8))
+        #expect(p.root.children[2].children.isEmpty && p.root.children[2].body == Data("no boundary: stays a leaf".utf8))
+        #expect(p.text == "eins")
+        #expect(p.data(of: p.attachments[0]) == Data([0, 1, 2]))
+    }
+
     @Test func latin1BodyAndBEncodedSubject() {
         var d = eml("""
         Subject: =?ISO-8859-1?B?R3L832UgYXVzIGRlbSBBcmNoaXY=?=
