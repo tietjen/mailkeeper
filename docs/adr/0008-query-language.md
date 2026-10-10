@@ -1,6 +1,6 @@
 # ADR-0008: One query language for the search field, saved searches and the AI
 
-- Status: proposed (2026-10-10)
+- Status: accepted (TJ, 2026-10-10)
 - Deciders: TJ
 
 ## Context
