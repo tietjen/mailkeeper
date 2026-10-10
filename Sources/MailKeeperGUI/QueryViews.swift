@@ -1,0 +1,177 @@
+import MailKeeperKit
+import SwiftUI
+
+/// Above the list: the parsed search terms as chips (× removes one), hit count, "save".
+struct QueryBar: View {
+    let model: AppModel
+    @State private var saving: SavedSearch?
+
+    var body: some View {
+        if let chips = model.query?.chips, !chips.isEmpty {
+            HStack(spacing: 8) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
+                            HStack(spacing: 4) {
+                                Text(DisplayText.safe(chip.label)).lineLimit(1)
+                                Button { model.removeChip(chip) } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.secondary)
+                                .help("Begriff entfernen")
+                            }
+                            .font(.callout)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Capsule().fill(.quaternary))
+                        }
+                    }
+                }
+                Text("\(model.messageIDs.count.formatted()) Treffer")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                Button("Sichern …") { saving = SavedSearch(name: "", query: model.queryForSaving()) }
+                    .controlSize(.small)
+                    .help("Diese Suche als Ansicht in der Seitenleiste ablegen")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.bar)
+            .sheet(item: $saving) { SavedSearchSheet(model: model, search: $0) }
+        }
+    }
+}
+
+/// Toolbar menu: insert common filters, open the syntax help.
+struct FilterMenu: View {
+    let model: AppModel
+    @State private var help = false
+
+    private let filters: [(String, String)] = [
+        ("Mit Anhang", "has:attachment"), ("Mit PDF", "has:pdf"), ("Ungelesen", "is:unread"),
+        ("Markiert", "is:flagged"), ("Newsletter und Listen", "is:list"), ("Größer als 5 MB", "larger:5M"),
+        ("Letzte 30 Tage", "after:30d"), ("Älter als ein Jahr", "before:1y"), ("Nur noch im Archiv", "only:archive"),
+    ]
+
+    var body: some View {
+        Menu {
+            Section("Zur Suche hinzufügen") {
+                ForEach(filters, id: \.1) { title, term in
+                    Button(title) { model.appendFilter(term) }
+                }
+            }
+            Divider()
+            Button("Suchsprache …") { help = true }
+        } label: {
+            Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
+        }
+        .help("Filter zur Suche hinzufügen")
+        .sheet(isPresented: $help) { QueryHelp() }
+    }
+}
+
+struct QueryHelp: View {
+    @Environment(\.dismiss) private var dismiss
+
+    private let rows: [(String, String)] = [
+        ("rechnung \"jahres abrechnung\"", "alle Wörter und Phrasen; das letzte Wort auch als Anfang"),
+        ("from:amazon  to:  subject:  body:", "Wörter in einem Feld (Absender: Name oder Adresse)"),
+        ("sender:billing@amazon.de", "exakte Absenderadresse"),
+        ("has:attachment  has:pdf  has:image  has:calendar", "Anhänge"),
+        ("filename:vertrag", "Name eines Anhangs"),
+        ("larger:5M  smaller:100K", "Größe"),
+        ("after:2024-03  before:2025  until:2024-12-31", "ab (einschließlich), vor, bis einschließlich"),
+        ("date:2024-05  after:30d  before:1y", "Zeitraum; relativ: d, w, m, y"),
+        ("account:gmail  folder:INBOX  folder:Archiv/*", "Konto, Ordner (mit Unterordnern)"),
+        ("label:Steuer  list:newsletter.example", "Label, Mailingliste"),
+        ("is:unread  is:flagged  is:answered  is:list", "Status"),
+        ("on:server  only:archive", "noch auf dem Server / nur noch im Archiv"),
+        ("-wort  -from:x", "ausschließen"),
+        ("a OR b  ( … )", "oder, Klammern"),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Suchsprache").font(.headline)
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+                ForEach(rows, id: \.0) { example, meaning in
+                    GridRow {
+                        Text(example).font(.callout.monospaced()).textSelection(.enabled)
+                        Text(meaning).font(.callout).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Text("Deutsch geht auch: von: an: betreff: hat: ist: ab: vor: bis: datum: konto: ordner: größer: kleiner:")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Fertig") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 640)
+    }
+}
+
+/// Create or edit a saved search; the query is checked live.
+struct SavedSearchSheet: View {
+    let model: AppModel
+    @State private var search: SavedSearch
+    @State private var error: String?
+    @Environment(\.dismiss) private var dismiss
+
+    init(model: AppModel, search: SavedSearch) {
+        self.model = model
+        _search = State(initialValue: search)
+    }
+
+    private var isNew: Bool { !model.savedSearches.contains { $0.id == search.id } }
+
+    private var parseError: String? {
+        do throws(QueryError) {
+            return try QueryParser.parse(search.query).root == nil ? String(localized: "Die Suche ist leer.") : nil
+        } catch {
+            return error.message
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(isNew ? "Suche sichern" : "Ansicht bearbeiten").font(.headline)
+            Form {
+                TextField("Name", text: $search.name, prompt: Text("z. B. Rechnungen 2024"))
+                TextField("Suche", text: $search.query, axis: .vertical)
+                    .font(.body.monospaced())
+                    .lineLimit(2...5)
+            }
+            if let message = parseError ?? error {
+                Text(message).font(.caption).foregroundStyle(.red)
+            } else if let n = model.count(query: search.query) {
+                Text("\(n.formatted()) Nachrichten").font(.caption).foregroundStyle(.secondary)
+            }
+            HStack {
+                Spacer()
+                Button("Abbrechen") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Sichern") { save() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(search.name.trimmingCharacters(in: .whitespaces).isEmpty || parseError != nil)
+            }
+        }
+        .padding(20)
+        .frame(width: 480)
+    }
+
+    private func save() {
+        let new = isNew
+        do {
+            try model.putSavedSearch(search)
+            if new { model.showSaved(search.id) }
+            dismiss()
+        } catch {
+            self.error = "\(error)"
+        }
+    }
+}

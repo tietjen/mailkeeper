@@ -63,13 +63,16 @@ public struct MessageFilter: Sendable, Equatable {
     public var mailbox: String?
     /// Query text (ADR-0008), e.g. `from:amazon has:pdf after:2024`.
     public var text: String?
+    /// A saved search's query; combined with `text` by AND, each parsed on its own.
+    public var base: String?
     /// Reference time for relative dates ("30d").
     public var now: Date
 
-    public init(account: String? = nil, mailbox: String? = nil, text: String? = nil, now: Date = Date()) {
+    public init(account: String? = nil, mailbox: String? = nil, text: String? = nil, base: String? = nil, now: Date = Date()) {
         self.account = account
         self.mailbox = mailbox
         self.text = text
+        self.base = base
         self.now = now
     }
 }
@@ -125,7 +128,34 @@ public final class ArchiveReader {
 
     /// Ordered message ids for a filter (8 bytes per row; the list view pages rows by id).
     public func messageIDs(_ filter: MessageFilter, sort: MessageSort = .date, ascending: Bool = false) throws -> [Int64] {
-        var sql = "SELECT m.id FROM messages m"
+        let (whereClause, params) = try Self.whereClause(filter)
+        var sql = "SELECT m.id FROM messages m" + whereClause
+        let dir = ascending ? "ASC" : "DESC"
+        switch sort {
+        case .date: sql += " ORDER BY m.date \(dir) NULLS LAST, m.id \(dir)"
+        case .from: sql += " ORDER BY coalesce(m.from_name, m.from_addr) COLLATE NOCASE \(dir), m.date DESC"
+        case .subject: sql += " ORDER BY m.subject COLLATE NOCASE \(dir), m.date DESC"
+        case .size: sql += " ORDER BY m.size \(dir), m.id"
+        }
+        return try self.db.query(sql, params) { $0.int(0) }
+    }
+
+    /// Number of messages matching a filter (sidebar badges of saved searches).
+    public func count(_ filter: MessageFilter) throws -> Int {
+        let (whereClause, params) = try Self.whereClause(filter)
+        return Int(try self.db.queryOne("SELECT count(*) FROM messages m" + whereClause, params) { $0.int(0) } ?? 0)
+    }
+
+    /// Distinct labels across all locations (Gmail labels, Takeout), for completion.
+    public func labels() throws -> [String] {
+        var out: Set<String> = []
+        try self.db.forEach("SELECT DISTINCT labels FROM locations WHERE labels != ''") { row in
+            for l in (row.text(0) ?? "").split(separator: "\u{1F}") { out.insert(String(l)) }
+        }
+        return out.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    private static func whereClause(_ filter: MessageFilter) throws -> (String, [SQLValue]) {
         var conditions: [String] = []
         var params: [SQLValue] = []
         if let account = filter.account {
@@ -138,20 +168,13 @@ public final class ArchiveReader {
             conditions.append(c + ")")
         }
         // ADR-0008 query language; an invalid query throws QueryError instead of widening.
-        if let text = filter.text, let root = try QueryParser.parse(text, now: filter.now).root {
+        for text in [filter.base, filter.text].compactMap({ $0 }) {
+            guard let root = try QueryParser.parse(text, now: filter.now).root else { continue }
             var compiled = QuerySQL()
             conditions.append(compiled.condition(root))
             params += compiled.params
         }
-        if !conditions.isEmpty { sql += " WHERE " + conditions.joined(separator: " AND ") }
-        let dir = ascending ? "ASC" : "DESC"
-        switch sort {
-        case .date: sql += " ORDER BY m.date \(dir) NULLS LAST, m.id \(dir)"
-        case .from: sql += " ORDER BY coalesce(m.from_name, m.from_addr) COLLATE NOCASE \(dir), m.date DESC"
-        case .subject: sql += " ORDER BY m.subject COLLATE NOCASE \(dir), m.date DESC"
-        case .size: sql += " ORDER BY m.size \(dir), m.id"
-        }
-        return try self.db.query(sql, params) { $0.int(0) }
+        return (conditions.isEmpty ? "" : " WHERE " + conditions.joined(separator: " AND "), params)
     }
 
     /// Rows for a page of ids, returned in the order of `ids`.

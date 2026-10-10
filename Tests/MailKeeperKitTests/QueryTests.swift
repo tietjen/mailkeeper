@@ -229,3 +229,48 @@ struct QueryArchiveTests {
         #expect(throws: QueryError.self) { _ = try r.messageIDs(MessageFilter(text: "larger:abc")) }
     }
 }
+
+@Suite("Saved searches and completion")
+struct SavedSearchTests {
+    @Test func storeValidatesAndIsPrivate() throws {
+        let layout = try ArchiveLayout.open(at: tempDir().appending(path: "ss"), create: true)
+        let store = SavedSearchStore(layout: layout)
+        #expect(try store.load().isEmpty)
+        var s = SavedSearch(name: "  Rechnungen  2024 ", query: " has:pdf after:2024 ")
+        try store.put(s)
+        #expect(try store.load().map(\.name) == ["Rechnungen 2024"])
+        #expect(try store.load().first?.query == "has:pdf after:2024")
+        #expect(posixMode(store.url) == 0o600)
+        s.name = "PDFs"
+        try store.put(s)  // same id: replaced
+        #expect(try store.load().map(\.name) == ["PDFs"])
+        #expect(throws: SavedSearchError.invalidQuery("„larger:“ erwartet eine Größe wie 500K, 5M oder 1G.")) {
+            try store.put(SavedSearch(name: "x", query: "larger:abc"))
+        }
+        #expect(throws: SavedSearchError.emptyName) { try store.put(SavedSearch(name: " ", query: "a")) }
+        #expect(throws: SavedSearchError.emptyQuery) { try store.put(SavedSearch(name: "x", query: "& ;")) }
+        try store.remove(s.id)
+        #expect(try store.load().isEmpty)
+    }
+
+    @Test func savedQueryAndSearchTextCombineByAnd() async throws {
+        let r = try await QueryArchiveTests.archive()
+        let ids = try r.messageIDs(MessageFilter(text: "rechnung OR Silvester", base: "has:attachment OR is:list"))
+        #expect(Set(try r.summaries(ids).compactMap(\.subject)) == ["Ihre Rechnung", "Einladung Silvester"])
+        #expect(try r.count(MessageFilter(base: "is:unread")) == 3)
+        #expect(try r.labels() == ["Steuer"])
+    }
+
+    @Test func suggestsFieldsThenValues() {
+        let s = { (t: String) in QueryCompletion.suggestions(for: t, folders: ["INBOX", "Archiv/2019", "Mein Ordner"],
+                                                             accounts: ["gmail"], labels: ["Steuer"]) }
+        #expect(s("rechnung fr").map(\.completion) == ["rechnung from:"])
+        #expect(s("ha").map(\.title) == ["has:"])
+        #expect(s("has:p").map(\.completion) == ["has:pdf "])
+        #expect(s("-is:un").map(\.completion) == ["-is:unread "])
+        #expect(s("ordner:ar").map(\.completion) == ["ordner:Archiv/2019 "])
+        #expect(s("folder:mein").map(\.completion) == ["folder:\"Mein Ordner\" "])
+        #expect(s("(a OR label:st").map(\.completion) == ["(a OR label:Steuer "])
+        #expect(s("rechnung ").isEmpty && s("").isEmpty && s("xyz:").isEmpty)
+    }
+}

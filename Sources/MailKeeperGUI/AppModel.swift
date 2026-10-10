@@ -8,14 +8,7 @@ enum SidebarItem: Hashable {
     case all
     case account(String)
     case mailbox(account: String, name: String)
-
-    var filter: MessageFilter {
-        switch self {
-        case .all: MessageFilter()
-        case .account(let a): MessageFilter(account: a)
-        case .mailbox(let a, let m): MessageFilter(account: a, mailbox: m)
-        }
-    }
+    case saved(UUID)
 }
 
 enum ImportKind: String, CaseIterable, Identifiable {
@@ -51,6 +44,12 @@ final class AppModel {
 
     var sidebarSelection: SidebarItem? = .all { didSet { reloadList() } }
     var searchText = "" { didSet { scheduleSearch() } }
+    /// The parsed search text (chips), and why it does not parse.
+    private(set) var query: Query?
+    private(set) var queryError: String?
+    private(set) var savedSearches: [SavedSearch] = []
+    private(set) var savedCounts: [UUID: Int] = [:]
+    private(set) var labels: [String] = []
     var sort: MessageSort = .date
     var ascending = false
     private(set) var messageIDs: [Int64] = []
@@ -156,23 +155,123 @@ final class AppModel {
         reloadAccounts(reader.layout)
         accounts = (try? reader.accounts()) ?? []
         stats = try? reader.stats()
+        labels = (try? reader.labels()) ?? []
+        reloadSavedSearches()
         reloadList()
+    }
+
+    /// The sidebar's part of the filter: account, mailbox or a saved search's query.
+    private var scopeFilter: MessageFilter {
+        switch sidebarSelection {
+        case .account(let a): MessageFilter(account: a)
+        case .mailbox(let a, let m): MessageFilter(account: a, mailbox: m)
+        case .saved(let id): MessageFilter(base: savedSearches.first { $0.id == id }?.query)
+        case .all, nil: MessageFilter()
+        }
     }
 
     func reloadList() {
         guard let reader else { return }
-        var filter = sidebarSelection?.filter ?? MessageFilter()
-        let text = searchText.trimmingCharacters(in: .whitespaces)
-        filter.text = text.isEmpty ? nil : text
+        var filter = scopeFilter
+        // Untrimmed: a trailing space ends the live prefix of the last word (ADR-0008).
+        let text = searchText.allSatisfy(\.isWhitespace) ? nil : searchText
+        do throws(QueryError) {
+            query = if let text { try QueryParser.parse(text) } else { nil }
+            queryError = nil
+        } catch {
+            // "from:" while typing the value: keep the current list, no error yet.
+            if searchText.hasSuffix(":") { return }
+            // Otherwise fail closed: no list rather than a wider one.
+            query = nil
+            queryError = error.message
+            messageIDs = []
+            listGeneration += 1
+            selectedMessageID = nil
+            return
+        }
+        filter.text = text
         do {
             messageIDs = try reader.messageIDs(filter, sort: sort, ascending: ascending)
             listError = nil
+        } catch let error as QueryError {
+            messageIDs = []
+            queryError = String(localized: "Gespeicherte Suche: \(error.message)")
         } catch {
             messageIDs = []
             listError = "\(error)"  // an I/O error must not look like "no results"
         }
         listGeneration += 1
         if let sel = selectedMessageID, !messageIDs.contains(sel) { selectedMessageID = nil }
+    }
+
+    // MARK: Query helpers
+
+    var suggestions: [QueryCompletion.Suggestion] {
+        let folders = Set(accounts.flatMap(\.mailboxes).map(\.name)).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        return QueryCompletion.suggestions(for: searchText, folders: folders, accounts: accounts.map(\.id), labels: labels)
+    }
+
+    /// Removes one top-level term from the search text.
+    func removeChip(_ chip: QueryChip) {
+        guard chip.range.upperBound <= searchText.endIndex else { return }
+        var text = searchText
+        text.removeSubrange(chip.range)
+        let rest = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        searchText = rest.isEmpty ? "" : rest + " "  // the trailing space keeps the last word exact
+    }
+
+    /// Appends a filter term (from the Filter menu) to the search text.
+    func appendFilter(_ term: String) {
+        let base = searchText.trimmingCharacters(in: .whitespaces)
+        searchText = (base.isEmpty ? "" : base + " ") + term + " "
+    }
+
+    // MARK: Saved searches
+
+    private func reloadSavedSearches() {
+        guard let reader else { return }
+        savedSearches = (try? SavedSearchStore(layout: reader.layout).load()) ?? []
+        savedCounts = Dictionary(uniqueKeysWithValues: savedSearches.compactMap { s in
+            (try? reader.count(MessageFilter(base: s.query))).map { (s.id, $0) }
+        })
+    }
+
+    /// The current view as one self-contained query: sidebar scope plus search text.
+    func queryForSaving() -> String {
+        let text = searchText.trimmingCharacters(in: .whitespaces)
+        let quote = { (v: String) in v.contains(where: { $0.isWhitespace || "()\"".contains($0) }) ? "\"\(v.replacingOccurrences(of: "\"", with: ""))\"" : v }
+        var scope: [String] = []
+        switch sidebarSelection {
+        case .account(let a): scope = ["account:\(a)"]
+        case .mailbox(let a, let m): scope = ["account:\(a)", "folder:\(quote(m))"]
+        case .saved(let id): if let base = savedSearches.first(where: { $0.id == id })?.query { scope = ["(\(base))"] }
+        case .all, nil: break
+        }
+        return (scope + (text.isEmpty ? [] : [text.contains(" OR ") && !scope.isEmpty ? "(\(text))" : text])).joined(separator: " ")
+    }
+
+    func putSavedSearch(_ search: SavedSearch) throws {
+        guard let layout = reader?.layout else { return }
+        try SavedSearchStore(layout: layout).put(search)
+        reloadSavedSearches()
+        if case .saved(let id) = sidebarSelection, id == search.id { reloadList() }
+    }
+
+    func count(query: String) -> Int? {
+        try? reader?.count(MessageFilter(base: query))
+    }
+
+    /// After saving the current search as a view: show the view, clear the search field.
+    func showSaved(_ id: UUID) {
+        searchText = ""
+        sidebarSelection = .saved(id)
+    }
+
+    func deleteSavedSearch(_ id: UUID) {
+        guard let layout = reader?.layout else { return }
+        try? SavedSearchStore(layout: layout).remove(id)
+        if case .saved(id) = sidebarSelection { sidebarSelection = .all }
+        reloadSavedSearches()
     }
 
     func setSort(_ sort: MessageSort, ascending: Bool) {

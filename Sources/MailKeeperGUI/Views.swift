@@ -12,6 +12,7 @@ struct ContentView: View {
         } content: {
             MessageTable(model: model)
                 .navigationSplitViewColumnWidth(min: 420, ideal: 640)
+                .safeAreaInset(edge: .top, spacing: 0) { QueryBar(model: model) }
                 .overlay {
                     if let error = model.openError {
                         ContentUnavailableView {
@@ -29,6 +30,12 @@ struct ContentView: View {
                         } actions: {
                             Button("Erneut versuchen") { model.refresh() }
                         }
+                    } else if let error = model.queryError {
+                        ContentUnavailableView {
+                            Label("Suche unvollständig", systemImage: "exclamationmark.magnifyingglass")
+                        } description: {
+                            Text(error)
+                        }
                     } else if model.messageIDs.isEmpty {
                         ContentUnavailableView(model.searchText.isEmpty ? "Keine Nachrichten" : "Keine Treffer",
                                                systemImage: model.searchText.isEmpty ? "tray" : "magnifyingglass")
@@ -41,8 +48,21 @@ struct ContentView: View {
                 ContentUnavailableView("Keine Nachricht ausgewählt", systemImage: "envelope")
             }
         }
-        .searchable(text: $model.searchText, placement: .toolbar, prompt: "Archiv durchsuchen")
+        .searchable(text: $model.searchText, placement: .toolbar, prompt: "Suchen, z. B. from:amazon has:pdf")
+        .searchSuggestions {
+            ForEach(model.suggestions, id: \.completion) { s in
+                HStack {
+                    Text(s.title).font(.body.monospaced())
+                    Spacer()
+                    Text(s.detail).foregroundStyle(.secondary)
+                }
+                .searchCompletion(s.completion)
+            }
+        }
         .toolbar {
+            ToolbarItem {
+                FilterMenu(model: model)
+            }
             ToolbarItem {
                 Button { model.syncAll() } label: {
                     if model.syncRunning { ProgressView().controlSize(.small) } else { Label("Abrufen", systemImage: "arrow.down.circle") }
@@ -70,12 +90,27 @@ struct ContentView: View {
 
 struct Sidebar: View {
     @Bindable var model: AppModel
+    @State private var editing: SavedSearch?
 
     var body: some View {
         List(selection: $model.sidebarSelection) {
             Label("Alle Nachrichten", systemImage: "tray.full")
                 .badge(model.stats?.messages ?? 0)
                 .tag(SidebarItem.all)
+            if !model.savedSearches.isEmpty {
+                Section("Ansichten") {
+                    ForEach(model.savedSearches) { search in
+                        Label(search.name, systemImage: "magnifyingglass.circle")
+                            .badge(model.savedCounts[search.id] ?? 0)
+                            .help(search.query)
+                            .tag(SidebarItem.saved(search.id))
+                            .contextMenu {
+                                Button("Bearbeiten …") { editing = search }
+                                Button("Löschen", role: .destructive) { model.deleteSavedSearch(search.id) }
+                            }
+                    }
+                }
+            }
             ForEach(model.accounts, id: \.id) { account in
                 Section(account.name) {
                     ForEach(account.mailboxes, id: \.self) { box in
@@ -87,6 +122,7 @@ struct Sidebar: View {
             }
         }
         .listStyle(.sidebar)
+        .sheet(item: $editing) { SavedSearchSheet(model: model, search: $0) }
     }
 
     private func icon(for name: String) -> String {
