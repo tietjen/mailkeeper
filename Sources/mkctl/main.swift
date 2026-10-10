@@ -25,7 +25,8 @@ usage: mkctl [--archive <dir>] <command>
   account add imap <user> --id <id> --host <host> [--port 993] [--starttls]
                                               add any IMAPS account
       common: [--name <display name>] [--include A,B] [--exclude A,B] [--with-junk-trash] [--password-stdin]
-  account list | test <id> | remove <id>     manage accounts (remove keeps the archived mail)
+  account list | test <id> | remove <id> [--keep-password]
+                                              manage accounts (remove keeps the archived mail)
   sync [<id>…]                                fetch new mail from all (or the given) accounts, read-only
   verify                                      re-hash every blob
   rebuild-index                               rebuild index.sqlite from blobs + journal
@@ -252,7 +253,7 @@ func summarize(_ p: ImportProgress, start: Date) {
             print("Konto „\(id)“ angelegt. Abrufen mit: mkctl sync \(id)")
         case "list":
             for a in try store.load() {
-                let pw = (try? credentials.password(for: a)) != nil ? "Passwort ✓" : "kein Passwort"
+                let pw = credentials.exists(for: a) ? "Passwort ✓" : "kein Passwort"
                 print("\(a.id)  \(a.kind.rawValue)  \(clean(a.username)) @ \(a.host):\(a.port)  [\(a.policy.mode.rawValue)\(a.policy.include.map { " nur: " + $0.joined(separator: ", ") } ?? "")]  \(pw)")
             }
         case "test":
@@ -262,10 +263,13 @@ func summarize(_ p: ImportProgress, start: Date) {
             print("Verbindung ok · \(check.mailboxes.count) Postfächer, abgerufen werden \(check.selected.count):")
             for box in check.selected { print("    \(clean(box.name))") }
         case "remove":
-            guard let id = args.first, let a = try store.load().first(where: { $0.id == id }) else { throw CLIError(description: "account remove <id>") }
+            let keep = args.contains("--keep-password")
+            args.removeAll { $0 == "--keep-password" }
+            guard let id = args.first, let a = try store.load().first(where: { $0.id == id }) else { throw CLIError(description: "account remove <id> [--keep-password]") }
+            let shared = try store.load().contains { $0.id != id && CredentialStore.key(for: $0) == CredentialStore.key(for: a) }
             try store.remove(id)
-            try credentials.delete(for: a)
-            print("Konto „\(id)“ entfernt (archivierte Mails bleiben).")
+            if !keep && !shared { try credentials.delete(for: a) }
+            print("Konto „\(id)“ entfernt (archivierte Mails bleiben)" + (keep || shared ? ", Passwort behalten." : ", Passwort gelöscht — auch für andere Archive mit diesem Postfach."))
         default:
             throw CLIError(description: "account add|list|test|remove")
         }

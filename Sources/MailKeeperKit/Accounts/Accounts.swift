@@ -180,6 +180,16 @@ public struct CredentialStore: Sendable {
         return String(decoding: data, as: UTF8.self)
     }
 
+    /// Whether an entry exists — attributes only, so no keychain prompt even for entries
+    /// another program created (the ACL guards the secret, not the attributes).
+    public func exists(for account: AccountConfig) -> Bool {
+        var q = query(account)
+        q[kSecReturnAttributes as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        var out: CFTypeRef?
+        return SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess
+    }
+
     public func delete(for account: AccountConfig) throws {
         let status = SecItemDelete(query(account) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw AccountError.keychain(status) }

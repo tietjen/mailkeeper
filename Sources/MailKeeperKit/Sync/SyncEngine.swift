@@ -104,9 +104,22 @@ public struct SyncEngine: Sendable {
         try await writer.register(account)
         var p = SyncProgress(account: account.id)
         progress(p)
-        let plan = policy.select(try await source.mailboxes())
+        let listed = try await source.mailboxes()
+        let plan = policy.select(listed)
         let caps = await source.capabilities()
         var report = SyncReport()
+        // Mailboxes that vanished from the server (renamed or deleted folder, Gmail language
+        // switch): their locations are gone. Only when LIST looks sane.
+        if listed.contains(where: \.selectable) {
+            let names = Set(listed.map(\.name))
+            for vanished in try await writer.activeMailboxes(account: account.id) where !names.contains(vanished) {
+                for validity in try await writer.mailboxState(account: account.id, mailbox: vanished).validities {
+                    let n = try await writer.markGone(account: account.id, mailbox: vanished, uidValidity: validity, uids: nil)
+                    report.gone += n
+                    p.gone += n
+                }
+            }
+        }
         report.mailboxes = plan.count
         p.mailboxCount = plan.count
         for (i, box) in plan.enumerated() {

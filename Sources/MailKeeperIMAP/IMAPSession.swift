@@ -80,15 +80,19 @@ public actor IMAPSession: MailboxSource {
     public static func connect(_ endpoint: IMAPEndpoint, username: String, password: String,
                                readTimeout: TimeAmount = .seconds(120)) async throws -> IMAPSession {
         let session: IMAPSession
+        let clock = ContinuousClock(), start = clock.now
         do {
             session = try await open(endpoint, readTimeout: readTimeout)
+            debug("connect+TLS+greeting \(clock.now - start)")
         } catch let error as IMAPError {
             throw error
         } catch {
             throw IMAPError.connection(Self.clean("\(error)"))
         }
         do {
+            let t = clock.now
             try await session.secureAndLogin(username: username, password: password)
+            debug("starttls+login \(clock.now - t)")
         } catch {
             await session.close()
             throw error
@@ -103,6 +107,7 @@ public actor IMAPSession: MailboxSource {
         let context = try NIOSSLContext(configuration: tls)
         let (stream, continuation) = AsyncThrowingStream<Response, Error>.makeStream()
         let host = endpoint.host
+        let tcp = ContinuousClock.now
         let channel = try await ClientBootstrap(group: MultiThreadedEventLoopGroup.singleton)
             .connectTimeout(.seconds(20))
             .channelInitializer { channel in
@@ -118,8 +123,11 @@ public actor IMAPSession: MailboxSource {
                 }
             }
             .connect(host: endpoint.host, port: endpoint.port).get()
+        debug("channel connected \(ContinuousClock.now - tcp)")
         let session = IMAPSession(endpoint: endpoint, channel: channel, responses: stream)
+        let t = ContinuousClock.now
         try await session.readGreeting()
+        debug("greeting after channel up \(ContinuousClock.now - t)")
         return session
     }
 
@@ -237,13 +245,33 @@ public actor IMAPSession: MailboxSource {
         return result.fetches.compactMap { f in f.uid.map { UIDSize(uid: $0, size: f.size ?? 0) } }.sorted { $0.uid < $1.uid }
     }
 
+    /// Every UID of the examined mailbox. Never plain `UID SEARCH ALL`: servers answer it with
+    /// one line, and swift-nio-imap caps response lines at 8 KiB (~1 700 UIDs) — the
+    /// connection would die. ESEARCH returns compact ranges; otherwise one short FETCH line
+    /// per message.
     public func allUIDs() async throws -> [UInt32] {
         guard currentExists > 0 else { return [] }
-        let result = try await run(.uidSearch(key: .all))
-        return result.untagged.flatMap { payload -> [UInt32] in
-            if case .mailboxData(.search(let ids, _)) = payload { return ids.map { UInt32($0.rawValue) } }
-            return []
+        let esearch = serverCapabilities.contains("ESEARCH")
+        let result = try await run(Self.presenceCommand(esearch: esearch))
+        if esearch {
+            var uids: [UInt32] = []
+            var answered = false
+            for payload in result.untagged {
+                guard case .mailboxData(.extendedSearch(let response)) = payload else { continue }
+                answered = true
+                for data in response.returnData {
+                    if case .all(.set(let set)) = data { uids.append(contentsOf: set.set.map { UInt32($0.rawValue) }) }
+                }
+            }
+            if answered { return uids }
+            return try await run(Self.presenceCommand(esearch: false)).fetches.compactMap(\.uid)
         }
+        return result.fetches.compactMap(\.uid)
+    }
+
+    static func presenceCommand(esearch: Bool) -> Command {
+        if esearch { return .uidSearch(key: .all, charset: nil, returnOptions: [.all]) }
+        return .uidFetch(.set(MessageIdentifierSetNonEmpty(range: MessageIdentifierRange<UID>(UID(rawValue: 1)...))), [.uid], [])
     }
 
     public func flags(changedSince modseq: UInt64?) async throws -> [RemoteFlags] {
@@ -317,7 +345,7 @@ public actor IMAPSession: MailboxSource {
         do {
             try await channel.writeAndFlush(IMAPClientHandler.Message.part(.tagged(TaggedCommand(tag: t, command: command))))
         } catch {
-            throw IMAPError.closed
+            throw Self.mapped(error)
         }
         var result = Result()
         var current: Fetched?
@@ -325,7 +353,7 @@ public actor IMAPSession: MailboxSource {
         defer { responses = it }
         while true {
             let next: Response?
-            do { next = try await it.next(isolation: self) } catch { throw IMAPError.closed }
+            do { next = try await it.next(isolation: self) } catch { throw Self.mapped(error) }
             guard let response = next else { throw IMAPError.closed }
             switch response {
             case .untagged(let payload):
@@ -336,9 +364,19 @@ public actor IMAPSession: MailboxSource {
                 case .startUID(let uid): current = Fetched(uid: UInt32(uid))
                 case .simpleAttribute(let attribute): if current != nil { Self.apply(attribute, to: &current!) }
                 case .streamingBegin(_, let count):
+                    // The announced size comes from the server: never trust it for allocation.
+                    guard count <= Self.maxMessageBytes else {
+                        try? await channel.close().get()
+                        throw IMAPError.protocolError("Nachricht mit \(count) Bytes angekündigt (Grenze \(Self.maxMessageBytes))")
+                    }
                     current?.body = Data()
-                    current?.body?.reserveCapacity(count)
-                case .streamingBytes(let bytes): current?.body?.append(contentsOf: bytes.readableBytesView)
+                    current?.body?.reserveCapacity(min(count, 32 << 20))
+                case .streamingBytes(let bytes):
+                    current?.body?.append(contentsOf: bytes.readableBytesView)
+                    if (current?.body?.count ?? 0) > Self.maxMessageBytes {
+                        try? await channel.close().get()
+                        throw IMAPError.protocolError("Nachricht überschreitet \(Self.maxMessageBytes) Bytes")
+                    }
                 case .streamingEnd: break
                 case .finish:
                     if let c = current { result.fetches.append(c) }
@@ -372,6 +410,21 @@ public actor IMAPSession: MailboxSource {
         case .gmailLabels(let labels): m.labels = labels.map { $0.makeDisplayString() }
         default: break
         }
+    }
+
+    /// Timing diagnostics on stderr with MAILKEEPER_DEBUG=1 (no content, no credentials).
+    static func debug(_ message: @autoclosure () -> String) {
+        guard ProcessInfo.processInfo.environment["MAILKEEPER_DEBUG"] == "1" else { return }
+        FileHandle.standardError.write(Data("[imap] \(message())\n".utf8))
+    }
+
+    /// Largest message accepted (mail providers cap far lower: Gmail 25 MB, mailcow default 50 MB).
+    static let maxMessageBytes = 1 << 30
+
+    /// Stream errors keep their cause (parser limits, TLS, NIO); `.closed` only for a plain end.
+    static func mapped(_ error: Error) -> IMAPError {
+        if let e = error as? IMAPError { return e }
+        return .protocolError(clean("\(error)"))
     }
 
     static func date(_ d: ServerMessageDate) -> Date? {

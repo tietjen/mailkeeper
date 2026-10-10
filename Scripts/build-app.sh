@@ -2,13 +2,13 @@
 # Build MailKeeper.app: release build, bundle, Developer ID signature with hardened runtime
 # and App Sandbox (ADR-0003). Sparkle is added in Phase 8.
 # usage: Scripts/build-app.sh [--no-sign | --dev]   → build/MailKeeper.app
-#   --dev: "MailKeeper Dev" (bundle id …MailKeeper.dev), ad hoc, NO sandbox — honours
+#   --dev: "MailKeeper Dev" (bundle id …MailKeeper.dev), Developer ID, NO sandbox — honours
 #          MAILKEEPER_ARCHIVE (open --env MAILKEEPER_ARCHIVE=/path build/MailKeeper\ Dev.app)
 set -euo pipefail
 cd "${0:A:h}/.."
 SIGN=1 DEV=0
 [[ "${1:-}" == "--no-sign" ]] && SIGN=0
-[[ "${1:-}" == "--dev" ]] && { SIGN=0; DEV=1; }
+[[ "${1:-}" == "--dev" ]] && { DEV=1; }  # still Developer ID signed: stable keychain identity
 IDENTITY="Developer ID Application: Jan Tietjen (Y2LTPLFG6D)"
 BUNDLE_ID="de.paranoidsecurity.MailKeeper"
 APP_NAME="MailKeeper"
@@ -71,7 +71,9 @@ cat > "$ENT" <<ENTITLEMENTS
 ENTITLEMENTS
 
 if [[ $SIGN == 1 ]]; then
-  codesign --force --options runtime --timestamp --entitlements "$ENT" --sign "$IDENTITY" "$APP"
+  TS=--timestamp
+  [[ $DEV == 1 ]] && TS=--timestamp=none
+  codesign --force --options runtime $TS --entitlements "$ENT" --sign "$IDENTITY" "$APP"
 else
   codesign --force --options runtime --entitlements "$ENT" --sign - "$APP"
 fi

@@ -339,6 +339,12 @@ public actor ArchiveWriter {
         return MailboxState(validities: Set(validities), modSeqValidity: state?.0, highestModSeq: state?.1)
     }
 
+    /// IMAP mailboxes of an account that still have locations on the server.
+    public func activeMailboxes(account: String) throws -> [String] {
+        try db.query("SELECT DISTINCT mailbox FROM locations WHERE account_id = ? AND on_server = 1 AND uid IS NOT NULL",
+                     [.text(account)]) { $0.text(0) ?? "" }
+    }
+
     /// Every UID ever seen in this mailbox/validity (also those gone since — UIDs are never reused).
     public func knownUIDs(account: String, mailbox: String, uidValidity: UInt32) throws -> Set<UInt32> {
         Set(try db.query("SELECT uid FROM locations WHERE account_id = ? AND mailbox = ? AND uid_validity = ? AND uid IS NOT NULL",

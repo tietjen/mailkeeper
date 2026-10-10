@@ -39,7 +39,9 @@ struct AccountTests {
         let account = AccountConfig.imap(id: "t", username: "probe-\(UUID().uuidString)", host: "imap.example.test")
         defer { try? store.delete(for: account) }
         #expect(try store.password(for: account) == nil)
+        #expect(!store.exists(for: account))
         try store.save("erstes", for: account)
+        #expect(store.exists(for: account))
         #expect(try store.password(for: account) == "erstes")
         try store.save("zweites", for: account)
         #expect(try store.password(for: account) == "zweites")

@@ -54,6 +54,12 @@ actor FakeSource: MailboxSource {
         boxes[mailbox] = box
     }
 
+    func rename(_ old: String, to new: String) {
+        var box = boxes.removeValue(forKey: old)!
+        box.mailbox.name = new
+        boxes[new] = box
+    }
+
     func setFailFetchAfter(_ n: Int?) { failFetchAfter = n }
     func setEmptyUIDList(_ on: Bool) { emptyUIDList = on }
     func resetCounters() { fetchedUIDs = []; fetchCalls = 0 }
@@ -214,6 +220,23 @@ struct SyncEngineTests {
         let report = try await engine.run(source: source)
         #expect(report.gone == 0)
         #expect(try ArchiveReader(layout: layout).detail(1)?.locations.first?.onServer == true)
+    }
+
+    @Test func vanishedMailboxIsMarkedGone() async throws {
+        let (layout, writer) = try archive("vanish")
+        let source = FakeSource([inbox, RemoteMailbox(name: "Projekte")])
+        await source.add("Projekte", mail(1))
+        await source.add("INBOX", mail(2))
+        let engine = SyncEngine(writer: writer, account: account, policy: SyncPolicy(mode: .standard))
+        _ = try await engine.run(source: source)
+        await source.rename("Projekte", to: "Projekte 2026")  // renamed on the server
+        let report = try await engine.run(source: source)
+        #expect(report.gone == 1)
+        let reader = try ArchiveReader(layout: layout)
+        let id = try #require(try reader.messageIDs(MessageFilter(account: "acc", mailbox: "Projekte")).first)
+        let locations = try reader.detail(id)!.locations
+        #expect(locations.first { $0.mailbox == "Projekte" }?.onServer == false)
+        #expect(locations.first { $0.mailbox == "Projekte 2026" }?.onServer == true)
     }
 
     @Test func condstoreOnlyAsksForChanges() async throws {

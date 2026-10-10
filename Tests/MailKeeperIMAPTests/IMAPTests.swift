@@ -30,6 +30,21 @@ struct ReadOnlyGuardTests {
         for c in refused { #expect(!IMAPSession.isReadOnly(c), "\(c)") }
     }
 
+    @Test("I1: the presence list never uses plain UID SEARCH ALL") func presenceCommand() {
+        // swift-nio-imap caps response lines at 8 KiB; "* SEARCH 1 2 3 …" for >1 700 UIDs breaks.
+        guard case .uidSearch(_, _, let options) = IMAPSession.presenceCommand(esearch: true) else { Issue.record("not a search"); return }
+        #expect(options == [.all])
+        guard case .uidFetch(_, let attributes, _) = IMAPSession.presenceCommand(esearch: false) else { Issue.record("not a fetch"); return }
+        #expect(attributes == [.uid])
+        #expect(IMAPSession.isReadOnly(IMAPSession.presenceCommand(esearch: true)))
+    }
+
+    @Test("I5: stream errors keep their cause") func errorsKeepCause() {
+        struct PayloadTooLarge: Error {}
+        #expect(IMAPSession.mapped(PayloadTooLarge()) == .protocolError("PayloadTooLarge()"))
+        #expect(IMAPSession.mapped(IMAPError.closed) == .closed)
+    }
+
     @Test func serverTextIsCleaned() {
         #expect(IMAPSession.clean("ok\u{1B}]52;c;ZXZpbA==\u{07} \u{202E}x") == "ok]52;c;ZXZpbA== x")
         #expect(IMAPSession.clean(String(repeating: "a", count: 1000)).count == 300)
@@ -127,6 +142,19 @@ struct IntegrationTests {
         #expect(second.fetched == 0)
         let boxes = try ArchiveReader(layout: layout).accounts().flatMap(\.mailboxes).map(\.name)
         #expect(boxes == ["Folders/MailKeeper-Test"])
+    }
+
+    /// I1 regression: a mailbox with more UIDs than fit into one 8 KiB response line, synced
+    /// twice (the second run checks for deletions). Seed with Scripts/seed-test-mailbox.py.
+    @Test func mailcowBulkMailbox() async throws {
+        let a = try account("mailcow")
+        let (layout, first, second) = try await run("mailcow", endpoint: IMAPEndpoint(host: a.host, port: a.port, security: .tls),
+                                                    policy: SyncPolicy(mode: .standard, include: ["MailKeeper-Bulk"]))
+        #expect(first.failures.isEmpty, "\(first.failures)")
+        #expect(first.newMessages >= 2_000, "seed the folder: Scripts/seed-test-mailbox.py")
+        #expect(second.failures.isEmpty, "\(second.failures)")
+        #expect(second.fetched == 0 && second.gone == 0)
+        #expect(try ArchiveReader(layout: layout).stats().locations == first.newMessages + first.newLocations)
     }
 
     @Test func protonWrongPinIsRefused() async throws {

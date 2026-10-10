@@ -61,6 +61,8 @@ final class AppModel {
     private(set) var importStatus: ImportStatus?
     private(set) var importRunning = false
     private(set) var accountConfigs: [AccountConfig] = []
+    /// Keychain presence per account, refreshed with the account list (not per redraw).
+    private(set) var passwordPresent: [String: Bool] = [:]
     private(set) var syncProgress: SyncProgress?
     private(set) var syncRunning = false
     var syncMessage: String?
@@ -151,7 +153,7 @@ final class AppModel {
 
     func refresh() {
         guard let reader else { return }
-        accountConfigs = (try? AccountStore(layout: reader.layout).load()) ?? []
+        reloadAccounts(reader.layout)
         accounts = (try? reader.accounts()) ?? []
         stats = try? reader.stats()
         reloadList()
@@ -257,21 +259,29 @@ final class AppModel {
     // MARK: Accounts & sync (read-only)
 
     func hasPassword(_ account: AccountConfig) -> Bool {
-        (try? credentials.password(for: account)) != nil
+        passwordPresent[account.id] ?? false
+    }
+
+    private func reloadAccounts(_ layout: ArchiveLayout) {
+        accountConfigs = (try? AccountStore(layout: layout).load()) ?? []
+        passwordPresent = Dictionary(uniqueKeysWithValues: accountConfigs.map { ($0.id, credentials.exists(for: $0)) })
     }
 
     func addAccount(_ account: AccountConfig, password: String) throws {
         guard let layout = reader?.layout else { return }
         try AccountStore(layout: layout).add(account)
         try credentials.save(password, for: account)
-        accountConfigs = (try? AccountStore(layout: layout).load()) ?? []
+        reloadAccounts(layout)
     }
 
-    func removeAccount(_ id: String) {
+    /// Removes the account configuration; archived mail stays. The keychain entry is shared by
+    /// every archive using the same mailbox, so deleting it is the caller's explicit choice.
+    func removeAccount(_ id: String, deletePassword: Bool) {
         guard let layout = reader?.layout, let account = accountConfigs.first(where: { $0.id == id }) else { return }
         try? AccountStore(layout: layout).remove(id)
-        try? credentials.delete(for: account)
-        accountConfigs = (try? AccountStore(layout: layout).load()) ?? []
+        let stillUsed = accountConfigs.contains { $0.id != id && CredentialStore.key(for: $0) == CredentialStore.key(for: account) }
+        if deletePassword, !stillUsed { try? credentials.delete(for: account) }
+        reloadAccounts(layout)
     }
 
     func testAccount(_ id: String) async -> String {

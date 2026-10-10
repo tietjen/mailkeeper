@@ -7,6 +7,7 @@ struct AccountsSettings: View {
     let model: AppModel
     @State private var selection: String?
     @State private var adding = false
+    @State private var removing: AccountConfig?
     @State private var message: String?
 
     var body: some View {
@@ -32,7 +33,7 @@ struct AccountsSettings: View {
                 Button { adding = true } label: { Image(systemName: "plus") }
                     .help("Konto hinzufügen")
                 Button {
-                    if let id = selection { model.removeAccount(id); selection = nil }
+                    removing = model.accountConfigs.first { $0.id == selection }
                 } label: { Image(systemName: "minus") }
                     .disabled(selection == nil)
                     .help("Konto entfernen (archivierte Mails bleiben)")
@@ -54,6 +55,17 @@ struct AccountsSettings: View {
         .padding(16)
         .frame(width: 560, height: 380)
         .sheet(isPresented: $adding) { AddAccountSheet(model: model) }
+        .confirmationDialog("Konto „\(removing.map { DisplayText.safe($0.displayName) } ?? "")“ entfernen?",
+                            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
+            Button("Entfernen und Passwort löschen", role: .destructive) {
+                if let r = removing { model.removeAccount(r.id, deletePassword: true); selection = nil }
+            }
+            Button("Entfernen, Passwort behalten") {
+                if let r = removing { model.removeAccount(r.id, deletePassword: false); selection = nil }
+            }
+        } message: {
+            Text("Archivierte Mails bleiben erhalten. Das Passwort im Schlüsselbund gilt auch für andere Archive, die dieses Postfach abrufen.")
+        }
     }
 
     private func icon(_ kind: AccountConfig.Kind) -> String {
