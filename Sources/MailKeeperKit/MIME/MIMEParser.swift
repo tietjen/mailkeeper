@@ -40,6 +40,8 @@ public struct AttachmentInfo: Sendable, Equatable, Codable {
     public var size: Int
     public var contentID: String?
     public var isInline: Bool
+    /// Child indices from the root part to this part (see `ParsedMessage.data(of:)`).
+    public var partPath: [Int] = []
 }
 
 /// Everything MailKeeper derives from a raw message for the index and the reader.
@@ -182,13 +184,13 @@ private struct BodyCollector {
     var html: [String] = []
     var attachments: [AttachmentInfo] = []
 
-    mutating func collect(_ part: MIMEPart) {
+    mutating func collect(_ part: MIMEPart, path: [Int] = []) {
         if part.contentType == "multipart/alternative" {
             var plainAlt: BodyCollector?
             var htmlAlt: BodyCollector?
-            for child in part.children {
+            for (i, child) in part.children.enumerated() {
                 var c = BodyCollector()
-                c.collect(child)
+                c.collect(child, path: path + [i])
                 if !c.plain.isEmpty { plainAlt = c }
                 if !c.html.isEmpty { htmlAlt = c }
                 attachments += c.attachments.filter { $0.isInline == false }
@@ -200,7 +202,7 @@ private struct BodyCollector {
             return
         }
         if part.isMultipart {
-            for child in part.children { collect(child) }
+            for (i, child) in part.children.enumerated() { collect(child, path: path + [i]) }
             return
         }
         if isBodyText(part) {
@@ -217,7 +219,8 @@ private struct BodyCollector {
             mimeType: part.contentType,
             size: part.estimatedDecodedSize,
             contentID: part.contentID,
-            isInline: part.disposition == "inline" || (part.disposition == nil && part.contentID != nil)
+            isInline: part.disposition == "inline" || (part.disposition == nil && part.contentID != nil),
+            partPath: path
         ))
     }
 

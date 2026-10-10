@@ -55,7 +55,7 @@ var args = Array(CommandLine.arguments.dropFirst())
 /// clipboard writes, cursor tricks) before printing. Keeps newline and tab.
 func clean(_ s: String?) -> String {
     guard let s else { return "" }
-    return String(String.UnicodeScalarView(s.unicodeScalars.filter { c in
+    return String(String.UnicodeScalarView(DisplayText.safe(s).unicodeScalars.filter { c in
         c == "\n" || c == "\t" || !(c.value < 0x20 || c.value == 0x7F || (0x80...0x9F).contains(c.value))
     }))
 }

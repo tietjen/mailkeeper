@@ -144,7 +144,7 @@ struct ReaderView: View {
     @ViewBuilder
     private func header(_ d: MessageDetail, _ m: ParsedMessage) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(m.subject?.isEmpty == false ? m.subject! : String(localized: "(kein Betreff)"))
+            Text(m.subject?.isEmpty == false ? DisplayText.safe(m.subject!) : String(localized: "(kein Betreff)"))
                 .font(.title3.weight(.semibold))
                 .textSelection(.enabled)
             row("Von", m.from.map(\.display).joined(separator: ", "))
@@ -154,7 +154,11 @@ struct ReaderView: View {
             row("Ablage", d.locations.map { "\($0.account) › \($0.mailbox)" }.joined(separator: " · "))
             let files = m.attachments.filter { !$0.isInline }
             if !files.isEmpty {
-                row("Anhänge", files.map { "\($0.filename ?? "?") (\(ByteCountFormatter.string(fromByteCount: Int64($0.size), countStyle: .file)))" }.joined(separator: ", "))
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("Anhänge").foregroundStyle(.secondary).frame(width: 64, alignment: .trailing).font(.callout)
+                    AttachmentBar(message: m, attachments: files)
+                }
+                .padding(.top, 2)
             }
             if m.html != nil {
                 Label("Externe Inhalte sind blockiert", systemImage: "shield.lefthalf.filled")
@@ -167,7 +171,7 @@ struct ReaderView: View {
     private func row(_ label: LocalizedStringKey, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(label).foregroundStyle(.secondary).frame(width: 64, alignment: .trailing)
-            Text(value).textSelection(.enabled).lineLimit(3)
+            Text(DisplayText.safe(value)).textSelection(.enabled).lineLimit(3)
         }
         .font(.callout)
     }

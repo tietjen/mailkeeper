@@ -254,3 +254,95 @@ struct HeaderPieceTests {
         #expect(SearchText.ftsQuery("a\"b") == #""ab"*"#)
     }
 }
+
+@Suite("Attachments")
+struct AttachmentTests {
+    @Test func extractsBytesByPartPath() {
+        let p = MIMEParser.parse(eml("""
+        Content-Type: multipart/mixed; boundary=o
+
+        --o
+        Content-Type: multipart/alternative; boundary=a
+
+        --a
+        Content-Type: text/plain
+
+        hi
+        --a--
+        --o
+        Content-Type: application/pdf; name="r.pdf"
+        Content-Transfer-Encoding: base64
+
+        JVBERi0xLjQK
+        --o
+        Content-Type: text/plain; name="notiz.txt"
+        Content-Disposition: attachment
+
+        Notiz
+        --o--
+        """))
+        #expect(p.attachments.map(\.partPath) == [[1], [2]])
+        #expect(p.data(of: p.attachments[0]) == Data("%PDF-1.4\n".utf8))
+        #expect(p.data(of: p.attachments[1]) == Data("Notiz".utf8))
+        #expect(p.data(of: AttachmentInfo(filename: nil, mimeType: "x/y", size: 0, contentID: nil, isInline: false, partPath: [9])) == nil)
+    }
+
+    @Test(arguments: [
+        ("rechnung\u{202E}fdp.exe", "application/octet-stream", "rechnungfdp.exe"),
+        ("../../.ssh/authorized_keys", "text/plain", "authorized_keys.txt"),
+        ("C:\\Users\\x\\evil.bat", "application/octet-stream", "evil.bat"),
+        ("..hidden", "text/plain", "hidden.txt"),
+        ("a\u{0000}b\u{001B}[31mc.txt", "text/plain", "ab[31mc.txt"),
+        ("zero\u{200B}width.pdf", "application/pdf", "zerowidth.pdf"),
+        ("Rechnung", "application/pdf", "Rechnung.pdf"),
+        ("", "image/png", "Anhang.png"),
+        ("Bericht: März.pdf", "application/pdf", "Bericht_ März.pdf"),
+    ])
+    func sanitizedNames(raw: String, mime: String, expected: String) {
+        #expect(AttachmentSafety.sanitizedFilename(raw, mimeType: mime) == expected)
+    }
+
+    @Test func longNamesKeepTheirExtension() {
+        let name = AttachmentSafety.sanitizedFilename(String(repeating: "x", count: 500) + ".pdf", mimeType: "application/pdf")
+        #expect(name.count <= AttachmentSafety.maxNameLength && name.hasSuffix(".pdf"))
+    }
+
+    @Test func riskDetection() {
+        #expect(AttachmentSafety.isRisky(filename: "setup.pkg", mimeType: "application/octet-stream"))
+        #expect(AttachmentSafety.isRisky(filename: "tool.command", mimeType: "text/plain"))
+        #expect(AttachmentSafety.isRisky(filename: "Rechnung.xlsm", mimeType: "application/vnd.ms-excel"))
+        #expect(AttachmentSafety.isRisky(filename: "harmlos.pdf", mimeType: "application/x-msdownload"))
+        #expect(!AttachmentSafety.isRisky(filename: "Rechnung.pdf", mimeType: "application/pdf"))
+        #expect(!AttachmentSafety.isRisky(filename: "foto.jpg", mimeType: "image/jpeg"))
+        #expect(!AttachmentSafety.isRisky(filename: "daten.zip", mimeType: "application/zip"))
+    }
+
+    @Test func writtenAttachmentsAreQuarantinedAndPrivate() throws {
+        let url = tempDir().appending(path: "tool.command")
+        try AttachmentSafety.writeQuarantined(Data("#!/bin/sh\necho hi\n".utf8), to: url)
+        let size = getxattr(url.path, "com.apple.quarantine", nil, 0, 0, 0)
+        #expect(size > 0)
+        var buffer = [CChar](repeating: 0, count: max(size, 1) + 1)
+        _ = getxattr(url.path, "com.apple.quarantine", &buffer, size, 0, 0)
+        // "<flags>;<time>;<agent>;<uuid>" — the agent name is filled from the calling app's
+        // bundle (empty for the test runner); what matters is an active quarantine flag.
+        let fields = String(cString: buffer).split(separator: ";", omittingEmptySubsequences: false)
+        #expect(fields.count >= 4)
+        #expect(UInt32(fields.first ?? "", radix: 16).map { $0 & 0x1 != 0 } == true)
+        #expect(posixMode(url) == 0o600)
+    }
+
+    @Test func displayTextDropsBidiControls() {
+        #expect(DisplayText.safe("rechnung\u{202E}fdp.exe") == "rechnungfdp.exe")
+        #expect(DisplayText.safe("a\u{2066}b\u{2069}c") == "abc")
+        #expect(DisplayText.safe("Familie 👨\u{200D}👩\u{200D}👧") == "Familie 👨\u{200D}👩\u{200D}👧")  // ZWJ kept
+    }
+
+    @Test func uniqueNames() throws {
+        let dir = tempDir()
+        try Data().write(to: dir.appending(path: "a.pdf"))
+        try Data().write(to: dir.appending(path: "a 2.pdf"))
+        #expect(AttachmentSafety.uniqueURL(in: dir, name: "a.pdf").lastPathComponent == "a 3.pdf")
+        #expect(AttachmentSafety.uniqueURL(in: dir, name: "b").lastPathComponent == "b")
+    }
+}

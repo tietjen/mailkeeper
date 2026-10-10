@@ -114,7 +114,7 @@ struct MessageTable: NSViewRepresentable {
             case "size": text = ByteCountFormatter.string(fromByteCount: Int64(m.size), countStyle: .file)
             default: text = ""
             }
-            cell.textField?.stringValue = text
+            cell.textField?.stringValue = DisplayText.safe(text)
             cell.toolTip = column.identifier.rawValue == "subject" ? m.snippet : nil
             return cell
         }

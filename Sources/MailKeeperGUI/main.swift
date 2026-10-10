@@ -12,6 +12,10 @@ struct MailKeeperApp: App {
             ContentView(model: model)
                 .frame(minWidth: 900, minHeight: 520)
                 .task { await ContentRules.shared.compile() }
+                .onAppear { AttachmentFiles.cleanUp() }  // leftovers of a previous run
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+                    AttachmentFiles.cleanUp()
+                }
         }
         .commands {
             CommandGroup(after: .newItem) {
