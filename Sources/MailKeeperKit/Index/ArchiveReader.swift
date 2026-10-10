@@ -23,6 +23,8 @@ public struct MessageSummary: Sendable, Hashable, Identifiable {
     public var size: Int
     public var attachmentCount: Int
     public var snippet: String?
+    /// Messages in this message's conversation (1 = on its own).
+    public var threadCount: Int = 1
 
     public var fromDisplay: String { fromName ?? fromAddress ?? "" }
 }
@@ -257,8 +259,9 @@ public final class ArchiveReader {
         for chunk in stride(from: 0, to: ids.count, by: 500).map({ Array(ids[$0..<min($0 + 500, ids.count)]) }) {
             let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ",")
             try db.forEach("""
-                SELECT id, date, from_name, from_addr, subject, size, attachment_count, snippet
-                FROM messages WHERE id IN (\(placeholders))
+                SELECT id, date, from_name, from_addr, subject, size, attachment_count, snippet,
+                       (SELECT count(*) FROM messages t WHERE t.thread_id = m.thread_id)
+                FROM messages m WHERE id IN (\(placeholders))
                 """, chunk.map { .int($0) }) { row in
                 byID[row.int(0)] = Self.summary(row)
             }
@@ -269,9 +272,10 @@ public final class ArchiveReader {
     public func detail(_ id: Int64) throws -> MessageDetail? {
         let db = try self.db
         guard let (summary, mid, list, blob) = try db.queryOne("""
-            SELECT id, date, from_name, from_addr, subject, size, attachment_count, snippet, message_id, list_id, primary_blob
-            FROM messages WHERE id = ?
-            """, [.int(id)], { row in (Self.summary(row), row.text(8), row.text(9), row.text(10) ?? "") }) else { return nil }
+            SELECT id, date, from_name, from_addr, subject, size, attachment_count, snippet,
+                   (SELECT count(*) FROM messages t WHERE t.thread_id = m.thread_id), message_id, list_id, primary_blob
+            FROM messages m WHERE id = ?
+            """, [.int(id)], { row in (Self.summary(row), row.text(9), row.text(10), row.text(11) ?? "") }) else { return nil }
         let locations = try db.query("""
             SELECT account_id, mailbox, uid, flags, labels, internal_date, on_server, sha256
             FROM locations WHERE message_id = ? ORDER BY account_id, mailbox
@@ -304,6 +308,28 @@ public final class ArchiveReader {
     private static func summary(_ row: Row) -> MessageSummary {
         MessageSummary(id: row.int(0), date: row.optionalDouble(1).map(Date.init(timeIntervalSince1970:)),
                        fromName: row.text(2), fromAddress: row.text(3), subject: row.text(4),
-                       size: Int(row.int(5)), attachmentCount: Int(row.int(6)), snippet: row.text(7))
+                       size: Int(row.int(5)), attachmentCount: Int(row.int(6)), snippet: row.text(7),
+                       threadCount: max(1, Int(row.int(8))))
+    }
+
+    // MARK: Conversations
+
+    /// The conversation of a message, oldest first (just the message when it stands alone).
+    public func thread(of id: Int64, limit: Int = 500) throws -> [MessageSummary] {
+        let ids = try self.db.query("""
+            SELECT t.id FROM messages m JOIN messages t ON t.thread_id = m.thread_id
+            WHERE m.id = ? ORDER BY t.date NULLS FIRST, t.id LIMIT ?
+            """, [.int(id), .int(Int64(limit))]) { $0.int(0) }
+        return try summaries(ids.isEmpty ? [id] : ids)
+    }
+
+    /// `thread:<Message-ID>` for the conversation of a message — named by a member's
+    /// Message-ID, which survives a rebuild (thread ids do not). nil without any Message-ID.
+    public func threadQuery(of id: Int64) throws -> String? {
+        let messageID: String?? = try self.db.queryOne("""
+            SELECT t.message_id FROM messages m JOIN messages t ON t.thread_id = m.thread_id
+            WHERE m.id = ? AND t.message_id IS NOT NULL ORDER BY t.id = m.id DESC, t.date LIMIT 1
+            """, [.int(id)]) { $0.text(0) }
+        return (messageID ?? nil).map { "thread:\($0)" }
     }
 }

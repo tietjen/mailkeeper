@@ -216,6 +216,8 @@ public actor ArchiveWriter {
                    [.int(id), .text(SearchText.normalize(p.subject ?? "")), .text(SearchText.normalize(people(p.from))),
                     .text(SearchText.normalize(people(p.to + p.cc))), .text(SearchText.normalize(p.text)),
                     .text(SearchText.normalize(p.attachments.compactMap(\.filename).joined(separator: " ")))])
+        try Threads.link(db, id: id, messageID: p.messageID,
+                         references: Threads.references(inReplyTo: p.inReplyTo, references: p.references, own: p.messageID))
         return id
     }
 

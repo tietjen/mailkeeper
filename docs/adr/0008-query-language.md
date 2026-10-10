@@ -28,6 +28,7 @@ after:2024-03  before:2025  until:2024-12-31  date:2024-05   calendar periods, l
 after:30d  before:1y                relative (d, w, m, y)
 account:gmail  folder:INBOX  folder:Archiv/*  label:Steuer  list:newsletter   (List-Id contains)
 is:unread|read|flagged|answered|list   on:server  only:archive   msgid:<id@host>
+thread:<id@host>                    the conversation containing that message (3.4, additive)
 -word  -from:x                      negation
 a OR b   ( … )                      alternatives and grouping; AND binds tighter than OR
 ```

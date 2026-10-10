@@ -73,6 +73,8 @@ final class AppModel {
     /// Bumped whenever `messageIDs` is replaced; the table reloads on change.
     private(set) var listGeneration = 0
     var selectedMessageID: Int64?
+    /// Bumped when the model selects a message itself (conversation list); the table follows.
+    private(set) var selectionRequest = 0
 
     private(set) var importStatus: ImportStatus?
     private(set) var importRunning = false
@@ -325,6 +327,27 @@ final class AppModel {
 
     func detail(_ id: Int64) -> MessageDetail? {
         try? reader?.detail(id)
+    }
+
+    // MARK: Conversations
+
+    func thread(of id: Int64) -> [MessageSummary] {
+        (try? reader?.thread(of: id)) ?? []
+    }
+
+    /// Shows a message chosen outside the table; the table selects its row if it is listed.
+    func reveal(_ id: Int64) {
+        selectedMessageID = id
+        selectionRequest += 1
+    }
+
+    /// The whole conversation in the list: all mailboxes, `thread:<Message-ID>`.
+    func showThread(of id: Int64) {
+        guard let query = (try? reader?.threadQuery(of: id)) ?? nil else { return }
+        viewMode = .messages
+        searchText = query + " "
+        sidebarSelection = .all  // reloads now, with the new search text
+        reveal(id)
     }
 
     /// Reads and parses the stored message off the main thread (large mails take a while).

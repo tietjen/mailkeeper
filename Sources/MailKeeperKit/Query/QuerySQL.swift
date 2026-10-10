@@ -108,6 +108,9 @@ struct QuerySQL {
         case .messageID(let id):
             params.append(.text(id))
             return "m.message_id = ?"
+        case .thread(let id):
+            params.append(.text(id))
+            return "m.thread_id IN (SELECT t.thread_id FROM messages t WHERE t.message_id = ? AND t.thread_id IS NOT NULL)"
         }
     }
 

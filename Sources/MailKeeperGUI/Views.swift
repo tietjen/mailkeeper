@@ -159,13 +159,13 @@ struct Sidebar: View {
 struct ReaderView: View {
     let model: AppModel
     let messageID: Int64
-    @State private var loaded: (id: Int64, detail: MessageDetail, message: ParsedMessage)?
+    @State private var loaded: (id: Int64, detail: MessageDetail, message: ParsedMessage, thread: [MessageSummary])?
     @State private var failed = false
 
     var body: some View {
         Group {
             if let loaded, loaded.id == messageID {
-                content(loaded.detail, loaded.message)
+                content(loaded.detail, loaded.message, loaded.thread)
             } else if failed {
                 ContentUnavailableView("Nachricht nicht lesbar", systemImage: "exclamationmark.triangle")
             } else {
@@ -178,14 +178,15 @@ struct ReaderView: View {
                 failed = true
                 return
             }
-            if !Task.isCancelled { loaded = (messageID, detail, message) }
+            let thread = detail.summary.threadCount > 1 ? model.thread(of: messageID) : []
+            if !Task.isCancelled { loaded = (messageID, detail, message, thread) }
         }
     }
 
     @ViewBuilder
-    private func content(_ detail: MessageDetail, _ message: ParsedMessage) -> some View {
+    private func content(_ detail: MessageDetail, _ message: ParsedMessage, _ thread: [MessageSummary]) -> some View {
             VStack(alignment: .leading, spacing: 0) {
-                header(detail, message)
+                header(detail, message, thread)
                     .padding(12)
                 Divider()
                 if let html = message.html, let rules = ContentRules.shared.list {
@@ -203,7 +204,7 @@ struct ReaderView: View {
     }
 
     @ViewBuilder
-    private func header(_ d: MessageDetail, _ m: ParsedMessage) -> some View {
+    private func header(_ d: MessageDetail, _ m: ParsedMessage, _ thread: [MessageSummary]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(m.subject?.isEmpty == false ? DisplayText.safe(m.subject!) : String(localized: "(kein Betreff)"))
                 .font(.title3.weight(.semibold))
@@ -213,6 +214,12 @@ struct ReaderView: View {
             if !m.cc.isEmpty { row("Kopie", m.cc.map(\.display).joined(separator: ", ")) }
             if let date = m.date { row("Datum", date.formatted(date: .long, time: .shortened)) }
             row("Ablage", d.locations.map { "\($0.account) › \($0.mailbox)" }.joined(separator: " · "))
+            if thread.count > 1 {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("Verlauf").foregroundStyle(.secondary).frame(width: 64, alignment: .trailing).font(.callout)
+                    ConversationList(model: model, current: d.summary.id, thread: thread)
+                }
+            }
             let files = m.attachments.filter { !$0.isInline }
             if !files.isEmpty {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -315,5 +322,44 @@ struct ImportSheet: View {
         }
         .padding(20)
         .frame(width: 380)
+    }
+}
+
+/// The messages of the current conversation, oldest first; click opens one, the button lists
+/// the whole conversation (`thread:<Message-ID>`, across mailboxes).
+struct ConversationList: View {
+    let model: AppModel
+    let current: Int64
+    let thread: [MessageSummary]
+    @State private var expanded = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $expanded) {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(thread) { m in
+                    Button { model.reveal(m.id) } label: {
+                        HStack(spacing: 8) {
+                            Text(m.date.map { $0.formatted(date: .numeric, time: .shortened) } ?? "—")
+                                .monospacedDigit()
+                                .frame(width: 118, alignment: .leading)
+                            Text(DisplayText.safe(m.fromDisplay)).lineLimit(1).frame(width: 150, alignment: .leading)
+                            Text(DisplayText.safe(m.subject ?? "")).lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        .fontWeight(m.id == current ? .semibold : .regular)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(m.id == current)
+                }
+                Button("Ganze Konversation in der Liste zeigen") { model.showThread(of: current) }
+                    .buttonStyle(.link)
+                    .padding(.top, 2)
+            }
+            .font(.callout)
+            .padding(.top, 2)
+        } label: {
+            Text("\(thread.count) Nachrichten in dieser Konversation").font(.callout)
+        }
     }
 }

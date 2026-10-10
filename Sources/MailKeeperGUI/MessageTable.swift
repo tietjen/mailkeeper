@@ -23,6 +23,7 @@ struct MessageTable: NSViewRepresentable {
             (.from, "from", String(localized: "Von"), 210, 110, true),
             (.subject, "subject", String(localized: "Betreff"), 420, 180, true),
             (nil, "attach", "📎", 26, 26, false),
+            (nil, "thread", "💬", 34, 34, false),
             (.size, "size", String(localized: "Größe"), 72, 56, false),
         ]
         for c in columns {
@@ -30,10 +31,10 @@ struct MessageTable: NSViewRepresentable {
             col.title = c.title
             col.minWidth = c.min
             col.width = c.width
-            if c.id == "attach" {
+            if c.id == "attach" || c.id == "thread" {
                 col.maxWidth = c.width
                 col.resizingMask = []
-                col.headerToolTip = String(localized: "Anhänge")
+                col.headerToolTip = c.id == "attach" ? String(localized: "Anhänge") : String(localized: "Nachrichten in der Konversation")
             } else {
                 col.maxWidth = c.flexible ? 4000 : 400
                 col.resizingMask = c.flexible ? [.autoresizingMask, .userResizingMask] : .userResizingMask
@@ -63,6 +64,9 @@ struct MessageTable: NSViewRepresentable {
         let model: AppModel
         weak var table: NSTableView?
         private var generation = -1
+        private var selectionRequest = 0
+        /// Set while the model drives the selection, so the delegate does not echo it back.
+        private var applyingSelection = false
         private var ids: [Int64] = []
         private var pages: [Int: [MessageSummary]] = [:]
         private let pageSize = 200
@@ -77,13 +81,31 @@ struct MessageTable: NSViewRepresentable {
         }
 
         func syncIfNeeded() {
-            guard generation != model.listGeneration else { return }
-            generation = model.listGeneration
-            ids = model.messageIDs
-            pages.removeAll()
-            table?.reloadData()
+            let request = model.selectionRequest
+            if generation != model.listGeneration {
+                generation = model.listGeneration
+                ids = model.messageIDs
+                pages.removeAll()
+                table?.reloadData()
+                applySelection(scroll: false)
+            }
+            if selectionRequest != request {
+                selectionRequest = request
+                applySelection(scroll: true)
+            }
+        }
+
+        /// Mirrors the model's selection; a message that is not listed deselects the table
+        /// while the reader keeps showing it.
+        private func applySelection(scroll: Bool) {
+            guard let table else { return }
+            applyingSelection = true
+            defer { applyingSelection = false }
             if let sel = model.selectedMessageID, let row = ids.firstIndex(of: sel) {
-                table?.selectRowIndexes([row], byExtendingSelection: false)
+                table.selectRowIndexes([row], byExtendingSelection: false)
+                if scroll { table.scrollRowToVisible(row) }
+            } else if model.selectedMessageID != nil {
+                table.deselectAll(nil)
             }
         }
 
@@ -111,6 +133,7 @@ struct MessageTable: NSViewRepresentable {
             case "from": text = m.fromDisplay
             case "subject": text = m.subject?.isEmpty == false ? m.subject! : String(localized: "(kein Betreff)")
             case "attach": text = m.attachmentCount > 0 ? "📎" : ""
+            case "thread": text = m.threadCount > 1 ? "\(m.threadCount)" : ""
             case "size": text = ByteCountFormatter.string(fromByteCount: Int64(m.size), countStyle: .file)
             default: text = ""
             }
@@ -126,6 +149,7 @@ struct MessageTable: NSViewRepresentable {
             tf.lineBreakMode = .byTruncatingTail
             tf.translatesAutoresizingMaskIntoConstraints = false
             if id.rawValue == "size" { tf.alignment = .right }
+            if id.rawValue == "thread" { tf.alignment = .center; tf.textColor = .secondaryLabelColor }
             cell.addSubview(tf)
             cell.textField = tf
             NSLayoutConstraint.activate([
@@ -137,7 +161,7 @@ struct MessageTable: NSViewRepresentable {
         }
 
         func tableViewSelectionDidChange(_ notification: Notification) {
-            guard let table else { return }
+            guard let table, !applyingSelection else { return }
             let row = table.selectedRow
             model.selectedMessageID = row >= 0 && row < ids.count ? ids[row] : nil
         }

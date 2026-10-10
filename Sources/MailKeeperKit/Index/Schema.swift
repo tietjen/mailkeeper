@@ -99,6 +99,17 @@ enum Schema {
         );
         CREATE INDEX locations_validity ON locations(account_id, mailbox, uid_validity);
         """,
+        // v3: conversations (Threads.swift). Existing messages are linked right after.
+        """
+        ALTER TABLE messages ADD COLUMN thread_id INTEGER;
+        CREATE INDEX messages_thread ON messages(thread_id);
+        CREATE TABLE message_refs(
+            message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+            ref TEXT NOT NULL,
+            PRIMARY KEY(message_id, ref)
+        ) WITHOUT ROWID;
+        CREATE INDEX message_refs_ref ON message_refs(ref);
+        """,
     ]
 
     static var currentVersion: Int { migrations.count }
@@ -115,6 +126,7 @@ enum Schema {
             guard version < migrations.count else { return }
             for v in version..<migrations.count {
                 try db.execute(migrations[v])
+                if v == 2 { try Threads.backfill(db) }  // in the same transaction as the schema change
             }
             try db.execute("PRAGMA user_version = \(migrations.count)")
         }

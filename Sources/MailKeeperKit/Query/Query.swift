@@ -38,6 +38,8 @@ public enum QueryPredicate: Sendable, Equatable {
     case onServer
     case archiveOnly
     case messageID(String)
+    /// The conversation containing the message with this Message-ID.
+    case thread(String)
 }
 
 public struct QueryError: Error, Equatable, CustomStringConvertible, Sendable {
@@ -83,7 +85,7 @@ public enum QueryParser {
 
     enum Field: String, CaseIterable {
         case from, to, subject, body, filename, sender, has, larger, smaller
-        case after, before, until, date, account, folder, label, list, listid, domain, `is`, on, only, msgid
+        case after, before, until, date, account, folder, label, list, listid, domain, `is`, on, only, msgid, thread
 
         static let aliases: [String: Field] = {
             var map = Dictionary(uniqueKeysWithValues: allCases.map { ($0.rawValue, $0) })
@@ -92,7 +94,7 @@ public enum QueryParser {
                 "datei": .filename, "absender": .sender, "hat": .has, "größer": .larger, "groesser": .larger,
                 "kleiner": .smaller, "ab": .after, "since": .after, "seit": .after, "vor": .before, "bis": .until,
                 "datum": .date, "konto": .account, "in": .folder, "ordner": .folder, "liste": .list, "ist": .is,
-                "auf": .on, "nur": .only, "message-id": .msgid,
+                "auf": .on, "nur": .only, "message-id": .msgid, "konversation": .thread,
             ]
             map.merge(extra) { a, _ in a }
             return map
@@ -369,6 +371,10 @@ public enum QueryParser {
                 var v = try required()
                 if !v.hasPrefix("<") { v = "<" + v + ">" }
                 return (.predicate(.messageID(v)), "Message-ID: \(v)")
+            case .thread:
+                var v = try required()
+                if !v.hasPrefix("<") { v = "<" + v + ">" }
+                return (.predicate(.thread(v)), "Konversation")
             }
         }
     }
