@@ -67,6 +67,12 @@ final class AppModel {
     private(set) var labels: [String] = []
     var viewMode: ViewMode = .messages { didSet { if viewMode != oldValue { reloadList() } } }
     private(set) var groups: [MessageGroup] = []
+    /// PDF text queue (ADR-0009): progress while it runs, totals for the status bar.
+    private(set) var textIndexProgress: AttachmentIndexProgress?
+    private(set) var textStats: AttachmentTextStats?
+    private var textIndexTask: Task<Void, Never>?
+    private var textIndexToken: UUID?
+    private let pdfText = PDFTextClient()
     var sort: MessageSort = .date
     var ascending = false
     private(set) var messageIDs: [Int64] = []
@@ -134,7 +140,10 @@ final class AppModel {
             volumeEncrypted = layout.volumeIsEncrypted
             openError = nil
             selectedMessageID = nil
+            textIndexTask?.cancel()  // belongs to the previous archive
+            textIndexTask = nil
             refresh()
+            startTextIndexing()
             return true
         } catch {
             reader = nil
@@ -373,8 +382,10 @@ final class AppModel {
         importRunning = true
 
         let accessing = source.startAccessingSecurityScopedResource()
+        let indexing = pauseTextIndexing()
         Task.detached { [weak self] in
             defer { if accessing { source.stopAccessingSecurityScopedResource() } }
+            await indexing?.value  // the queue holds the writer until it has stopped
             let report: @Sendable (ImportProgress) -> Void = { p in
                 Task { @MainActor in self?.importStatus?.progress = p }
             }
@@ -391,12 +402,14 @@ final class AppModel {
                     self?.importStatus?.finished = true
                     self?.importRunning = false
                     self?.refresh()
+                    self?.startTextIndexing()
                 }
             } catch {
                 await MainActor.run {
                     self?.importStatus?.error = "\(error)"
                     self?.importStatus?.finished = true
                     self?.importRunning = false
+                    self?.startTextIndexing()
                 }
             }
         }
@@ -404,6 +417,43 @@ final class AppModel {
 
     func dismissImportStatus() {
         importStatus = nil
+    }
+
+    // MARK: PDF text (ADR-0009)
+
+    /// Runs the background queue when there is work and the writer is free (no import, no
+    /// sync, no mkctl holding the archive — then it simply tries again next time).
+    func startTextIndexing() {
+        guard let root = archiveRoot, let reader, textIndexTask == nil, !syncRunning, !importRunning else { return }
+        textStats = try? reader.attachmentTextStats()
+        guard (textStats?.pending ?? 0) > 0 else { return }
+        let extractor = pdfText
+        let token = UUID()
+        textIndexToken = token
+        textIndexTask = Task.detached(priority: .utility) { [weak self] in
+            do {
+                let writer = try ArchiveWriter(layout: try ArchiveLayout.open(at: root, create: false))
+                _ = try await AttachmentIndexer(writer: writer, extractor: extractor).run { p in
+                    Task { @MainActor in if self?.textIndexToken == token { self?.textIndexProgress = p } }
+                }
+            } catch {
+                // cancelled for an import/sync, or the archive is locked: resumes later
+            }
+            await MainActor.run {
+                guard let self, self.textIndexToken == token else { return }
+                self.textIndexTask = nil
+                self.textIndexToken = nil
+                self.textIndexProgress = nil
+                self.textStats = try? self.reader?.attachmentTextStats()
+            }
+        }
+    }
+
+    /// Stops the queue so import or sync can open the writer; await the returned task first.
+    private func pauseTextIndexing() -> Task<Void, Never>? {
+        let task = textIndexTask
+        task?.cancel()
+        return task
     }
 
     // MARK: Accounts & sync (read-only)
@@ -452,7 +502,9 @@ final class AppModel {
         let credentials = self.credentials
         syncRunning = true
         syncMessage = nil
+        let indexing = pauseTextIndexing()
         Task.detached { [weak self] in
+            await indexing?.value  // the queue holds the writer until it has stopped
             var summary: [String] = []
             do {
                 let writer = try ArchiveWriter(layout: try ArchiveLayout.open(at: root, create: false))
@@ -476,6 +528,7 @@ final class AppModel {
                 self?.syncProgress = nil
                 self?.syncMessage = text
                 self?.refresh()
+                self?.startTextIndexing()
             }
         }
     }

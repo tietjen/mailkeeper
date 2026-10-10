@@ -106,7 +106,7 @@ public enum QueryCompletion {
         ("folder:", "Ordner (Archiv/* für Unterordner)"), ("account:", "Konto"), ("label:", "Label"),
         ("list:", "Mailingliste (Teil der List-Id)"), ("sender:", "exakte Absenderadresse"),
         ("domain:", "exakte Absender-Domain"), ("listid:", "exakte List-Id"), ("filename:", "Name eines Anhangs"),
-        ("body:", "nur im Text"), ("only:archive", "nicht mehr auf dem Server"), ("on:server", "noch auf dem Server"),
+        ("body:", "nur im Text"), ("pdf:", "nur im Text von PDF-Anhängen"), ("only:archive", "nicht mehr auf dem Server"), ("on:server", "noch auf dem Server"),
     ]
 
     static let values: [String: [(String, String)]] = [

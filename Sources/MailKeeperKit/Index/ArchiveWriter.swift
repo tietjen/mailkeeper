@@ -242,6 +242,42 @@ public actor ArchiveWriter {
     /// file is built without WAL, so nothing is left behind at the swap. Missing or damaged
     /// blobs are reported, not fatal. Readers notice the replaced file and reopen
     /// (`ArchiveReader` checks the inode).
+    // MARK: Attachment text (ADR-0009)
+
+    /// Messages with a PDF attachment and no final result yet (failures of an older extractor
+    /// version count as pending), newest first.
+    public func pendingAttachmentText(limit: Int, version: Int) throws -> [(id: Int64, sha256: String)] {
+        try db.query("SELECT m.id, m.primary_blob FROM messages m WHERE \(Self.pendingText) ORDER BY m.date DESC NULLS LAST, m.id DESC LIMIT ?",
+                     [.int(Int64(version)), .int(Int64(limit))]) { ($0.int(0), $0.text(1) ?? "") }
+    }
+
+    public func pendingAttachmentTextCount(version: Int) throws -> Int {
+        Int(try db.queryOne("SELECT count(*) FROM messages m WHERE \(Self.pendingText)", [.int(Int64(version))]) { $0.int(0) } ?? 0)
+    }
+
+    private static let pendingText = """
+        m.id IN (SELECT a.message_id FROM attachments a WHERE a.is_inline = 0
+                 AND (a.mime_type = 'application/pdf' OR a.filename LIKE '%.pdf'))
+        AND m.id NOT IN (SELECT t.message_id FROM attachment_text t WHERE t.status != 'failed' OR t.version >= ?)
+        """
+
+    /// Stores the outcome for a message and replaces its searchable text.
+    public func setAttachmentText(messageID: Int64, _ result: AttachmentText, version: Int) throws {
+        try db.transaction {
+            try db.run("DELETE FROM attachment_text_fts WHERE rowid = ?", [.int(messageID)])
+            if !result.text.isEmpty {
+                try db.run("INSERT INTO attachment_text_fts(rowid, text) VALUES (?, ?)",
+                           [.int(messageID), .text(SearchText.normalize(result.text))])
+            }
+            try db.run("""
+                INSERT OR REPLACE INTO attachment_text(message_id, status, chars, detail, extracted, version)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """, [.int(messageID), .text(result.status.rawValue), .int(Int64(result.text.count)),
+                      .optional(result.detail.map { String($0.prefix(500)) }), .double(Date().timeIntervalSince1970),
+                      .int(Int64(version))])
+        }
+    }
+
     public func rebuildIndex(progress: (@Sendable (Int) -> Void)? = nil) throws -> RebuildReport {
         let fresh = layout.root.appending(path: "index.rebuild.sqlite").path
         let target = layout.indexURL.path

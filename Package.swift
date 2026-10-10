@@ -13,6 +13,8 @@ let package = Package(
         // Not named "MailKeeper": a case-only clash with "mailkeeper" paths breaks builds on
         // case-insensitive file systems (LaunchKeeper lesson).
         .executable(name: "MailKeeperGUI", targets: ["MailKeeperGUI"]),
+        // ADR-0009: PDF text extraction runs in this sandboxed XPC service, bundled with the app.
+        .executable(name: "MailKeeperPDFService", targets: ["MailKeeperPDFService"]),
     ],
     dependencies: [
         // ADR-0002: IMAP via swift-nio-imap (0.x, pinned exactly) on NIOPosix + NIOSSL
@@ -32,7 +34,11 @@ let package = Package(
         ]),
         .executableTarget(name: "mkctl", dependencies: ["MailKeeperKit", "MailKeeperIMAP"]),
         .executableTarget(name: "MailKeeperGUI", dependencies: ["MailKeeperKit", "MailKeeperIMAP"]),
+        // PDFKit lives here and is linked only into the service, never into the app.
+        .target(name: "MailKeeperPDF", dependencies: ["MailKeeperKit"]),
+        .executableTarget(name: "MailKeeperPDFService", dependencies: ["MailKeeperKit", "MailKeeperPDF"]),
         .testTarget(name: "MailKeeperKitTests", dependencies: ["MailKeeperKit"]),
         .testTarget(name: "MailKeeperIMAPTests", dependencies: ["MailKeeperIMAP", "MailKeeperKit"]),
+        .testTarget(name: "MailKeeperPDFTests", dependencies: ["MailKeeperPDF", "MailKeeperKit"]),
     ]
 )

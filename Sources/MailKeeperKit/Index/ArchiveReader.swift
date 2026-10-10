@@ -312,6 +312,20 @@ public final class ArchiveReader {
                        threadCount: max(1, Int(row.int(8))))
     }
 
+    /// Progress of making PDF attachments searchable (ADR-0009).
+    public func attachmentTextStats() throws -> AttachmentTextStats {
+        let db = try self.db
+        var stats = AttachmentTextStats()
+        stats.withPDF = Int(try db.queryOne("""
+            SELECT count(DISTINCT message_id) FROM attachments
+            WHERE is_inline = 0 AND (mime_type = 'application/pdf' OR filename LIKE '%.pdf')
+            """) { $0.int(0) } ?? 0)
+        try db.forEach("SELECT status, count(*) FROM attachment_text GROUP BY status") { row in
+            if let s = AttachmentText.Status(rawValue: row.text(0) ?? "") { stats.byStatus[s] = Int(row.int(1)) }
+        }
+        return stats
+    }
+
     // MARK: Conversations
 
     /// The conversation of a message, oldest first (just the message when it stands alone).

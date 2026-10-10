@@ -170,6 +170,12 @@ func summarize(_ p: ImportProgress, start: Date) {
         let reader = try ArchiveReader(layout: try ArchiveLayout.open(at: root, create: false))
         let s = try reader.stats()
         print("accounts \(s.accounts) · messages \(s.messages) · locations \(s.locations) · blobs \(s.blobs) (\(bytes(s.blobBytes)))")
+        let t = try reader.attachmentTextStats()
+        if t.withPDF > 0 {
+            let parts = AttachmentText.Status.allCases.compactMap { st in t.byStatus[st].map { "\(st.rawValue) \($0)" } }
+            print("pdf text: \(t.withPDF) messages with PDF · " + (parts + ["pending \(t.pending)"]).joined(separator: " · ")
+                  + (t.pending > 0 ? " (the app extracts them, ADR-0009)" : ""))
+        }
 
     case "accounts":
         let reader = try ArchiveReader(layout: try ArchiveLayout.open(at: root, create: false))

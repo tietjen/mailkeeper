@@ -14,24 +14,42 @@ struct QuerySQL {
         }
     }
 
-    /// Full-text leaves of one AND/OR level share a single MATCH.
+    /// Full-text leaves of one AND/OR level share a MATCH per table. Plain words (`any`) must be
+    /// found in the message OR its attachment text — each word on its own under AND, so a word
+    /// in the body and another in the PDF still match (ADR-0009).
     private mutating func combine(_ items: [QueryNode], op: String) -> String {
         var parts: [String] = []
-        var fts: [String] = []
+        var message: [String] = []
+        var attachment: [String] = []
         for item in items {
-            if case .predicate(.text(let field, let value, let prefix)) = item {
-                fts.append(Self.fts(field, value, prefix: prefix))
-            } else {
+            guard case .predicate(.text(let field, let value, let prefix)) = item else {
                 parts.append(condition(item))
+                continue
+            }
+            let expression = Self.fts(field, value, prefix: prefix)
+            switch field {
+            case .pdf: attachment.append(expression)
+            case .any where op == "OR": message.append(expression); attachment.append(expression)
+            case .any: parts.append(anyText(expression))
+            default: message.append(expression)
             }
         }
-        if !fts.isEmpty { parts.append(match(fts.map { "(\($0))" }.joined(separator: " \(op) "))) }
+        let joined = { (e: [String]) in e.map { "(\($0))" }.joined(separator: " \(op) ") }
+        if !message.isEmpty { parts.append(match(joined(message), in: "messages_fts")) }
+        if !attachment.isEmpty { parts.append(match(joined(attachment), in: "attachment_text_fts")) }
         return parts.count == 1 ? parts[0] : "(" + parts.joined(separator: " \(op) ") + ")"
     }
 
-    private mutating func match(_ expression: String) -> String {
+    /// `table` is one of two fixed names, never user input.
+    private mutating func match(_ expression: String, in table: String) -> String {
         params.append(.text(expression))
-        return "m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)"
+        return "m.id IN (SELECT rowid FROM \(table) WHERE \(table) MATCH ?)"
+    }
+
+    private mutating func anyText(_ expression: String) -> String {
+        params += [.text(expression), .text(expression)]
+        return "m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ? "
+            + "UNION SELECT rowid FROM attachment_text_fts WHERE attachment_text_fts MATCH ?)"
     }
 
     private static let columns: [QueryPredicate.TextField: String] = [
@@ -49,8 +67,12 @@ struct QuerySQL {
 
     private mutating func predicate(_ p: QueryPredicate) -> String {
         switch p {
+        case .text(.any, let value, let prefix):
+            return anyText(Self.fts(.any, value, prefix: prefix))
+        case .text(.pdf, let value, let prefix):
+            return match(Self.fts(.pdf, value, prefix: prefix), in: "attachment_text_fts")
         case .text(let field, let value, let prefix):
-            return match(Self.fts(field, value, prefix: prefix))
+            return match(Self.fts(field, value, prefix: prefix), in: "messages_fts")
         case .sender(let address):
             params.append(.text(address))
             return "m.from_addr = ? COLLATE NOCASE"

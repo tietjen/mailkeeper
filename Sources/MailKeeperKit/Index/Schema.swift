@@ -110,6 +110,21 @@ enum Schema {
         ) WITHOUT ROWID;
         CREATE INDEX message_refs_ref ON message_refs(ref);
         """,
+        // v4: text of PDF attachments (ADR-0009). Derived from blobs, filled by a background
+        // queue; a rebuild queues it again.
+        """
+        CREATE TABLE attachment_text(
+            message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+            status TEXT NOT NULL,
+            chars INTEGER NOT NULL DEFAULT 0,
+            detail TEXT,
+            extracted REAL NOT NULL,
+            version INTEGER NOT NULL
+        );
+        CREATE VIRTUAL TABLE attachment_text_fts USING fts5(
+            text, content='', contentless_delete=1, tokenize='unicode61 remove_diacritics 2'
+        );
+        """,
     ]
 
     static var currentVersion: Int { migrations.count }

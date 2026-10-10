@@ -48,12 +48,13 @@ struct ThreadTests {
         #expect(try Self.partition(ArchiveReader(layout: layout)) == Self.expected)
     }
 
-    @Test("Migration v2 → v3 links existing messages from their stored headers")
+    @Test("Migration v2 → current links existing messages from their stored headers")
     func migrationBackfills() async throws {
         let (layout, writer) = try await Self.archive(order: Array(0..<8))
         _ = writer
         let raw = try Database(path: layout.indexURL.path)
         try raw.execute("""
+            DROP TABLE attachment_text; DROP TABLE attachment_text_fts;
             DROP INDEX messages_thread; DROP TABLE message_refs; ALTER TABLE messages DROP COLUMN thread_id;
             PRAGMA user_version = 2;
             """)

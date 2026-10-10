@@ -9,7 +9,8 @@ public indirect enum QueryNode: Sendable, Equatable {
 }
 
 public enum QueryPredicate: Sendable, Equatable {
-    public enum TextField: String, Sendable { case any, subject, from, to, body, filename }
+    /// `any`: message or attachment text; `pdf`: attachment text only (ADR-0009).
+    public enum TextField: String, Sendable { case any, subject, from, to, body, filename, pdf }
     public enum Attachment: String, Sendable { case any, pdf, image, calendar }
     public enum Flag: String, Sendable { case unread, read, flagged, answered }
 
@@ -84,7 +85,7 @@ public enum QueryParser {
     // MARK: Tokens
 
     enum Field: String, CaseIterable {
-        case from, to, subject, body, filename, sender, has, larger, smaller
+        case from, to, subject, body, filename, pdf, sender, has, larger, smaller
         case after, before, until, date, account, folder, label, list, listid, domain, `is`, on, only, msgid, thread
 
         static let aliases: [String: Field] = {
@@ -94,7 +95,7 @@ public enum QueryParser {
                 "datei": .filename, "absender": .sender, "hat": .has, "größer": .larger, "groesser": .larger,
                 "kleiner": .smaller, "ab": .after, "since": .after, "seit": .after, "vor": .before, "bis": .until,
                 "datum": .date, "konto": .account, "in": .folder, "ordner": .folder, "liste": .list, "ist": .is,
-                "auf": .on, "nur": .only, "message-id": .msgid, "konversation": .thread,
+                "auf": .on, "nur": .only, "message-id": .msgid, "konversation": .thread, "anhangtext": .pdf,
             ]
             map.merge(extra) { a, _ in a }
             return map
@@ -299,6 +300,7 @@ public enum QueryParser {
             case .subject: return try text(.subject, "Betreff")
             case .body: return try text(.body, "Text")
             case .filename: return try text(.filename, "Anhang")
+            case .pdf: return try text(.pdf, "im PDF")
             case .sender:
                 let v = try required().lowercased()
                 return (.predicate(.sender(v)), "Absender: \(v)")

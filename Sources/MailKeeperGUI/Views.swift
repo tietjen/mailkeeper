@@ -262,6 +262,13 @@ struct StatusBar: View {
                     .help(message)
                     .onTapGesture { model.syncMessage = nil }
             }
+            if let p = model.textIndexProgress, p.total > 0 {
+                ProgressView(value: Double(min(p.done, p.total)), total: Double(p.total))
+                    .frame(width: 70)
+                    .controlSize(.mini)
+                Text("PDFs durchsuchbar machen: \(p.done.formatted()) von \(p.total.formatted())")
+                    .help("Läuft im Hintergrund in einem abgeschotteten Prozess ohne Netz- und Dateizugriff. Import und Abruf haben Vorrang.")
+            }
             if let stats = model.stats {
                 Text("\(model.messageIDs.count) von \(stats.messages) Nachrichten")
                 Text(ByteCountFormatter.string(fromByteCount: stats.blobBytes, countStyle: .file))
