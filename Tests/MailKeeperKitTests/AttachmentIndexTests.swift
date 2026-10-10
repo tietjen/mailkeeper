@@ -77,6 +77,23 @@ struct AttachmentIndexTests {
         #expect(try await writer.pendingAttachmentTextCount(version: AttachmentIndexer.version) == 5)
     }
 
+    /// Import and sync cancel the queue mid-extraction: that must not record a failure.
+    @Test func cancellationRecordsNothingAndResumesLater() async throws {
+        struct SlowExtractor: AttachmentTextExtractor {
+            func extractText(pdf: Data) async throws -> AttachmentText {
+                try await Task.sleep(for: .seconds(30))  // throws CancellationError when cancelled
+                return AttachmentText(status: .ok, text: "late")
+            }
+        }
+        let (layout, writer) = try await Self.archive()
+        let task = Task { try await AttachmentIndexer(writer: writer, extractor: SlowExtractor()).run() }
+        try await Task.sleep(for: .milliseconds(200))
+        task.cancel()
+        await #expect(throws: CancellationError.self) { _ = try await task.value }
+        #expect(try ArchiveReader(layout: layout).attachmentTextStats().done == 0)
+        #expect(try await AttachmentIndexer(writer: writer, extractor: FakeExtractor()).run().done == 5)
+    }
+
     @Test func reindexingReplacesText() async throws {
         let (layout, writer) = try await Self.archive()
         let r = try ArchiveReader(layout: layout)
