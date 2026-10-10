@@ -25,8 +25,17 @@ public struct AccountInfo: Sendable, Equatable {
     }
 }
 
+/// Outcome of an index rebuild. Missing or damaged blobs do not stop a rebuild; they are listed.
+public struct RebuildReport: Sendable, Equatable {
+    public var locations = 0
+    public var missingBlobs: [String] = []
+    public var damagedBlobs: [String] = []
+    public var skippedEvents = 0
+}
+
 /// The single writer of an archive: holds the archive lock, the write connection, the blob
-/// store and the journal. Order per message: blob durable → index row → journal event.
+/// store and the journal. Order per message (ADR-0001, blobs + journal are the truth):
+/// blob durable → journal event → journal fsync → index commit.
 public actor ArchiveWriter {
     public let layout: ArchiveLayout
     private let lock: ArchiveLock
@@ -37,6 +46,7 @@ public actor ArchiveWriter {
     public init(layout: ArchiveLayout) throws {
         self.layout = layout
         lock = try ArchiveLock(layout)
+        layout.removeTemporaryFiles()  // only the lock holder may touch staging files
         db = try Database(path: layout.indexURL.path)
         try Schema.migrate(db)
         journal = Journal(root: layout.journalURL)
@@ -46,54 +56,89 @@ public actor ArchiveWriter {
     // MARK: Accounts
 
     public func register(_ account: AccountInfo) throws {
-        let exists = try db.queryOne("SELECT 1 FROM accounts WHERE id = ?", [.text(account.id)]) { _ in true } ?? false
+        let exists = try db.queryOne("SELECT 1 FROM accounts WHERE id = ? AND kind != 'unknown'", [.text(account.id)]) { _ in true } ?? false
         guard !exists else { return }
-        try insertAccount(account, time: Date().timeIntervalSince1970)
         try journal.append(.account(account.id, kind: account.kind, name: account.name))
-        journal.sync()
+        try journal.sync()
+        try upsertAccount(account, time: Date().timeIntervalSince1970)
     }
 
-    private func insertAccount(_ a: AccountInfo, time: Double) throws {
-        try db.run("INSERT OR IGNORE INTO accounts(id, kind, display_name, created) VALUES (?, ?, ?, ?)",
-                   [.text(a.id), .text(a.kind), .text(a.name), .double(time)])
+    /// Inserts an account or upgrades a placeholder created for a location without account event.
+    private func upsertAccount(_ a: AccountInfo, time: Double) throws {
+        try db.run("""
+            INSERT INTO accounts(id, kind, display_name, created) VALUES (?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, display_name = excluded.display_name
+            WHERE accounts.kind = 'unknown'
+            """, [.text(a.id), .text(a.kind), .text(a.name), .double(time)])
     }
 
     // MARK: Ingest
 
-    /// Ingests a batch in one transaction (fast imports). Journal events are synced at the end.
+    private enum Mode {
+        case live
+        case replay(sha256: String, intact: Bool)
+    }
+
+    /// Ingests a batch in one transaction (fast imports). The journal is fsync'ed before the
+    /// index commits, so a crash can leave journal events without index rows (a rebuild adds
+    /// them) but never index rows without journal events.
     public func ingest(_ batch: [(data: Data, location: LocationInfo)]) throws -> [IngestResult] {
-        let results = try db.transaction {
-            try batch.map { try ingestOne($0.data, at: $0.location, journalled: true) }
+        let now = Date().timeIntervalSince1970
+        return try db.transaction {
+            let results = try batch.map { try ingestOne($0.data, at: $0.location, mode: .live, time: now) }
+            try journal.sync()
+            return results
         }
-        journal.sync()
-        return results
     }
 
     public func ingest(_ data: Data, at location: LocationInfo) throws -> IngestResult {
         try ingest([(data, location)])[0]
     }
 
-    private func ingestOne(_ data: Data, at loc: LocationInfo, journalled: Bool, time: Double = Date().timeIntervalSince1970) throws -> IngestResult {
+    private struct ExistingLocation {
+        var id: Int64
+        var messageID: Int64
+        var sha256: String
+        var flags: String
+        var labels: String
+    }
+
+    private func ingestOne(_ data: Data, at loc: LocationInfo, mode: Mode, time: Double) throws -> IngestResult {
         let sha: String
-        if journalled {
-            sha = try blobs.put(data).sha256
-        } else {
-            sha = sha256Hex(data)  // rebuild: blob exists already
+        var intact = true
+        switch mode {
+        case .live: sha = try blobs.put(data).sha256
+        case .replay(let s, let ok): sha = s; intact = ok
         }
         try db.run("INSERT OR IGNORE INTO blobs(sha256, size, added, verified) VALUES (?, ?, ?, ?)",
-                   [.text(sha), .int(Int64(data.count)), .double(time), .double(time)])
+                   [.text(sha), .int(Int64(data.count)), .double(time), intact ? .double(time) : .null])
+        // Foreign key target; a rebuild may meet a location whose account event was lost.
+        try db.run("INSERT OR IGNORE INTO accounts(id, kind, display_name, created) VALUES (?, 'unknown', ?, ?)",
+                   [.text(loc.account), .text(loc.account), .double(time)])
 
-        if let (locID, msgID) = try existingLocation(loc) {
-            try db.run("UPDATE locations SET flags = ?, labels = ?, last_seen = ?, on_server = 1 WHERE id = ?",
-                       [.text(loc.flags.joined(separator: " ")), .text(loc.labels.joined(separator: "\u{1F}")), .double(time), .int(locID)])
-            return .unchanged(msgID)
+        let flags = loc.flags.joined(separator: " ")
+        let labels = loc.labels.joined(separator: "\u{1F}")
+        if let existing = try existingLocation(loc) {
+            if existing.sha256 == sha {
+                if existing.flags != flags || existing.labels != labels {
+                    if case .live = mode { try journal.append(.seen(loc, sha256: sha, time: time)) }
+                    try db.run("UPDATE locations SET flags = ?, labels = ? WHERE id = ?",
+                               [.text(flags), .text(labels), .int(existing.id)])
+                }
+                try db.run("UPDATE locations SET last_seen = ?, on_server = 1 WHERE id = ?", [.double(time), .int(existing.id)])
+                return .unchanged(existing.messageID)
+            }
+            // Different bytes at a known location (rewritten Maildir file): the newer content wins.
+            try db.run("DELETE FROM locations WHERE id = ?", [.int(existing.id)])
         }
+
+        if case .live = mode { try journal.append(.seen(loc, sha256: sha, time: time)) }
 
         var isNewMessage = false
         var messageRowID = try db.queryOne("SELECT message_id FROM message_blobs WHERE sha256 = ?", [.text(sha)]) { $0.int(0) }
         if messageRowID == nil {
             let parsed = MIMEParser.parse(data)
-            let identity = Self.identity(parsed, sha: sha)
+            let identity = try resolveIdentity(parsed, sha: sha)
             messageRowID = try db.queryOne("SELECT id FROM messages WHERE identity = ?", [.text(identity)]) { $0.int(0) }
             if messageRowID == nil {
                 messageRowID = try insertMessage(parsed, identity: identity, sha: sha, size: data.count, time: time)
@@ -108,26 +153,44 @@ public actor ArchiveWriter {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
             """, [.int(msgID), .text(sha), .text(loc.account), .text(loc.mailbox),
                   .optional(loc.uidValidity.map(Int64.init)), .optional(loc.uid.map(Int64.init)), .optional(loc.providerID),
-                  .optional(loc.internalDate?.timeIntervalSince1970), .text(loc.flags.joined(separator: " ")),
-                  .text(loc.labels.joined(separator: "\u{1F}")), .double(time), .double(time)])
-        if journalled { try journal.append(.seen(loc, sha256: sha, time: time)) }
+                  .optional(loc.internalDate?.timeIntervalSince1970), .text(flags), .text(labels), .double(time), .double(time)])
         return isNewMessage ? .newMessage(msgID) : .newLocation(msgID)
     }
 
-    private func existingLocation(_ loc: LocationInfo) throws -> (Int64, Int64)? {
+    private func existingLocation(_ loc: LocationInfo) throws -> ExistingLocation? {
+        let map = { (r: Row) in
+            ExistingLocation(id: r.int(0), messageID: r.int(1), sha256: r.text(2) ?? "", flags: r.text(3) ?? "", labels: r.text(4) ?? "")
+        }
         if let uid = loc.uid {
             return try db.queryOne("""
-                SELECT id, message_id FROM locations
+                SELECT id, message_id, sha256, flags, labels FROM locations
                 WHERE account_id = ? AND mailbox = ? AND uid_validity IS ? AND uid = ?
-                """, [.text(loc.account), .text(loc.mailbox), .optional(loc.uidValidity.map(Int64.init)), .int(Int64(uid))]) { ($0.int(0), $0.int(1)) }
+                """, [.text(loc.account), .text(loc.mailbox), .optional(loc.uidValidity.map(Int64.init)), .int(Int64(uid))], map)
         }
         if let pid = loc.providerID {
             return try db.queryOne("""
-                SELECT id, message_id FROM locations
+                SELECT id, message_id, sha256, flags, labels FROM locations
                 WHERE account_id = ? AND mailbox = ? AND uid IS NULL AND provider_id = ?
-                """, [.text(loc.account), .text(loc.mailbox), .text(pid)]) { ($0.int(0), $0.int(1)) }
+                """, [.text(loc.account), .text(loc.mailbox), .text(pid)], map)
         }
         return nil
+    }
+
+    /// A shared Message-ID only merges messages that also agree on sender and subject.
+    /// Otherwise a reused or forged Message-ID would hide a different mail behind the first one.
+    private func resolveIdentity(_ p: ParsedMessage, sha: String) throws -> String {
+        let base = Self.identity(p, sha: sha)
+        guard base.hasPrefix("mid:"),
+              let (from, subject) = try db.queryOne("SELECT from_addr, subject FROM messages WHERE identity = ?",
+                                                    [.text(base)], { ($0.text(0), $0.text(1)) })
+        else { return base }
+        if Self.sameMessage(from: from, subject: subject, as: p) { return base }
+        return base + "|" + Self.fallbackIdentity(p, sha: sha)
+    }
+
+    static func sameMessage(from: String?, subject: String?, as p: ParsedMessage) -> Bool {
+        let norm = { (s: String?) in collapseWhitespace((s ?? "").lowercased()) }
+        return norm(from) == norm(p.from.first?.address) && norm(subject) == norm(p.subject)
     }
 
     private func insertMessage(_ p: ParsedMessage, identity: String, sha: String, size: Int, time: Double) throws -> Int64 {
@@ -160,41 +223,62 @@ public actor ArchiveWriter {
     /// the start of the text — stable across header rewrites like Proton's.
     static func identity(_ p: ParsedMessage, sha: String) -> String {
         if let id = p.messageID { return "mid:" + id }
-        let basis = [p.from.first?.address ?? "", p.date.map { String(Int($0.timeIntervalSince1970)) } ?? "",
-                     p.subject ?? "", String(collapseWhitespace(p.text).prefix(4096))].joined(separator: "\u{1F}")
-        return "h:" + sha256Hex(Data(basis.utf8))
+        return fallbackIdentity(p, sha: sha)
+    }
+
+    static func fallbackIdentity(_ p: ParsedMessage, sha: String) -> String {
+        let parts = [p.from.first?.address ?? "", p.date.map { String(Int($0.timeIntervalSince1970)) } ?? "",
+                     p.subject ?? "", String(collapseWhitespace(p.text).prefix(4096))]
+        // Nothing to identify it by (empty or headerless junk): only identical bytes are the same.
+        if parts.allSatisfy(\.isEmpty) { return "sha:" + sha }
+        return "h:" + sha256Hex(Data(parts.joined(separator: "\u{1F}").utf8))
     }
 
     // MARK: Rebuild & verify
 
-    /// Rebuilds the index from journal + blobs into a fresh file, then swaps it in. Every
-    /// connection to the old file is closed before the swap; readers must reopen afterwards.
-    public func rebuildIndex(progress: (@Sendable (Int) -> Void)? = nil) throws -> Int {
+    /// Rebuilds the index from journal + blobs into a fresh file, then swaps it in. The fresh
+    /// file is built without WAL, so nothing is left behind at the swap. Missing or damaged
+    /// blobs are reported, not fatal. Readers notice the replaced file and reopen
+    /// (`ArchiveReader` checks the inode).
+    public func rebuildIndex(progress: (@Sendable (Int) -> Void)? = nil) throws -> RebuildReport {
         let fresh = layout.root.appending(path: "index.rebuild.sqlite").path
         let target = layout.indexURL.path
         Self.removeDatabaseFiles(fresh)
-        db = try Database(path: fresh)  // releases (closes) the live connection
-        var count = 0
+        db = try Database(path: fresh, wal: false)  // releases (closes) the live connection
+        var report = RebuildReport()
+        var missing = Set<String>(), damaged = Set<String>()
         do {
             try Schema.migrate(db)
             try db.execute("BEGIN IMMEDIATE")
             try journal.replay { event in
                 switch event.kind {
                 case .account:
-                    try insertAccount(AccountInfo(id: event.account, kind: event.accountKind ?? "unknown",
+                    try upsertAccount(AccountInfo(id: event.account, kind: event.accountKind ?? "unknown",
                                                   name: event.accountName ?? event.account), time: event.time)
                 case .seen:
-                    guard let sha = event.sha256, let mailbox = event.mailbox else { return }
-                    let data = try blobs.read(sha)
+                    guard let sha = event.sha256, BlobStore.isValidSHA(sha), let mailbox = event.mailbox else {
+                        report.skippedEvents += 1
+                        return
+                    }
+                    guard let data = try? blobs.read(sha) else {
+                        missing.insert(sha)
+                        return
+                    }
+                    let intact = sha256Hex(data) == sha
+                    if !intact { damaged.insert(sha) }
                     let loc = LocationInfo(account: event.account, mailbox: mailbox, uidValidity: event.uidValidity,
                                            uid: event.uid, providerID: event.providerID,
                                            internalDate: event.internalDate.map(Date.init(timeIntervalSince1970:)),
                                            flags: event.flags ?? [], labels: event.labels ?? [])
-                    _ = try ingestOne(data, at: loc, journalled: false, time: event.time)
-                    count += 1
-                    if count % 1000 == 0 {
+                    do {
+                        _ = try ingestOne(data, at: loc, mode: .replay(sha256: sha, intact: intact), time: event.time)
+                        report.locations += 1
+                    } catch {
+                        report.skippedEvents += 1
+                    }
+                    if report.locations % 1000 == 0 {
                         try db.execute("COMMIT; BEGIN IMMEDIATE")
-                        progress?(count)
+                        progress?(report.locations)
                     }
                 case .gone:
                     try db.run("""
@@ -211,34 +295,38 @@ public actor ArchiveWriter {
             Self.removeDatabaseFiles(fresh)
             throw error
         }
-        db = try Database(path: ":memory:")  // close the fresh file cleanly (checkpoints its WAL)
+        db = try Database(path: ":memory:")  // close the fresh file (rollback journal: no -wal/-shm)
         for suffix in ["-wal", "-shm"] { try? FileManager.default.removeItem(atPath: target + suffix) }
         guard rename(fresh, target) == 0 else {
             db = try Database(path: target)
             throw ArchiveError.io("rename index", path: target)
         }
-        db = try Database(path: target)
-        return count
+        Self.removeDatabaseFiles(fresh)
+        db = try Database(path: target)  // back to WAL
+        report.missingBlobs = missing.sorted()
+        report.damagedBlobs = damaged.sorted()
+        return report
     }
 
     static func removeDatabaseFiles(_ path: String) {
         for suffix in ["", "-wal", "-shm", "-journal"] { try? FileManager.default.removeItem(atPath: path + suffix) }
     }
 
-    /// Re-hashes every blob; returns the shas that do not match their content.
+    /// Re-hashes every blob; returns the shas that do not match their content and marks them
+    /// unverified in the index.
     public func verifyBlobs(progress: (@Sendable (Int) -> Void)? = nil) throws -> [String] {
         let shas = try db.query("SELECT sha256 FROM blobs") { $0.text(0) ?? "" }
-        var bad: [String] = []
+        var bad = Set<String>()
         for (n, sha) in shas.enumerated() {
-            if (try? blobs.verify(sha)) != true { bad.append(sha) }
+            if (try? blobs.verify(sha)) != true { bad.insert(sha) }
             if n % 1000 == 0 { progress?(n) }
         }
         let now = Date().timeIntervalSince1970
         try db.transaction {
-            for sha in shas where !bad.contains(sha) {
-                try db.run("UPDATE blobs SET verified = ? WHERE sha256 = ?", [.double(now), .text(sha)])
+            for sha in shas {
+                try db.run("UPDATE blobs SET verified = ? WHERE sha256 = ?", [bad.contains(sha) ? .null : .double(now), .text(sha)])
             }
         }
-        return bad
+        return bad.sorted()
     }
 }

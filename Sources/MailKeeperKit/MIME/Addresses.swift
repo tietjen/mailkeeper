@@ -142,10 +142,20 @@ enum MessageIDs {
         return out
     }
 
-    /// The first `<…>` token, or a bare token when a sender omitted the brackets.
+    /// The first plausible `<…>` token, or a bare token when a sender omitted the brackets.
+    /// Degenerate ids (`<>`, `<unknown>`, `<1>`) count as missing: treated as identity they
+    /// would merge unrelated mails.
     static func first(_ raw: String?) -> String? {
-        if let id = all(raw).first { return id }
-        guard let t = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty, !t.contains(" ") else { return nil }
-        return "<\(t)>"
+        if let id = all(raw).first(where: isPlausible) { return id }
+        guard let t = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty,
+              !t.contains(" "), !t.contains("<"), !t.contains(">") else { return nil }
+        let id = "<\(t)>"
+        return isPlausible(id) ? id : nil
+    }
+
+    static func isPlausible(_ id: String) -> Bool {
+        let inner = id.dropFirst().dropLast()
+        guard inner.count >= 4, inner.contains(where: { $0.isLetter || $0.isNumber }) else { return false }
+        return !["unknown", "none", "null", "nil", "undefined", "<none>"].contains(inner.lowercased())
     }
 }

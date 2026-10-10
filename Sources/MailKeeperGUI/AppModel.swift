@@ -58,6 +58,8 @@ final class AppModel {
     var selectedMessageID: Int64?
 
     private(set) var importStatus: ImportStatus?
+    private(set) var importRunning = false
+    private(set) var listError: String?
     private var searchTask: Task<Void, Never>?
     private var scopedURL: URL?
 
@@ -79,28 +81,35 @@ final class AppModel {
         }
         if let data = UserDefaults.standard.data(forKey: Self.bookmarkKey) {
             var stale = false
-            if let url = try? URL(resolvingBookmarkData: data, options: [.withSecurityScope], bookmarkDataIsStale: &stale) {
-                if url.startAccessingSecurityScopedResource() { scopedURL = url }
-                if stale, let fresh = try? url.bookmarkData(options: [.withSecurityScope]) {
-                    UserDefaults.standard.set(fresh, forKey: Self.bookmarkKey)
-                }
-                open(url, create: false)
+            guard let url = try? URL(resolvingBookmarkData: data, options: [.withSecurityScope], bookmarkDataIsStale: &stale) else {
+                // The chosen archive is unreachable (volume not mounted, folder gone). Do not fall
+                // back to another archive silently: imports would land in the wrong place.
+                openError = String(localized: "Das gewählte Archiv ist nicht erreichbar. Ist das Laufwerk angeschlossen?")
                 return
             }
+            if url.startAccessingSecurityScopedResource() { scopedURL = url }
+            if stale, let fresh = try? url.bookmarkData(options: [.withSecurityScope]) {
+                UserDefaults.standard.set(fresh, forKey: Self.bookmarkKey)
+            }
+            open(url, create: false)
+            return
         }
         let fallback = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appending(path: "MailKeeper/Archive")
         open(fallback, create: true)
     }
 
-    func open(_ url: URL, create: Bool) {
+    @discardableResult
+    func open(_ url: URL, create: Bool) -> Bool {
         do {
             let layout = try ArchiveLayout.open(at: url, create: create)
             reader = try ArchiveReader(layout: layout)
             archiveRoot = url
             volumeEncrypted = layout.volumeIsEncrypted
             openError = nil
+            selectedMessageID = nil
             refresh()
+            return true
         } catch {
             reader = nil
             archiveRoot = url
@@ -108,6 +117,7 @@ final class AppModel {
             accounts = []
             messageIDs = []
             listGeneration += 1
+            return false
         }
     }
 
@@ -119,12 +129,16 @@ final class AppModel {
         panel.prompt = String(localized: "Archiv verwenden")
         panel.message = String(localized: "Wähle einen bestehenden MailKeeper-Archivordner oder einen leeren Ordner für ein neues Archiv.")
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        let accessing = url.startAccessingSecurityScopedResource()
+        guard open(url, create: true) else {
+            if accessing { url.stopAccessingSecurityScopedResource() }
+            return  // keep the previous bookmark; the error is shown
+        }
         scopedURL?.stopAccessingSecurityScopedResource()
-        scopedURL = url.startAccessingSecurityScopedResource() ? url : nil
+        scopedURL = accessing ? url : nil
         if let bookmark = try? url.bookmarkData(options: [.withSecurityScope]) {
             UserDefaults.standard.set(bookmark, forKey: Self.bookmarkKey)
         }
-        open(url, create: true)
     }
 
     // MARK: Data
@@ -141,7 +155,13 @@ final class AppModel {
         var filter = sidebarSelection?.filter ?? MessageFilter()
         let text = searchText.trimmingCharacters(in: .whitespaces)
         filter.text = text.isEmpty ? nil : text
-        messageIDs = (try? reader.messageIDs(filter, sort: sort, ascending: ascending)) ?? []
+        do {
+            messageIDs = try reader.messageIDs(filter, sort: sort, ascending: ascending)
+            listError = nil
+        } catch {
+            messageIDs = []
+            listError = "\(error)"  // an I/O error must not look like "no results"
+        }
         listGeneration += 1
         if let sel = selectedMessageID, !messageIDs.contains(sel) { selectedMessageID = nil }
     }
@@ -167,15 +187,23 @@ final class AppModel {
         (try? reader?.summaries(ids)) ?? []
     }
 
-    func detail(_ id: Int64) -> (MessageDetail, ParsedMessage)? {
-        guard let reader, let d = try? reader.detail(id), let p = try? reader.parsedMessage(id) else { return nil }
-        return (d, p)
+    func detail(_ id: Int64) -> MessageDetail? {
+        try? reader?.detail(id)
+    }
+
+    /// Reads and parses the stored message off the main thread (large mails take a while).
+    func parse(_ detail: MessageDetail) async -> ParsedMessage? {
+        guard let blobs = reader?.layout.blobs else { return nil }
+        let sha = detail.primaryBlob
+        return await Task.detached(priority: .userInitiated) {
+            (try? blobs.read(sha)).map(MIMEParser.parse)
+        }.value
     }
 
     // MARK: Import
 
     func startImport(_ kind: ImportKind) {
-        guard let root = archiveRoot, importStatus?.finished != false else { return }
+        guard let root = archiveRoot, !importRunning else { return }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = kind != .mbox
         panel.canChooseFiles = kind == .mbox
@@ -183,6 +211,7 @@ final class AppModel {
         guard panel.runModal() == .OK, let source = panel.url else { return }
         let account = source.deletingPathExtension().lastPathComponent
         importStatus = ImportStatus(title: String(localized: "Import \(source.lastPathComponent)"))
+        importRunning = true
 
         let accessing = source.startAccessingSecurityScopedResource()
         Task.detached { [weak self] in
@@ -201,12 +230,14 @@ final class AppModel {
                 await MainActor.run {
                     self?.importStatus?.progress = result
                     self?.importStatus?.finished = true
+                    self?.importRunning = false
                     self?.refresh()
                 }
             } catch {
                 await MainActor.run {
                     self?.importStatus?.error = "\(error)"
                     self?.importStatus?.finished = true
+                    self?.importRunning = false
                 }
             }
         }

@@ -66,7 +66,9 @@ public final class Database {
     private var cache: [String: OpaquePointer] = [:]
     public let path: String
 
-    public init(path: String, readOnly: Bool = false) throws {
+    /// `wal: false` uses a rollback journal (the index rebuild builds its fresh file that way,
+    /// so no -wal/-shm files exist when it is swapped in).
+    public init(path: String, readOnly: Bool = false, wal: Bool = true) throws {
         var h: OpaquePointer?
         let flags = (readOnly ? SQLITE_OPEN_READONLY : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE)) | SQLITE_OPEN_NOMUTEX
         let rc = sqlite3_open_v2(path, &h, flags, nil)
@@ -79,7 +81,10 @@ public final class Database {
         self.path = path
         sqlite3_busy_timeout(h, 5_000)
         if !readOnly {
-            try execute("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")
+            try execute(wal ? "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;" : "PRAGMA journal_mode=DELETE;")
+            // The index holds subjects, senders and snippets: private to the user (SQLite would
+            // create it with the umask default, 0644). -wal/-shm inherit the main file's mode.
+            if path != ":memory:" { chmod(path, 0o600) }
         }
         try execute("PRAGMA foreign_keys=ON;")
     }

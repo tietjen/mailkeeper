@@ -34,6 +34,12 @@ public struct BlobStore: Sendable {
         self.tmp = tmp
     }
 
+    /// 64 lowercase hex digits. Hashes also come from the journal and the index; a forged value
+    /// must not become a path like "../../x".
+    public static func isValidSHA(_ s: String) -> Bool {
+        s.utf8.count == 64 && s.utf8.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }
+    }
+
     public func url(for sha: String) -> URL {
         let a = sha.prefix(2), b = sha.dropFirst(2).prefix(2)
         return root.appending(path: "\(a)/\(b)/\(sha).eml", directoryHint: .notDirectory)
@@ -71,6 +77,7 @@ public struct BlobStore: Sendable {
     }
 
     public func read(_ sha: String) throws -> Data {
+        guard Self.isValidSHA(sha) else { throw ArchiveError.io("invalid blob id", path: sha) }
         do { return try Data(contentsOf: url(for: sha)) } catch {
             throw ArchiveError.io("read", path: url(for: sha).path)
         }

@@ -98,9 +98,11 @@ public final class Journal {
         }
     }
 
-    /// Flushes appended events to disk (call at the end of a batch).
-    public func sync() {
-        for h in handles.values { try? h.synchronize() }
+    /// Flushes appended events to disk (call at the end of a batch, before the index commits).
+    public func sync() throws {
+        for h in handles.values {
+            do { try h.synchronize() } catch { throw ArchiveError.io("journal fsync", path: root.path) }
+        }
     }
 
     /// Replays all events of all accounts in file order (files sorted by name = by month).
@@ -137,13 +139,22 @@ public final class Journal {
             if fd >= 0 { close(fd) }
         }
         guard let h = FileHandle(forWritingAtPath: file.path) else { throw ArchiveError.io("journal open", path: file.path) }
-        try h.seekToEnd()
+        let end = try h.seekToEnd()
+        // A crash can leave a torn last line. Terminate it, or the next event would be glued
+        // to the fragment and both would be lost on replay.
+        if end > 0, let reader = FileHandle(forReadingAtPath: file.path) {
+            defer { try? reader.close() }
+            try reader.seek(toOffset: end - 1)
+            if try reader.read(upToCount: 1) != Data([0x0A]) { try h.write(contentsOf: Data([0x0A])) }
+        }
         handles[key] = h
         return h
     }
 
     static func safeComponent(_ s: String) -> String {
-        String(s.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" || $0 == "." ? $0 : "_" })
+        let mapped = String(s.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" || $0 == "." ? $0 : "_" })
+        // "", "." and ".." would write into journal/ itself or above it.
+        return mapped.allSatisfy({ $0 == "." }) ? "_" + mapped.replacingOccurrences(of: ".", with: "_") : mapped
     }
 
     /// "yyyy-MM" in UTC.

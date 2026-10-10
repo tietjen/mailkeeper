@@ -51,6 +51,15 @@ var args = Array(CommandLine.arguments.dropFirst())
         .appending(path: "MailKeeper/Archive")
 }
 
+/// Mail content is untrusted: strip terminal control sequences (ANSI/OSC — window titles,
+/// clipboard writes, cursor tricks) before printing. Keeps newline and tab.
+func clean(_ s: String?) -> String {
+    guard let s else { return "" }
+    return String(String.UnicodeScalarView(s.unicodeScalars.filter { c in
+        c == "\n" || c == "\t" || !(c.value < 0x20 || c.value == 0x7F || (0x80...0x9F).contains(c.value))
+    }))
+}
+
 func bytes(_ n: Int64) -> String {
     ByteCountFormatter.string(fromByteCount: n, countStyle: .file)
 }
@@ -129,7 +138,9 @@ func summarize(_ p: ImportProgress, start: Date) {
         let ids = try reader.messageIDs(MessageFilter(text: terms))
         let elapsed = Date().timeIntervalSince(t0)
         for m in try reader.summaries(Array(ids.prefix(limit))) {
-            print("\(String(format: "%7d", m.id))  \(formatDate(m.date))  \(m.fromDisplay.prefix(28).padding(toLength: 28, withPad: " ", startingAt: 0))  \(m.subject ?? "")")
+            let id = String(m.id)
+            let from = clean(m.fromDisplay).prefix(28).padding(toLength: 28, withPad: " ", startingAt: 0)
+            print("\(String(repeating: " ", count: max(0, 7 - id.count)))\(id)  \(formatDate(m.date))  \(from)  \(clean(m.subject))")
         }
         print(String(format: "%d hits in %.3fs", ids.count, elapsed))
 
@@ -137,18 +148,18 @@ func summarize(_ p: ImportProgress, start: Date) {
         guard let idText = args.first, let id = Int64(idText) else { throw CLIError(description: "show <id>") }
         let reader = try ArchiveReader(layout: try ArchiveLayout.open(at: root, create: false))
         guard let d = try reader.detail(id), let p = try reader.parsedMessage(id) else { throw CLIError(description: "no message \(id)") }
-        print("Subject:    \(p.subject ?? "")")
-        print("From:       \(p.from.map(\.display).joined(separator: ", "))")
-        print("To:         \(p.to.map(\.display).joined(separator: ", "))")
+        print("Subject:    \(clean(p.subject))")
+        print("From:       \(clean(p.from.map(\.display).joined(separator: ", ")))")
+        print("To:         \(clean(p.to.map(\.display).joined(separator: ", ")))")
         print("Date:       \(p.date.map { $0.formatted() } ?? "—")")
-        print("Message-ID: \(d.messageID ?? "—")")
-        if let list = d.listID { print("List-Id:    \(list)") }
-        for a in p.attachments { print("Attachment: \(a.filename ?? "(unnamed)") — \(a.mimeType), \(bytes(Int64(a.size)))\(a.isInline ? " inline" : "")") }
+        print("Message-ID: \(clean(d.messageID ?? "—"))")
+        if let list = d.listID { print("List-Id:    \(clean(list))") }
+        for a in p.attachments { print("Attachment: \(clean(a.filename ?? "(unnamed)")) — \(clean(a.mimeType)), \(bytes(Int64(a.size)))\(a.isInline ? " inline" : "")") }
         for l in d.locations {
-            print("Location:   \(l.account)/\(l.mailbox)\(l.uid.map { " uid \($0)" } ?? "") flags[\(l.flags.joined(separator: " "))]\(l.labels.isEmpty ? "" : " labels[\(l.labels.joined(separator: ", "))]") blob \(l.sha256.prefix(12))…")
+            print(clean("Location:   \(l.account)/\(l.mailbox)\(l.uid.map { " uid \($0)" } ?? "") flags[\(l.flags.joined(separator: " "))]\(l.labels.isEmpty ? "" : " labels[\(l.labels.joined(separator: ", "))]") blob \(l.sha256.prefix(12))…"))
         }
         print("")
-        print(String(p.text.prefix(2000)))
+        print(clean(String(p.text.prefix(2000))))
 
     case "verify":
         let writer = try ArchiveWriter(layout: try ArchiveLayout.open(at: root, create: false))
@@ -159,8 +170,12 @@ func summarize(_ p: ImportProgress, start: Date) {
     case "rebuild-index":
         let writer = try ArchiveWriter(layout: try ArchiveLayout.open(at: root, create: false))
         let start = Date()
-        let n = try await writer.rebuildIndex { n in FileHandle.standardError.write(Data("\r\(n) locations".utf8)) }
-        print(String(format: "\nrebuilt index from %d locations in %.1fs", n, Date().timeIntervalSince(start)))
+        let r = try await writer.rebuildIndex { n in FileHandle.standardError.write(Data("\r\(n) locations".utf8)) }
+        print(String(format: "\nrebuilt index: %d locations in %.1fs", r.locations, Date().timeIntervalSince(start)))
+        if !r.missingBlobs.isEmpty { print("missing blobs (\(r.missingBlobs.count)):\n" + r.missingBlobs.joined(separator: "\n")) }
+        if !r.damagedBlobs.isEmpty { print("damaged blobs (\(r.damagedBlobs.count)):\n" + r.damagedBlobs.joined(separator: "\n")) }
+        if r.skippedEvents > 0 { print("skipped journal events: \(r.skippedEvents)") }
+        if !r.missingBlobs.isEmpty || !r.damagedBlobs.isEmpty { exit(1) }
 
     case "help", "--help", "-h":
         print(usage)

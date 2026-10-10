@@ -13,7 +13,8 @@ public enum MailDate {
     ]
 
     public static func parse(_ raw: String?) -> Date? {
-        guard var s = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { return nil }
+        // A real date fits easily; capping keeps comment stripping cheap on hostile headers.
+        guard var s = raw.map({ String($0.prefix(256)) })?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { return nil }
         if let iso = parseISO(s) { return iso }
         // drop comments
         while let open = s.firstIndex(of: "("), let close = s[open...].firstIndex(of: ")") {

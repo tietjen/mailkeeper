@@ -47,12 +47,25 @@ public struct ArchiveLayout: Sendable {
             enc.outputFormatting = [.prettyPrinted, .sortedKeys]
             try writeDurably(try enc.encode(marker), to: layout.markerURL)
         }
-        for dir in [layout.blobsURL, layout.journalURL, layout.tmpURL] { try makePrivateDirectory(dir) }
-        // Leftovers of interrupted writes are never referenced; drop them.
-        for item in (try? fm.contentsOfDirectory(at: layout.tmpURL, includingPropertiesForKeys: nil)) ?? [] {
-            try? fm.removeItem(at: item)
+        for dir in [layout.root, layout.blobsURL, layout.journalURL, layout.tmpURL] {
+            try makePrivateDirectory(dir)
+            // createDirectory does not apply attributes to an existing folder (e.g. one chosen in
+            // the open panel); tighten what we own, ignore file systems without permissions.
+            if let owner = (try? fm.attributesOfItem(atPath: dir.path))?[.ownerAccountID] as? NSNumber,
+               owner.uint32Value == getuid() {
+                chmod(dir.path, 0o700)
+            }
         }
         return layout
+    }
+
+    /// Drops leftovers of interrupted blob writes. Only the lock holder may call this: another
+    /// process' staging files would be destroyed mid-write.
+    func removeTemporaryFiles() {
+        let fm = FileManager.default
+        for item in (try? fm.contentsOfDirectory(at: tmpURL, includingPropertiesForKeys: nil)) ?? [] {
+            try? fm.removeItem(at: item)
+        }
     }
 
     /// Whether the archive's volume is encrypted (FileVault/APFS encryption). nil = unknown.

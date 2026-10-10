@@ -11,6 +11,8 @@ import WebKit
 struct MessageWebView: NSViewRepresentable {
     let html: String
     let message: ParsedMessage
+    /// Required: the view never exists without the blocking rules.
+    let rules: WKContentRuleList
 
     static let scheme = "mk-cid"
 
@@ -21,10 +23,10 @@ struct MessageWebView: NSViewRepresentable {
         config.websiteDataStore = .nonPersistent()
         config.defaultWebpagePreferences.allowsContentJavaScript = false
         config.setURLSchemeHandler(context.coordinator.cidHandler, forURLScheme: Self.scheme)
-        config.userContentController.add(ContentRules.shared.list!)  // callers check readiness
+        config.userContentController.add(rules)
         let view = WKWebView(frame: .zero, configuration: config)
         view.navigationDelegate = context.coordinator
-        view.setValue(false, forKey: "drawsBackground")
+        view.uiDelegate = context.coordinator
         return view
     }
 
@@ -39,13 +41,14 @@ struct MessageWebView: NSViewRepresentable {
     /// CSP first (defence in depth next to the rule list), `cid:` rewritten to our scheme.
     static func wrap(_ html: String) -> String {
         let csp = "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src \(scheme): data:; style-src 'unsafe-inline'; font-src data:\">"
+            + "<meta http-equiv=\"x-dns-prefetch-control\" content=\"off\">"  // link hosts must not leak via DNS
         let base = "<meta name=\"color-scheme\" content=\"light dark\"><style>body{font:13px -apple-system,sans-serif;margin:12px;word-wrap:break-word}</style>"
         let rewritten = html.replacingOccurrences(of: "cid:", with: "\(scheme):", options: .caseInsensitive)
         return csp + base + rewritten
     }
 
     @MainActor
-    final class Coordinator: NSObject, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         var loaded: String?
         let cidHandler = CIDSchemeHandler()
 
@@ -58,6 +61,16 @@ struct MessageWebView: NSViewRepresentable {
                 NSWorkspace.shared.open(url)
             }
             return .cancel
+        }
+
+        /// `target="_blank"` links: open in the browser on click, never a second web view.
+        func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+                     for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+            if action.navigationType == .linkActivated, let url = action.request.url,
+               ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") {
+                NSWorkspace.shared.open(url)
+            }
+            return nil
         }
     }
 }

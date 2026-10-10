@@ -90,10 +90,16 @@ enum Schema {
 
     static var currentVersion: Int { migrations.count }
 
+    private static func version(_ db: Database) throws -> Int {
+        Int(try db.queryOne("PRAGMA user_version") { $0.int(0) } ?? 0)
+    }
+
     static func migrate(_ db: Database) throws {
-        let version = Int(try db.queryOne("PRAGMA user_version") { $0.int(0) } ?? 0)
-        guard version < migrations.count else { return }
+        guard try version(db) < migrations.count else { return }
         try db.transaction {
+            // Re-check under the write lock: another process may have migrated meanwhile.
+            let version = try version(db)
+            guard version < migrations.count else { return }
             for v in version..<migrations.count {
                 try db.execute(migrations[v])
             }

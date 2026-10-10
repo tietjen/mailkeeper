@@ -58,7 +58,7 @@ struct ArchiveCoreTests {
         let loc = LocationInfo(account: "acc", mailbox: "INBOX", uidValidity: 7, uid: 42, flags: ["\\Seen"], labels: ["L"])
         try j.append(.account("acc", kind: "imap", name: "Acc", time: 1_700_000_000))
         try j.append(.seen(loc, sha256: "abc", time: 1_700_000_100))
-        j.sync()
+        try j.sync()
         let file = layout.journalURL.appending(path: "acc/2023-11.jsonl")
         let handle = try FileHandle(forWritingTo: file)
         try handle.seekToEnd()
@@ -136,7 +136,7 @@ struct IndexTests {
         let before = try ArchiveReader(layout: layout).stats()
         let replayed = try await writer.rebuildIndex()
         let after = try ArchiveReader(layout: layout).stats()
-        #expect(replayed == 25)
+        #expect(replayed.locations == 25 && replayed.missingBlobs.isEmpty)
         #expect(before == after)
         #expect(try await writer.verifyBlobs().isEmpty)
     }

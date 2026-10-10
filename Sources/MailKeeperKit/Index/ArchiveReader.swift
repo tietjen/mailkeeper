@@ -74,15 +74,36 @@ public struct MessageFilter: Sendable, Equatable {
 /// (the main actor in the app). WAL lets it read while the writer imports.
 public final class ArchiveReader {
     public let layout: ArchiveLayout
-    private let db: Database
+    private var connection: Database
+    private var inode: UInt64
 
     public init(layout: ArchiveLayout) throws {
         self.layout = layout
-        db = try Database(path: layout.indexURL.path)
-        try Schema.migrate(db)  // a fresh archive may not have been written yet
+        connection = try Database(path: layout.indexURL.path)
+        try Schema.migrate(connection)  // a fresh archive may not have been written yet
+        inode = Self.inode(layout.indexURL.path)
+    }
+
+    /// The live connection; reopened when an index rebuild replaced the file underneath
+    /// (an old connection would answer every query with SQLITE_IOERR).
+    private var db: Database {
+        get throws {
+            let now = Self.inode(layout.indexURL.path)
+            if now != 0, now != inode {
+                connection = try Database(path: layout.indexURL.path)
+                inode = now
+            }
+            return connection
+        }
+    }
+
+    private static func inode(_ path: String) -> UInt64 {
+        var st = stat()
+        return stat(path, &st) == 0 ? UInt64(st.st_ino) : 0
     }
 
     public func accounts() throws -> [AccountSummary] {
+        let db = try self.db
         let boxes = try db.query("""
             SELECT account_id, mailbox, count(DISTINCT message_id) FROM locations
             GROUP BY account_id, mailbox ORDER BY account_id, mailbox COLLATE NOCASE
@@ -124,12 +145,13 @@ public final class ArchiveReader {
         case .subject: sql += " ORDER BY m.subject COLLATE NOCASE \(dir), m.date DESC"
         case .size: sql += " ORDER BY m.size \(dir), m.id"
         }
-        return try db.query(sql, params) { $0.int(0) }
+        return try self.db.query(sql, params) { $0.int(0) }
     }
 
     /// Rows for a page of ids, returned in the order of `ids`.
     public func summaries(_ ids: [Int64]) throws -> [MessageSummary] {
         guard !ids.isEmpty else { return [] }
+        let db = try self.db
         var byID: [Int64: MessageSummary] = [:]
         for chunk in stride(from: 0, to: ids.count, by: 500).map({ Array(ids[$0..<min($0 + 500, ids.count)]) }) {
             let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ",")
@@ -144,6 +166,7 @@ public final class ArchiveReader {
     }
 
     public func detail(_ id: Int64) throws -> MessageDetail? {
+        let db = try self.db
         guard let (summary, mid, list, blob) = try db.queryOne("""
             SELECT id, date, from_name, from_addr, subject, size, attachment_count, snippet, message_id, list_id, primary_blob
             FROM messages WHERE id = ?
@@ -169,7 +192,7 @@ public final class ArchiveReader {
     }
 
     public func stats() throws -> ArchiveStats {
-        try db.queryOne("""
+        try self.db.queryOne("""
             SELECT (SELECT count(*) FROM accounts), (SELECT count(*) FROM messages), (SELECT count(*) FROM locations),
                    (SELECT count(*) FROM blobs), (SELECT coalesce(sum(size), 0) FROM blobs)
             """) { ArchiveStats(accounts: Int($0.int(0)), messages: Int($0.int(1)), locations: Int($0.int(2)),

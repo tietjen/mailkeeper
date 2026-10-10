@@ -6,12 +6,20 @@ enum EncodedWords {
     static func decode(_ s: String) -> String {
         guard s.contains("=?") else { return s }
         let scalars = Array(s.unicodeScalars)
+        // No word can start after the last "?=": skipping those starts keeps headers full of
+        // broken "=?" linear instead of quadratic (each attempt would scan to the end).
+        var lastClose = -1
+        var k = scalars.count - 1
+        while k > 0 {
+            if scalars[k] == "=", scalars[k - 1] == "?" { lastClose = k - 1; break }
+            k -= 1
+        }
         var out = String.UnicodeScalarView()
         var pendingGap = String.UnicodeScalarView()  // whitespace after an encoded word
         var lastWasEncoded = false
         var i = 0
         while i < scalars.count {
-            if scalars[i] == "=", i + 1 < scalars.count, scalars[i + 1] == "?",
+            if scalars[i] == "=", i + 1 < scalars.count, scalars[i + 1] == "?", i + 2 < lastClose,
                let (decoded, next) = parseWord(scalars, at: i) {
                 if !lastWasEncoded { out.append(contentsOf: pendingGap) }
                 pendingGap.removeAll()
@@ -35,6 +43,10 @@ enum EncodedWords {
         return String(out)
     }
 
+    /// RFC 2047 allows 75 characters per word; real mail exceeds that, but not by orders of
+    /// magnitude. The cap bounds the work per "=?" attempt.
+    static let maxWordLength = 512
+
     /// Parses one encoded word starting at `start` ("=?"). Returns decoded text and the index
     /// after the closing "?=".
     private static func parseWord(_ s: [Unicode.Scalar], at start: Int) -> (String, Int)? {
@@ -52,6 +64,7 @@ enum EncodedWords {
         var text = ""
         while i + 1 < s.count, !(s[i] == "?" && s[i + 1] == "=") {
             if s[i] == " " || s[i] == "\t" { return nil }  // spaces are not allowed inside a word
+            if i - start > maxWordLength { return nil }
             text.unicodeScalars.append(s[i])
             i += 1
         }

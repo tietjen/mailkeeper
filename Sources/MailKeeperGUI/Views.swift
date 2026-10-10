@@ -20,6 +20,14 @@ struct ContentView: View {
                         } actions: {
                             Button("Archiv wählen …") { model.chooseArchive() }
                         }
+                    } else if let error = model.listError {
+                        ContentUnavailableView {
+                            Label("Index nicht lesbar", systemImage: "exclamationmark.triangle")
+                        } description: {
+                            Text(error)
+                        } actions: {
+                            Button("Erneut versuchen") { model.refresh() }
+                        }
                     } else if model.messageIDs.isEmpty {
                         ContentUnavailableView(model.searchText.isEmpty ? "Keine Nachrichten" : "Keine Treffer",
                                                systemImage: model.searchText.isEmpty ? "tray" : "magnifyingglass")
@@ -89,15 +97,37 @@ struct Sidebar: View {
 struct ReaderView: View {
     let model: AppModel
     let messageID: Int64
+    @State private var loaded: (id: Int64, detail: MessageDetail, message: ParsedMessage)?
+    @State private var failed = false
 
     var body: some View {
-        if let (detail, message) = model.detail(messageID) {
+        Group {
+            if let loaded, loaded.id == messageID {
+                content(loaded.detail, loaded.message)
+            } else if failed {
+                ContentUnavailableView("Nachricht nicht lesbar", systemImage: "exclamationmark.triangle")
+            } else {
+                ProgressView()
+            }
+        }
+        .task(id: messageID) {
+            failed = false
+            guard let detail = model.detail(messageID), let message = await model.parse(detail) else {
+                failed = true
+                return
+            }
+            if !Task.isCancelled { loaded = (messageID, detail, message) }
+        }
+    }
+
+    @ViewBuilder
+    private func content(_ detail: MessageDetail, _ message: ParsedMessage) -> some View {
             VStack(alignment: .leading, spacing: 0) {
                 header(detail, message)
                     .padding(12)
                 Divider()
-                if let html = message.html, ContentRules.shared.list != nil {
-                    MessageWebView(html: html, message: message)
+                if let html = message.html, let rules = ContentRules.shared.list {
+                    MessageWebView(html: html, message: message, rules: rules)
                 } else {
                     ScrollView {
                         Text(message.text)
@@ -108,9 +138,6 @@ struct ReaderView: View {
                     }
                 }
             }
-        } else {
-            ContentUnavailableView("Nachricht nicht lesbar", systemImage: "exclamationmark.triangle")
-        }
     }
 
     @ViewBuilder

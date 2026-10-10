@@ -17,6 +17,21 @@ public struct MIMEPart: Sendable {
     public var filename: String? { dispositionParams["filename"] ?? params["name"] }
     public var isMultipart: Bool { contentType.hasPrefix("multipart/") }
     public var decodedText: String { Charset.decode(decodedBody, charset: params["charset"]) }
+
+    /// Decoded size without decoding (attachments can be tens of MB): base64 yields 3 bytes per
+    /// 4 alphabet characters, other encodings roughly their length.
+    public var estimatedDecodedSize: Int {
+        guard Charset.normalize(transferEncoding) == "base64" else { return body.count }
+        var n = 0
+        for c in body {
+            switch c {
+            case UInt8(ascii: "A")...UInt8(ascii: "Z"), UInt8(ascii: "a")...UInt8(ascii: "z"),
+                 UInt8(ascii: "0")...UInt8(ascii: "9"), UInt8(ascii: "+"), UInt8(ascii: "/"): n += 1
+            default: continue
+            }
+        }
+        return n * 3 / 4
+    }
 }
 
 public struct AttachmentInfo: Sendable, Equatable, Codable {
@@ -120,7 +135,7 @@ public enum MIMEParser {
         guard depth < maxDepth, budget > 0 else { truncated = true; return part }
         guard let boundary = part.params["boundary"], !boundary.isEmpty else { return part }
         let childDefault = contentType == "multipart/digest" ? "message/rfc822" : "text/plain"
-        for chunk in splitMultipart(body, boundary: boundary) {
+        for chunk in splitMultipart(body, boundary: boundary, limit: budget + 1) {
             guard budget > 0 else { truncated = true; break }
             part.children.append(parsePart(chunk, depth: depth + 1, budget: &budget, truncated: &truncated, defaultType: childDefault))
         }
@@ -130,7 +145,7 @@ public enum MIMEParser {
     /// Body parts between `--boundary` lines (at line starts) up to `--boundary--`.
     /// The line break before a delimiter belongs to the delimiter. A missing closing
     /// delimiter ends the last part at the end of the data.
-    static func splitMultipart(_ body: Data, boundary: String) -> [Data] {
+    static func splitMultipart(_ body: Data, boundary: String, limit: Int = .max) -> [Data] {
         let delim = Data("--\(boundary)".utf8)
         var starts: [(lineStart: Int, contentStart: Int, isClose: Bool)] = []
         var from = body.startIndex
@@ -146,7 +161,7 @@ public enum MIMEParser {
             let contentStart = min(lineEnd + 1, body.endIndex)
             starts.append((r.lowerBound, contentStart, isClose))
             from = contentStart
-            if isClose { break }
+            if isClose || starts.count > limit { break }  // the part budget caps the scan, too
         }
         var parts: [Data] = []
         for (n, s) in starts.enumerated() where !s.isClose {
@@ -200,7 +215,7 @@ private struct BodyCollector {
         attachments.append(AttachmentInfo(
             filename: name,
             mimeType: part.contentType,
-            size: part.decodedBody.count,
+            size: part.estimatedDecodedSize,
             contentID: part.contentID,
             isInline: part.disposition == "inline" || (part.disposition == nil && part.contentID != nil)
         ))

@@ -72,6 +72,15 @@ func relativePath(of url: URL, to root: URL) -> String {
     return u.dropFirst(r.count).joined(separator: "/")
 }
 
+/// Importing the archive's own blobs would register every stored message as a new location.
+func refuseArchiveSource(_ source: URL, archive: URL) throws {
+    let s = source.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+    let a = archive.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+    if s.count >= a.count, Array(s.prefix(a.count)) == a {
+        throw ArchiveError.io("import source lies inside the archive", path: source.path)
+    }
+}
+
 // MARK: - Maildir
 
 /// Imports Maildir trees (mbsync, offlineimap, Dovecot, Maildir++): every directory with
@@ -130,6 +139,7 @@ public struct MaildirImporter: Sendable {
     }
 
     public func run(writer: ArchiveWriter, progress: @escaping @Sendable (ImportProgress) -> Void = { _ in }) async throws -> ImportProgress {
+        try refuseArchiveSource(root, archive: writer.layout.root)
         try await writer.register(AccountInfo(id: account, kind: "maildir", name: account))
         var feeder = BatchFeeder(writer: writer, progress: progress)
         let fm = FileManager.default
@@ -181,6 +191,7 @@ public struct EMLImporter: Sendable {
     }
 
     public func run(writer: ArchiveWriter, progress: @escaping @Sendable (ImportProgress) -> Void = { _ in }) async throws -> ImportProgress {
+        try refuseArchiveSource(root, archive: writer.layout.root)
         try await writer.register(AccountInfo(id: account, kind: "eml", name: account))
         var feeder = BatchFeeder(writer: writer, progress: progress)
         for url in emlFiles() {
@@ -205,6 +216,8 @@ public struct MboxImporter: Sendable {
     public let file: URL
     public let account: String
     public let mailbox: String
+    /// Read size; tests use tiny chunks to exercise every chunk-boundary case.
+    var chunkSize = 8 << 20
 
     public init(file: URL, account: String, mailbox: String? = nil) {
         self.file = file
@@ -217,31 +230,53 @@ public struct MboxImporter: Sendable {
         var feeder = BatchFeeder(writer: writer, progress: progress)
         guard let handle = FileHandle(forReadingAtPath: file.path) else { throw ArchiveError.io("open mbox", path: file.path) }
         defer { try? handle.close() }
+        let fromPrefix = Data("From ".utf8)
         let separator = Data("\nFrom ".utf8)
+        // A read cursor instead of slicing the buffer per message (that would copy the rest of
+        // an 8 MiB chunk for every small message); consumed bytes are dropped once per refill.
         var buffer = Data()
+        var pos = 0          // start of the unconsumed data
+        var scanFrom = 0     // separator search resumes here (large messages are not rescanned)
         var eof = false
-        while !eof || !buffer.isEmpty {
-            if !eof, let chunk = try handle.read(upToCount: 8 << 20), !chunk.isEmpty {
-                buffer.append(chunk)
-            } else {
-                eof = true
+        func refill() throws {
+            if pos > 0 {
+                buffer.removeSubrange(0..<pos)
+                scanFrom = max(0, scanFrom - pos)
+                pos = 0
             }
-            // Emit every complete message: from the start of a "From " line to the next one.
-            while true {
-                guard buffer.starts(with: Data("From ".utf8)) || buffer.isEmpty else {
-                    // junk before the first separator: drop up to the first one
-                    if let r = buffer.range(of: separator) { buffer = buffer.subdata(in: (r.lowerBound + 1)..<buffer.count); continue }
-                    if eof { buffer.removeAll() }
-                    break
+            if let chunk = try handle.read(upToCount: chunkSize), !chunk.isEmpty { buffer.append(chunk) } else { eof = true }
+        }
+        try refill()
+        while true {
+            if pos >= buffer.count {
+                if eof { break }
+                try refill()
+                continue
+            }
+            if !buffer[pos...].starts(with: fromPrefix) {
+                // junk before the first separator line: skip to it, keep at most a partial separator
+                if let r = buffer.range(of: separator, in: pos..<buffer.count) {
+                    pos = r.lowerBound + 1
+                    continue
                 }
-                guard !buffer.isEmpty else { break }
-                let next = buffer.range(of: separator, in: 5..<buffer.count)
-                if next == nil && !eof { break }  // need more data
-                let end = next?.lowerBound ?? buffer.count
-                let message = buffer.subdata(in: 0..<min(end + 1, buffer.count))
-                buffer = next.map { buffer.subdata(in: ($0.lowerBound + 1)..<buffer.count) } ?? Data()
-                if let (data, loc) = parse(message) { try await feeder.add(data, loc) }
-                if next == nil { break }
+                if eof { break }
+                pos = max(pos, buffer.count - (separator.count - 1))
+                try refill()
+                continue
+            }
+            let searchStart = max(pos + fromPrefix.count, scanFrom)
+            if searchStart < buffer.count, let next = buffer.range(of: separator, in: searchStart..<buffer.count) {
+                let entry = buffer.subdata(in: pos..<(next.lowerBound + 1))
+                pos = next.lowerBound + 1
+                scanFrom = 0
+                if let (data, loc) = parse(entry) { try await feeder.add(data, loc) }
+            } else if eof {
+                let entry = buffer.subdata(in: pos..<buffer.count)
+                pos = buffer.count
+                if let (data, loc) = parse(entry) { try await feeder.add(data, loc) }
+            } else {
+                scanFrom = max(searchStart, buffer.count - (separator.count - 1))
+                try refill()
             }
         }
         try await feeder.flush()
