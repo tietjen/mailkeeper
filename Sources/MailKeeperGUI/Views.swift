@@ -44,6 +44,13 @@ struct ContentView: View {
         .searchable(text: $model.searchText, placement: .toolbar, prompt: "Archiv durchsuchen")
         .toolbar {
             ToolbarItem {
+                Button { model.syncAll() } label: {
+                    if model.syncRunning { ProgressView().controlSize(.small) } else { Label("Abrufen", systemImage: "arrow.down.circle") }
+                }
+                .disabled(model.syncRunning || model.importRunning || model.accountConfigs.isEmpty)
+                .help(model.accountConfigs.isEmpty ? "Erst ein Konto anlegen: Einstellungen › Konten" : "Neue Mails von allen Konten abrufen (nur lesend)")
+            }
+            ToolbarItem {
                 Menu {
                     ForEach(ImportKind.allCases) { kind in
                         Button(kind.title) { model.startImport(kind) }
@@ -182,6 +189,15 @@ struct StatusBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
+            if let p = model.syncProgress {
+                ProgressView().controlSize(.mini)
+                Text(syncText(p)).lineLimit(1)
+            } else if let message = model.syncMessage {
+                Label(message.replacingOccurrences(of: "\n", with: " · "), systemImage: "checkmark.circle")
+                    .lineLimit(1)
+                    .help(message)
+                    .onTapGesture { model.syncMessage = nil }
+            }
             if let stats = model.stats {
                 Text("\(model.messageIDs.count) von \(stats.messages) Nachrichten")
                 Text(ByteCountFormatter.string(fromByteCount: stats.blobBytes, countStyle: .file))
@@ -203,6 +219,16 @@ struct StatusBar: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
         .background(.bar)
+    }
+
+    private func syncText(_ p: SyncProgress) -> String {
+        let box = p.mailbox.map { " · \(DisplayText.safe($0)) (\(p.mailboxIndex + 1)/\(p.mailboxCount))" } ?? ""
+        switch p.phase {
+        case .fetching: return "Abruf \(p.account)\(box): \(p.fetched) von \(p.toFetch) neuen Mails"
+        case .flags: return "Abruf \(p.account)\(box): Markierungen abgleichen"
+        case .deletions: return "Abruf \(p.account)\(box): Löschungen prüfen"
+        default: return "Abruf \(p.account)\(box) …"
+        }
     }
 }
 

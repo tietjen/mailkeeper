@@ -1,4 +1,5 @@
 import AppKit
+import MailKeeperIMAP
 import MailKeeperKit
 import Observation
 import SwiftUI
@@ -59,6 +60,11 @@ final class AppModel {
 
     private(set) var importStatus: ImportStatus?
     private(set) var importRunning = false
+    private(set) var accountConfigs: [AccountConfig] = []
+    private(set) var syncProgress: SyncProgress?
+    private(set) var syncRunning = false
+    var syncMessage: String?
+    private let credentials = CredentialStore()
     private(set) var listError: String?
     private var searchTask: Task<Void, Never>?
     private var scopedURL: URL?
@@ -145,6 +151,7 @@ final class AppModel {
 
     func refresh() {
         guard let reader else { return }
+        accountConfigs = (try? AccountStore(layout: reader.layout).load()) ?? []
         accounts = (try? reader.accounts()) ?? []
         stats = try? reader.stats()
         reloadList()
@@ -203,7 +210,7 @@ final class AppModel {
     // MARK: Import
 
     func startImport(_ kind: ImportKind) {
-        guard let root = archiveRoot, !importRunning else { return }
+        guard let root = archiveRoot, !importRunning, !syncRunning else { return }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = kind != .mbox
         panel.canChooseFiles = kind == .mbox
@@ -245,5 +252,71 @@ final class AppModel {
 
     func dismissImportStatus() {
         importStatus = nil
+    }
+
+    // MARK: Accounts & sync (read-only)
+
+    func hasPassword(_ account: AccountConfig) -> Bool {
+        (try? credentials.password(for: account)) != nil
+    }
+
+    func addAccount(_ account: AccountConfig, password: String) throws {
+        guard let layout = reader?.layout else { return }
+        try AccountStore(layout: layout).add(account)
+        try credentials.save(password, for: account)
+        accountConfigs = (try? AccountStore(layout: layout).load()) ?? []
+    }
+
+    func removeAccount(_ id: String) {
+        guard let layout = reader?.layout, let account = accountConfigs.first(where: { $0.id == id }) else { return }
+        try? AccountStore(layout: layout).remove(id)
+        try? credentials.delete(for: account)
+        accountConfigs = (try? AccountStore(layout: layout).load()) ?? []
+    }
+
+    func testAccount(_ id: String) async -> String {
+        guard let account = accountConfigs.first(where: { $0.id == id }) else { return "" }
+        guard let password = try? credentials.password(for: account) else { return String(localized: "Kein Passwort im Schlüsselbund.") }
+        do {
+            let check = try await SyncCoordinator.check(account, password: password)
+            return String(localized: "Verbindung ok — abgerufen werden \(check.selected.count) von \(check.mailboxes.count) Postfächern.")
+        } catch {
+            return "\(error)"
+        }
+    }
+
+    /// Fetches new mail from all configured accounts, one after another, read-only.
+    func syncAll() {
+        guard let root = archiveRoot, !syncRunning, !importRunning, !accountConfigs.isEmpty else { return }
+        let accounts = accountConfigs
+        let credentials = self.credentials
+        syncRunning = true
+        syncMessage = nil
+        Task.detached { [weak self] in
+            var summary: [String] = []
+            do {
+                let writer = try ArchiveWriter(layout: try ArchiveLayout.open(at: root, create: false))
+                for account in accounts {
+                    do {
+                        let r = try await SyncCoordinator.sync(account, writer: writer, credentials: credentials) { p in
+                            Task { @MainActor in self?.syncProgress = p }
+                        }
+                        summary.append("\(account.displayName): \(r.newMessages) neu" + (r.failures.isEmpty ? "" : " · \(r.failures.count) Fehler: \(r.failures.joined(separator: "; "))"))
+                    } catch {
+                        summary.append("\(account.displayName): \(error)")
+                    }
+                    await MainActor.run { self?.refresh() }
+                }
+            } catch {
+                summary.append("\(error)")
+            }
+            let text = summary.joined(separator: "\n")
+            await MainActor.run {
+                self?.syncRunning = false
+                self?.syncProgress = nil
+                self?.syncMessage = text
+                self?.refresh()
+            }
+        }
     }
 }

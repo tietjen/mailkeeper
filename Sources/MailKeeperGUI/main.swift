@@ -13,6 +13,12 @@ struct MailKeeperApp: App {
                 .frame(minWidth: 900, minHeight: 520)
                 .task { await ContentRules.shared.compile() }
         }
+        Settings {
+            TabView {
+                AccountsSettings(model: model)
+                    .tabItem { Label("Konten", systemImage: "person.crop.circle") }
+            }
+        }
         .commands {
             CommandGroup(after: .newItem) {
                 Button("Archiv wählen …") { model.chooseArchive() }
@@ -26,6 +32,8 @@ struct MailKeeperApp: App {
             CommandGroup(after: .toolbar) {
                 Button("Aktualisieren") { model.refresh() }
                     .keyboardShortcut("r")
+                Button("Neue Mails abrufen") { model.syncAll() }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
             }
         }
     }

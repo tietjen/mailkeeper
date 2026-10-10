@@ -1,4 +1,5 @@
 import Foundation
+import MailKeeperIMAP
 import MailKeeperKit
 
 // mkctl — command line access to a MailKeeper archive (imports, search, maintenance).
@@ -18,6 +19,14 @@ usage: mkctl [--archive <dir>] <command>
   accounts                                    accounts and mailboxes
   search <terms…> [--limit <n>]               full-text search (newest first)
   show <id>                                   one message: headers, locations, text
+  account add gmail <address> --id <id>       add a Gmail account (app password, All Mail + labels)
+  account add proton <address> --id <id> [--port 1143] [--trust <fingerprint>]
+                                              add a Proton Mail Bridge account (local, pinned certificate)
+  account add imap <user> --id <id> --host <host> [--port 993] [--starttls]
+                                              add any IMAPS account
+      common: [--name <display name>] [--include A,B] [--exclude A,B] [--with-junk-trash] [--password-stdin]
+  account list | test <id> | remove <id>     manage accounts (remove keeps the archived mail)
+  sync [<id>…]                                fetch new mail from all (or the given) accounts, read-only
   verify                                      re-hash every blob
   rebuild-index                               rebuild index.sqlite from blobs + journal
 
@@ -58,6 +67,41 @@ func clean(_ s: String?) -> String {
     return String(String.UnicodeScalarView(DisplayText.safe(s).unicodeScalars.filter { c in
         c == "\n" || c == "\t" || !(c.value < 0x20 || c.value == 0x7F || (0x80...0x9F).contains(c.value))
     }))
+}
+
+/// Password without echo, or from stdin with --password-stdin (never as an argument).
+@MainActor func readPassword(prompt: String) throws -> String {
+    if args.contains("--password-stdin") {
+        args.removeAll { $0 == "--password-stdin" }
+        guard let line = readLine(strippingNewline: true), !line.isEmpty else { throw CLIError(description: "no password on stdin") }
+        return line
+    }
+    var buffer = [CChar](repeating: 0, count: 1024)
+    guard let p = readpassphrase(prompt, &buffer, buffer.count, 0) else { throw CLIError(description: "no password") }
+    let password = String(cString: p)
+    _ = buffer.withUnsafeMutableBytes { memset_s($0.baseAddress, $0.count, 0, $0.count) }
+    guard !password.isEmpty else { throw CLIError(description: "empty password") }
+    return password
+}
+
+@MainActor func confirm(_ question: String) -> Bool {
+    guard isatty(STDIN_FILENO) == 1 else { return false }
+    print(question + " [j/N] ", terminator: "")
+    return ["j", "ja", "y", "yes"].contains(readLine()?.lowercased() ?? "")
+}
+
+func list(_ s: String?) -> [String]? {
+    s.map { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
+}
+
+func syncLine(_ p: SyncProgress) -> String {
+    let box = p.mailbox.map { " \(clean($0)) (\(p.mailboxIndex + 1)/\(p.mailboxCount))" } ?? ""
+    switch p.phase {
+    case .fetching: return "\r[\(p.account)]\(box) \(p.fetched)/\(p.toFetch) neu · \(bytes(p.bytes))      "
+    case .flags: return "\r[\(p.account)]\(box) Flags abgleichen…                "
+    case .deletions: return "\r[\(p.account)]\(box) Löschungen prüfen…               "
+    default: return "\r[\(p.account)]\(box) \(p.phase.rawValue)…                    "
+    }
 }
 
 func bytes(_ n: Int64) -> String {
@@ -160,6 +204,96 @@ func summarize(_ p: ImportProgress, start: Date) {
         }
         print("")
         print(clean(String(p.text.prefix(2000))))
+
+    case "account":
+        guard let sub = args.first else { throw CLIError(description: "account add|list|test|remove") }
+        args.removeFirst()
+        let layout = try ArchiveLayout.open(at: root, create: sub == "add")
+        let store = AccountStore(layout: layout)
+        let credentials = CredentialStore()
+        switch sub {
+        case "add":
+            guard args.count >= 2 else { throw CLIError(description: "account add gmail|proton|imap <address/user> --id <id>") }
+            let kind = args.removeFirst(), user = args.removeFirst()
+            let id = try requireOption("--id")
+            var config: AccountConfig
+            switch kind {
+            case "gmail": config = .gmail(id: id, address: user)
+            case "proton": config = .protonBridge(id: id, address: user, port: Int(option("--port") ?? "1143") ?? 1143)
+            case "imap":
+                let host = try requireOption("--host")
+                let starttls = args.contains("--starttls")
+                args.removeAll { $0 == "--starttls" }
+                config = .imap(id: id, username: user, host: host, port: Int(option("--port") ?? (starttls ? "143" : "993")) ?? 993,
+                               security: starttls ? .startTLS : .tls)
+            default: throw CLIError(description: "unknown account kind \(kind)")
+            }
+            if let name = option("--name") { config.displayName = name }
+            config.policy.include = list(option("--include"))
+            config.policy.exclude = list(option("--exclude")) ?? []
+            if args.contains("--with-junk-trash") { config.policy.includeJunkAndTrash = true }
+            let trust = option("--trust")
+            guard AccountConfig.isValidID(id) else { throw AccountError.invalidID(id) }
+            guard !(try store.load()).contains(where: { $0.id == id }) else { throw AccountError.duplicate(id) }
+            let password = try readPassword(prompt: "Passwort für \(user): ")
+            print("Verbinde mit \(config.host):\(config.port) …")
+            let check = try await SyncCoordinator.check(config, password: password)
+            if case .startTLSPinned = config.security {
+                guard let fp = check.certificateFingerprint else { throw CLIError(description: "no certificate fingerprint") }
+                print("Zertifikat der Bridge (SHA-256): \(fp)")
+                if let trust, trust.lowercased() != fp { throw CLIError(description: "fingerprint does not match --trust") }
+                if trust == nil, !confirm("Diesem Zertifikat vertrauen?") { throw CLIError(description: "certificate not confirmed") }
+                config.security = .startTLSPinned(fingerprint: fp)
+            }
+            print("\(check.mailboxes.count) Postfächer, abgerufen werden \(check.selected.count):")
+            for box in check.selected { print("    \(clean(box.name))") }
+            try credentials.save(password, for: config)
+            try store.add(config)
+            print("Konto „\(id)“ angelegt. Abrufen mit: mkctl sync \(id)")
+        case "list":
+            for a in try store.load() {
+                let pw = (try? credentials.password(for: a)) != nil ? "Passwort ✓" : "kein Passwort"
+                print("\(a.id)  \(a.kind.rawValue)  \(clean(a.username)) @ \(a.host):\(a.port)  [\(a.policy.mode.rawValue)\(a.policy.include.map { " nur: " + $0.joined(separator: ", ") } ?? "")]  \(pw)")
+            }
+        case "test":
+            guard let id = args.first, let a = try store.load().first(where: { $0.id == id }) else { throw CLIError(description: "account test <id>") }
+            guard let password = try credentials.password(for: a) else { throw SyncError.noPassword(id) }
+            let check = try await SyncCoordinator.check(a, password: password)
+            print("Verbindung ok · \(check.mailboxes.count) Postfächer, abgerufen werden \(check.selected.count):")
+            for box in check.selected { print("    \(clean(box.name))") }
+        case "remove":
+            guard let id = args.first, let a = try store.load().first(where: { $0.id == id }) else { throw CLIError(description: "account remove <id>") }
+            try store.remove(id)
+            try credentials.delete(for: a)
+            print("Konto „\(id)“ entfernt (archivierte Mails bleiben).")
+        default:
+            throw CLIError(description: "account add|list|test|remove")
+        }
+
+    case "sync":
+        let layout = try ArchiveLayout.open(at: root, create: false)
+        let all = try AccountStore(layout: layout).load()
+        let chosen = args.isEmpty ? all : all.filter { args.contains($0.id) }
+        guard !chosen.isEmpty else { throw CLIError(description: "no accounts — add one with: mkctl account add …") }
+        let writer = try ArchiveWriter(layout: layout)
+        var failed = false
+        for account in chosen {
+            let start = Date()
+            do {
+                let r = try await SyncCoordinator.sync(account, writer: writer) { p in
+                    FileHandle.standardError.write(Data(syncLine(p).utf8))
+                }
+                FileHandle.standardError.write(Data("\n".utf8))
+                print(String(format: "[%@] %d Postfächer · %d neu (%@) · %d weitere Ablageorte · %d Flag-Änderungen · %d nicht mehr auf dem Server · %.1fs",
+                             account.id, r.mailboxes, r.newMessages, bytes(r.bytes), r.newLocations, r.flagChanges, r.gone, Date().timeIntervalSince(start)))
+                for f in r.failures { print("  Fehler: \(clean(f))"); failed = true }
+            } catch {
+                FileHandle.standardError.write(Data("\n".utf8))
+                print("[\(account.id)] \(clean("\(error)"))")
+                failed = true
+            }
+        }
+        if failed { exit(1) }
 
     case "verify":
         let writer = try ArchiveWriter(layout: try ArchiveLayout.open(at: root, create: false))
