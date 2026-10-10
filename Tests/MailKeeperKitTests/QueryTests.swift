@@ -305,3 +305,22 @@ struct GroupTests {
         #expect(try QueryArchiveTests.subjects(r, "list:example") == ["Wochenrückblick"])
     }
 }
+
+@Suite("Query plans")
+struct QueryPlanTests {
+    /// A correlated EXISTS on locations scanned TJ's 39k INBOX once per message (60 s). Every
+    /// location/attachment filter must stay an uncorrelated IN list, evaluated once.
+    @Test func noFilterRunsOncePerMessage() async throws {
+        let r = try await QueryArchiveTests.archive()
+        var filters = [MessageFilter(account: "a"), MessageFilter(account: "a", mailbox: "INBOX")]
+        for q in ["folder:INBOX", "folder:Arch*", "account:a", "label:x", "is:unread", "is:read", "is:flagged", "is:answered",
+                  "on:server", "only:archive", "has:pdf", "has:image", "has:calendar", "-has:pdf folder:INBOX OR is:unread"] {
+            filters.append(MessageFilter(text: q + " "))
+        }
+        for f in filters {
+            let plan = try r.queryPlan(f)
+            #expect(!plan.contains { $0.contains("CORRELATED") || $0.contains(" EXISTS ") }, "\(f.text ?? f.mailbox ?? "") \(plan)")
+            #expect(plan.contains { $0.contains("LIST SUBQUERY") }, "\(f.text ?? f.mailbox ?? "") \(plan)")
+        }
+    }
+}

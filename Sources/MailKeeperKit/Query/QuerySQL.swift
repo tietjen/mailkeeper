@@ -113,13 +113,15 @@ struct QuerySQL {
 
     private static let flag = "instr(' ' || lower(l.flags) || ' ', ?) > 0"
 
+    /// Uncorrelated `IN` subqueries, evaluated once per query: a correlated EXISTS can make
+    /// SQLite scan a big mailbox once per message (see ArchiveReader.whereClause).
     private mutating func location(_ condition: String, _ value: SQLValue? = nil) -> String {
         if let value { params.append(value) }
-        return "EXISTS (SELECT 1 FROM locations l WHERE l.message_id = m.id AND \(condition))"
+        return "m.id IN (SELECT l.message_id FROM locations l WHERE \(condition))"
     }
 
     private func attachment(_ condition: String) -> String {
-        "EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id AND a.is_inline = 0 AND \(condition))"
+        "m.id IN (SELECT a.message_id FROM attachments a WHERE a.is_inline = 0 AND \(condition))"
     }
 
     static func escapeLike(_ s: String) -> String {

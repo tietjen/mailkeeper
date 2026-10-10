@@ -174,6 +174,13 @@ public final class ArchiveReader {
         return try self.db.query(sql, params) { $0.int(0) }
     }
 
+    /// `EXPLAIN QUERY PLAN` of the list query (tests guard against correlated subqueries).
+    func queryPlan(_ filter: MessageFilter) throws -> [String] {
+        let (whereClause, params) = try Self.whereClause(filter)
+        return try self.db.query("EXPLAIN QUERY PLAN SELECT m.id FROM messages m" + whereClause + " ORDER BY m.date DESC",
+                                 params) { $0.text(3) ?? "" }
+    }
+
     /// Number of messages matching a filter (sidebar badges of saved searches).
     public func count(_ filter: MessageFilter) throws -> Int {
         let (whereClause, params) = try Self.whereClause(filter)
@@ -221,8 +228,10 @@ public final class ArchiveReader {
     private static func whereClause(_ filter: MessageFilter) throws -> (String, [SQLValue]) {
         var conditions: [String] = []
         var params: [SQLValue] = []
+        // Uncorrelated IN, evaluated once. A correlated EXISTS let SQLite pick the (account,
+        // mailbox) index per message: 60 s for a 39k INBOX (43k × 39k rows).
         if let account = filter.account {
-            var c = "EXISTS (SELECT 1 FROM locations l WHERE l.message_id = m.id AND l.account_id = ?"
+            var c = "m.id IN (SELECT l.message_id FROM locations l WHERE l.account_id = ?"
             params.append(.text(account))
             if let mailbox = filter.mailbox {
                 c += " AND l.mailbox = ?"
