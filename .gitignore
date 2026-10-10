@@ -9,3 +9,4 @@ DerivedData/
 test-accounts*.json
 pins.json
 Spikes/*/build/
+build/
