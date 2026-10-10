@@ -1,0 +1,179 @@
+{
+  "account" : "proton",
+  "capabilities" : [
+    "AUTH=PLAIN",
+    "ID",
+    "IDLE",
+    "IMAP4rev1",
+    "MOVE",
+    "STARTTLS",
+    "UIDPLUS",
+    "UNSELECT"
+  ],
+  "host" : "<ip>",
+  "kind" : "proton-bridge",
+  "messages" : [
+    {
+      "bodyBytes" : 1013,
+      "bytesIdentical" : false,
+      "fixtureBytes" : 433,
+      "flags" : "\\Recent",
+      "internalDate" : "2019-03-14 09:00:00 +0000",
+      "messageID" : "<mk-s1-001@mailkeeper.test>",
+      "size" : 1013,
+      "uid" : 1
+    },
+    {
+      "bodyBytes" : 979,
+      "bytesIdentical" : false,
+      "fixtureBytes" : 358,
+      "flags" : "\\Recent",
+      "internalDate" : "2019-03-18 17:45:00 +0000",
+      "messageID" : "<mk-s1-005@mailkeeper.test>",
+      "size" : 979,
+      "uid" : 5
+    },
+    {
+      "bodyBytes" : 1600,
+      "bytesIdentical" : false,
+      "fixtureBytes" : 676,
+      "flags" : "\\Flagged \\Recent",
+      "internalDate" : "2019-03-15 07:30:00 +0000",
+      "messageID" : "<mk-s1-002@mailkeeper.test>",
+      "size" : 1600,
+      "uid" : 2
+    },
+    {
+      "bodyBytes" : 1625,
+      "bytesIdentical" : false,
+      "fixtureBytes" : 676,
+      "flags" : "\\Recent",
+      "internalDate" : "2019-03-17 11:00:00 +0000",
+      "messageID" : "<mk-s1-004@mailkeeper.test>",
+      "size" : 1625,
+      "uid" : 4
+    },
+    {
+      "bodyBytes" : 1194,
+      "bytesIdentical" : false,
+      "fixtureBytes" : 577,
+      "flags" : "\\Recent",
+      "internalDate" : "2019-03-16 05:00:00 +0000",
+      "messageID" : "<mk-s1-003@mailkeeper.test>",
+      "size" : 1194,
+      "uid" : 3
+    }
+  ],
+  "steps" : [
+    {
+      "greeting" : "* OK [CAPABILITY AUTH=PLAIN ID IDLE IMAP4rev1 MOVE STARTTLS UIDPLUS UNSELECT] Proton Mail Bridge 03.27.00 - gluon sessio",
+      "ok" : true,
+      "seconds" : 0.002,
+      "step" : "connect",
+      "tls" : "starttls-pinned"
+    },
+    {
+      "ok" : true,
+      "pin" : "05fb0cce47bb2fb7…",
+      "seconds" : 0.0080000000000000002,
+      "step" : "starttls+pin",
+      "trustOnFirstUse" : true
+    },
+    {
+      "auth" : "AUTH=PLAIN",
+      "count" : 5,
+      "ok" : true,
+      "seconds" : 0,
+      "step" : "capability (pre-login)"
+    },
+    {
+      "ok" : true,
+      "seconds" : 0,
+      "step" : "login"
+    },
+    {
+      "count" : 8,
+      "has" : "UIDPLUS,MOVE,IDLE,ID",
+      "ok" : true,
+      "seconds" : 0,
+      "step" : "capability"
+    },
+    {
+      "count" : 21,
+      "ok" : true,
+      "seconds" : 0.0050000000000000001,
+      "specialUse" : "\\Drafts=Drafts \\Trash=Trash \\Archive=Archive \\Junk=Spam \\Flagged=Starred \\Sent=Sent \\All=All Mail",
+      "step" : "list"
+    },
+    {
+      "exists" : 0,
+      "ok" : true,
+      "readWrite" : true,
+      "seconds" : 0.002,
+      "step" : "select Folders\/MailKeeper-Test",
+      "uidNext" : 1,
+      "uidValidity" : "UIDValidity(rawValue: 116423677)"
+    },
+    {
+      "appendUID" : [
+        1
+      ],
+      "bytes" : 433,
+      "ok" : true,
+      "seconds" : 1.611,
+      "step" : "append <mk-s1-001@mai"
+    },
+    {
+      "appendUID" : [
+        2
+      ],
+      "bytes" : 676,
+      "ok" : true,
+      "seconds" : 1.4139999999999999,
+      "step" : "append <mk-s1-002@mai"
+    },
+    {
+      "appendUID" : [
+        3
+      ],
+      "bytes" : 577,
+      "ok" : true,
+      "seconds" : 1.4159999999999999,
+      "step" : "append <mk-s1-003@mai"
+    },
+    {
+      "appendUID" : [
+        4
+      ],
+      "bytes" : 676,
+      "ok" : true,
+      "seconds" : 1.8100000000000001,
+      "step" : "append <mk-s1-004@mai"
+    },
+    {
+      "appendUID" : [
+        5
+      ],
+      "bytes" : 358,
+      "ok" : true,
+      "seconds" : 0.35199999999999998,
+      "step" : "append <mk-s1-005@mai"
+    },
+    {
+      "bytesIdentical" : 0,
+      "messages" : 5,
+      "ok" : true,
+      "seconds" : 0.0080000000000000002,
+      "seenAfterPeek" : 0,
+      "step" : "fetch BODY.PEEK[]"
+    },
+    {
+      "inLabel" : 1,
+      "labelRemoved" : true,
+      "ok" : true,
+      "seconds" : 0.67500000000000004,
+      "step" : "proton COPY → label",
+      "stillInFolder" : 1
+    }
+  ]
+}

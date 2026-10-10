@@ -1,0 +1,45 @@
+{
+  "filterClearSeconds" : 0.083318124990910292,
+  "filterRechnungSeconds" : 0.23367662500822917,
+  "launchToWindowSeconds" : 0.94999999999999996,
+  "memoryMB_afterLoad" : 43.409999999999997,
+  "memoryMB_afterScroll" : 43.439999999999998,
+  "memoryMB_afterSelectAll" : 43.240000000000002,
+  "memoryMB_end" : 44.380000000000003,
+  "modelLoadSeconds" : 0.01,
+  "rows" : 200000,
+  "scrollJump" : {
+    "frameBudgetMs" : 8.3300000000000001,
+    "frames" : 119,
+    "hitchMsPerSecond" : 600.34000000000003,
+    "lateFrames" : 118,
+    "maxMs" : 33.229999999999997,
+    "p50Ms" : 19.879999999999999,
+    "p95Ms" : 28.550000000000001
+  },
+  "scrollSmooth" : {
+    "frameBudgetMs" : 8.3300000000000001,
+    "frames" : 599,
+    "hitchMsPerSecond" : 1.8799999999999999,
+    "lateFrames" : 1,
+    "maxMs" : 17.719999999999999,
+    "p50Ms" : 8.3300000000000001,
+    "p95Ms" : 8.3499999999999996
+  },
+  "scrollSmoothSelected" : {
+    "frameBudgetMs" : 8.3300000000000001,
+    "frames" : 299,
+    "hitchMsPerSecond" : 3.3599999999999999,
+    "lateFrames" : 1,
+    "maxMs" : 16.73,
+    "p50Ms" : 8.3300000000000001,
+    "p95Ms" : 8.3499999999999996
+  },
+  "scrollView" : "NSTableView",
+  "selectAllSeconds" : 0.045725125004537404,
+  "sortDateDescSeconds" : 0.086104874964803457,
+  "sortSenderAscSeconds" : 0.083321625017561018,
+  "sortSizeDescSeconds" : 0.079674125008750707,
+  "sortSubjectAscSeconds" : 0.085073249996639788,
+  "variant" : "appkit"
+}

@@ -1,0 +1,27 @@
+{
+  "account" : "gmail",
+  "host" : "imap.gmail.com",
+  "kind" : "gmail",
+  "steps" : [
+    {
+      "greeting" : "* OK Gimap ready for requests from <ip> cdcc0902adbc2-43a773cc198mb133764438d76\r\n",
+      "ok" : true,
+      "seconds" : 0.081000000000000003,
+      "step" : "connect",
+      "tls" : "tls"
+    },
+    {
+      "auth" : "AUTH=XOAUTH2,AUTH=PLAIN,AUTH=PLAIN-CLIENTTOKEN,AUTH=OAUTHBEARER",
+      "count" : 15,
+      "ok" : true,
+      "seconds" : 0.025999999999999999,
+      "step" : "capability (pre-login)"
+    },
+    {
+      "error" : "LOGIN failed: Invalid credentials (Failure)",
+      "ok" : false,
+      "seconds" : 0.025999999999999999,
+      "step" : "login"
+    }
+  ]
+}

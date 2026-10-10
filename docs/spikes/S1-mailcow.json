@@ -1,0 +1,239 @@
+{
+  "account" : "mailcow",
+  "capabilities" : [
+    "IMAP4rev1",
+    "SASL-IR",
+    "LOGIN-REFERRALS",
+    "ID",
+    "ENABLE",
+    "IDLE",
+    "SORT",
+    "SORT=DISPLAY",
+    "THREAD=REFERENCES",
+    "THREAD=REFS",
+    "THREAD=ORDEREDSUBJECT",
+    "MULTIAPPEND",
+    "URL-PARTIAL",
+    "CATENATE",
+    "UNSELECT",
+    "CHILDREN",
+    "NAMESPACE",
+    "UIDPLUS",
+    "LIST-EXTENDED",
+    "I18NLEVEL=1",
+    "CONDSTORE",
+    "QRESYNC",
+    "ESEARCH",
+    "ESORT",
+    "SEARCHRES",
+    "WITHIN",
+    "CONTEXT=SEARCH",
+    "LIST-STATUS",
+    "BINARY",
+    "MOVE",
+    "SNIPPET=FUZZY",
+    "PREVIEW=FUZZY",
+    "PREVIEW",
+    "STATUS=SIZE",
+    "SAVEDATE",
+    "LITERAL+",
+    "NOTIFY",
+    "METADATA",
+    "SPECIAL-USE",
+    "COMPRESS=DEFLATE",
+    "QUOTA",
+    "ACL",
+    "RIGHTS=texk"
+  ],
+  "host" : "mail.parasec.de",
+  "kind" : "imaps",
+  "messages" : [
+    {
+      "bodyBytes" : 433,
+      "bytesIdentical" : true,
+      "fixtureBytes" : 433,
+      "flags" : "\\Recent",
+      "internalDate" : "2019-03-14 10:00:00 +0100",
+      "messageID" : "<mk-s1-001@mailkeeper.test>",
+      "modseq" : "2",
+      "size" : 433,
+      "uid" : 1
+    },
+    {
+      "bodyBytes" : 676,
+      "bytesIdentical" : true,
+      "fixtureBytes" : 676,
+      "flags" : "\\Flagged \\Recent",
+      "internalDate" : "2019-03-15 10:00:00 +0100",
+      "messageID" : "<mk-s1-002@mailkeeper.test>",
+      "modseq" : "3",
+      "size" : 676,
+      "uid" : 2
+    },
+    {
+      "bodyBytes" : 577,
+      "bytesIdentical" : true,
+      "fixtureBytes" : 577,
+      "flags" : "\\Recent",
+      "internalDate" : "2019-03-16 10:00:00 +0100",
+      "messageID" : "<mk-s1-003@mailkeeper.test>",
+      "modseq" : "4",
+      "size" : 577,
+      "uid" : 3
+    },
+    {
+      "bodyBytes" : 676,
+      "bytesIdentical" : true,
+      "fixtureBytes" : 676,
+      "flags" : "\\Recent",
+      "internalDate" : "2019-03-17 10:00:00 +0100",
+      "messageID" : "<mk-s1-004@mailkeeper.test>",
+      "modseq" : "5",
+      "size" : 676,
+      "uid" : 4
+    },
+    {
+      "bodyBytes" : 358,
+      "bytesIdentical" : true,
+      "fixtureBytes" : 358,
+      "flags" : "\\Recent",
+      "internalDate" : "2019-03-18 10:00:00 +0100",
+      "messageID" : "<mk-s1-005@mailkeeper.test>",
+      "modseq" : "6",
+      "size" : 358,
+      "uid" : 5
+    }
+  ],
+  "steps" : [
+    {
+      "greeting" : "* OK [CAPABILITY IMAP4rev1 SASL-IR LOGIN-REFERRALS ID ENABLE IDLE LITERAL+ AUTH=PLAIN AUTH=LOGIN] Dovecot ready.\r\n",
+      "ok" : true,
+      "seconds" : 0.084000000000000005,
+      "step" : "connect",
+      "tls" : "tls"
+    },
+    {
+      "auth" : "AUTH=PLAIN,AUTH=LOGIN",
+      "count" : 9,
+      "ok" : true,
+      "seconds" : 0.017999999999999999,
+      "step" : "capability (pre-login)"
+    },
+    {
+      "ok" : true,
+      "seconds" : 0.099000000000000005,
+      "step" : "login"
+    },
+    {
+      "count" : 43,
+      "has" : "UIDPLUS,MOVE,CONDSTORE,QRESYNC,SPECIAL-USE,LITERAL+,IDLE,ESEARCH,COMPRESS=DEFLATE,ID,ENABLE,STATUS=SIZE,SORT,THREAD=REFERENCES",
+      "ok" : true,
+      "seconds" : 0.019,
+      "step" : "capability"
+    },
+    {
+      "count" : 6,
+      "names" : "Trash | Archive | Sent | Drafts | Junk | INBOX",
+      "ok" : true,
+      "seconds" : 0.019,
+      "specialUse" : "\\Trash=Trash \\Archive=Archive \\Sent=Sent \\Drafts=Drafts \\Junk=Junk",
+      "step" : "list"
+    },
+    {
+      "ok" : true,
+      "seconds" : 0.024,
+      "step" : "create MailKeeper-Test"
+    },
+    {
+      "ok" : true,
+      "seconds" : 0.017999999999999999,
+      "step" : "enable QRESYNC"
+    },
+    {
+      "exists" : 0,
+      "highestModSeq" : "1",
+      "ok" : true,
+      "readWrite" : true,
+      "seconds" : 0.11899999999999999,
+      "step" : "select MailKeeper-Test",
+      "uidNext" : 1,
+      "uidValidity" : "UIDValidity(rawValue: 1791634025)"
+    },
+    {
+      "appendUID" : [
+        1
+      ],
+      "bytes" : 433,
+      "ok" : true,
+      "seconds" : 0.076999999999999999,
+      "step" : "append <mk-s1-001@mai"
+    },
+    {
+      "appendUID" : [
+        2
+      ],
+      "bytes" : 676,
+      "ok" : true,
+      "seconds" : 0.064000000000000001,
+      "step" : "append <mk-s1-002@mai"
+    },
+    {
+      "appendUID" : [
+        3
+      ],
+      "bytes" : 577,
+      "ok" : true,
+      "seconds" : 0.066000000000000003,
+      "step" : "append <mk-s1-003@mai"
+    },
+    {
+      "appendUID" : [
+        4
+      ],
+      "bytes" : 676,
+      "ok" : true,
+      "seconds" : 0.084000000000000005,
+      "step" : "append <mk-s1-004@mai"
+    },
+    {
+      "appendUID" : [
+        5
+      ],
+      "bytes" : 358,
+      "ok" : true,
+      "seconds" : 0.064000000000000001,
+      "step" : "append <mk-s1-005@mai"
+    },
+    {
+      "bytesIdentical" : 5,
+      "messages" : 5,
+      "ok" : true,
+      "seconds" : 0.035000000000000003,
+      "seenAfterPeek" : 0,
+      "step" : "fetch BODY.PEEK[]"
+    },
+    {
+      "ok" : true,
+      "remainingInTest" : 0,
+      "seconds" : 0.050000000000000003,
+      "step" : "move → Trash"
+    },
+    {
+      "appendUID" : [
+        6
+      ],
+      "bytesIdentical" : true,
+      "internalDate" : "2019-03-18 10:00:00 +0100",
+      "ok" : true,
+      "seconds" : 0.066000000000000003,
+      "step" : "restore (APPEND)"
+    },
+    {
+      "inTrashAfter" : 0,
+      "inTrashBefore" : 1,
+      "ok" : true,
+      "seconds" : 0.10000000000000001,
+      "step" : "purge from Trash"
+    }
+  ]
+}
