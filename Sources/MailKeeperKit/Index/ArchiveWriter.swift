@@ -281,11 +281,7 @@ public actor ArchiveWriter {
                         progress?(report.locations)
                     }
                 case .gone:
-                    try db.run("""
-                        UPDATE locations SET on_server = 0
-                        WHERE account_id = ? AND mailbox = ? AND uid_validity IS ? AND uid IS ? AND provider_id IS ?
-                        """, [.text(event.account), .optional(event.mailbox), .optional(event.uidValidity.map(Int64.init)),
-                              .optional(event.uid.map(Int64.init)), .optional(event.providerID)])
+                    try markGoneRow(event)
                 }
             }
             try db.execute("COMMIT")
@@ -306,6 +302,112 @@ public actor ArchiveWriter {
         report.missingBlobs = missing.sorted()
         report.damagedBlobs = damaged.sorted()
         return report
+    }
+
+    /// IMAP locations are identified by UID (they may also carry a provider id such as
+    /// X-GM-MSGID); file locations by provider id.
+    private func markGoneRow(_ event: JournalEvent) throws {
+        if let uid = event.uid {
+            try db.run("""
+                UPDATE locations SET on_server = 0
+                WHERE account_id = ? AND mailbox = ? AND uid_validity IS ? AND uid = ?
+                """, [.text(event.account), .optional(event.mailbox), .optional(event.uidValidity.map(Int64.init)), .int(Int64(uid))])
+        } else if let pid = event.providerID {
+            try db.run("UPDATE locations SET on_server = 0 WHERE account_id = ? AND mailbox = ? AND uid IS NULL AND provider_id = ?",
+                       [.text(event.account), .optional(event.mailbox), .text(pid)])
+        }
+    }
+
+    // MARK: Sync support
+
+    public struct MailboxState: Sendable, Equatable {
+        /// UIDVALIDITY values the archive has locations for.
+        public var validities: Set<UInt32>
+        public var modSeqValidity: UInt32?
+        public var highestModSeq: UInt64?
+    }
+
+    public func mailboxState(account: String, mailbox: String) throws -> MailboxState {
+        let validities = try db.query("""
+            SELECT DISTINCT uid_validity FROM locations
+            WHERE account_id = ? AND mailbox = ? AND uid_validity IS NOT NULL AND on_server = 1
+            """, [.text(account), .text(mailbox)]) { UInt32(truncatingIfNeeded: $0.int(0)) }
+        let state = try db.queryOne("SELECT uid_validity, highest_modseq FROM sync_state WHERE account_id = ? AND mailbox = ?",
+                                    [.text(account), .text(mailbox)]) { row in
+            (UInt32(truncatingIfNeeded: row.int(0)), row.optionalInt(1).map { UInt64(bitPattern: $0) })
+        }
+        return MailboxState(validities: Set(validities), modSeqValidity: state?.0, highestModSeq: state?.1)
+    }
+
+    /// Every UID ever seen in this mailbox/validity (also those gone since — UIDs are never reused).
+    public func knownUIDs(account: String, mailbox: String, uidValidity: UInt32) throws -> Set<UInt32> {
+        Set(try db.query("SELECT uid FROM locations WHERE account_id = ? AND mailbox = ? AND uid_validity = ? AND uid IS NOT NULL",
+                         [.text(account), .text(mailbox), .int(Int64(uidValidity))]) { UInt32(truncatingIfNeeded: $0.int(0)) })
+    }
+
+    public func onServerUIDs(account: String, mailbox: String, uidValidity: UInt32) throws -> Set<UInt32> {
+        Set(try db.query("""
+            SELECT uid FROM locations
+            WHERE account_id = ? AND mailbox = ? AND uid_validity = ? AND uid IS NOT NULL AND on_server = 1
+            """, [.text(account), .text(mailbox), .int(Int64(uidValidity))]) { UInt32(truncatingIfNeeded: $0.int(0)) })
+    }
+
+    /// Applies server-side flag/label changes to known locations; journals only real changes.
+    /// Returns the number of changed locations.
+    public func updateFlags(account: String, mailbox: String, uidValidity: UInt32, _ updates: [RemoteFlags]) throws -> Int {
+        guard !updates.isEmpty else { return 0 }
+        let now = Date().timeIntervalSince1970
+        return try db.transaction {
+            var changed = 0
+            for u in updates {
+                guard let row = try db.queryOne("""
+                    SELECT id, sha256, flags, labels, provider_id, internal_date FROM locations
+                    WHERE account_id = ? AND mailbox = ? AND uid_validity = ? AND uid = ?
+                    """, [.text(account), .text(mailbox), .int(Int64(uidValidity)), .int(Int64(u.uid))], { r in
+                        (id: r.int(0), sha: r.text(1) ?? "", flags: r.text(2) ?? "", labels: r.text(3) ?? "",
+                         pid: r.text(4), idate: r.optionalDouble(5))
+                    }) else { continue }
+                let flags = u.flags.joined(separator: " "), labels = u.labels.joined(separator: "\u{1F}")
+                guard flags != row.flags || labels != row.labels else { continue }
+                let loc = LocationInfo(account: account, mailbox: mailbox, uidValidity: uidValidity, uid: u.uid, providerID: row.pid,
+                                       internalDate: row.idate.map(Date.init(timeIntervalSince1970:)), flags: u.flags, labels: u.labels)
+                try journal.append(.seen(loc, sha256: row.sha, time: now))
+                try db.run("UPDATE locations SET flags = ?, labels = ?, last_seen = ? WHERE id = ?",
+                           [.text(flags), .text(labels), .double(now), .int(row.id)])
+                changed += 1
+            }
+            try journal.sync()
+            return changed
+        }
+    }
+
+    /// Marks locations as gone from the server (`uids == nil`: all of that UIDVALIDITY).
+    /// The messages stay in the archive. Returns the number of locations newly marked.
+    public func markGone(account: String, mailbox: String, uidValidity: UInt32, uids: Set<UInt32>?) throws -> Int {
+        let now = Date().timeIntervalSince1970
+        return try db.transaction {
+            let current = try db.query("""
+                SELECT uid FROM locations
+                WHERE account_id = ? AND mailbox = ? AND uid_validity = ? AND uid IS NOT NULL AND on_server = 1
+                """, [.text(account), .text(mailbox), .int(Int64(uidValidity))]) { UInt32(truncatingIfNeeded: $0.int(0)) }
+            let targets = uids.map { set in current.filter(set.contains) } ?? current
+            for uid in targets {
+                let event = JournalEvent.gone(account: account, mailbox: mailbox, uidValidity: uidValidity, uid: uid, time: now)
+                try journal.append(event)
+                try markGoneRow(event)
+            }
+            try journal.sync()
+            return targets.count
+        }
+    }
+
+    public func setSyncState(account: String, mailbox: String, uidValidity: UInt32, highestModSeq: UInt64?) throws {
+        try db.run("""
+            INSERT INTO sync_state(account_id, mailbox, uid_validity, highest_modseq, last_sync) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(account_id, mailbox) DO UPDATE SET uid_validity = excluded.uid_validity,
+                highest_modseq = excluded.highest_modseq, last_sync = excluded.last_sync
+            """, [.text(account), .text(mailbox), .int(Int64(uidValidity)),
+                  .optional(highestModSeq.map { Int64(bitPattern: $0) }), .double(Date().timeIntervalSince1970)])
     }
 
     static func removeDatabaseFiles(_ path: String) {

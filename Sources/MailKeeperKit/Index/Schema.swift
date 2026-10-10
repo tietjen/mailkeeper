@@ -86,6 +86,19 @@ enum Schema {
             tokenize='unicode61 remove_diacritics 2'
         );
         """,
+        // v2: per-mailbox sync state. Derived, not journalled: losing it only costs one full
+        // flags fetch.
+        """
+        CREATE TABLE sync_state(
+            account_id TEXT NOT NULL,
+            mailbox TEXT NOT NULL,
+            uid_validity INTEGER NOT NULL,
+            highest_modseq INTEGER,
+            last_sync REAL NOT NULL,
+            PRIMARY KEY(account_id, mailbox)
+        );
+        CREATE INDEX locations_validity ON locations(account_id, mailbox, uid_validity);
+        """,
     ]
 
     static var currentVersion: Int { migrations.count }

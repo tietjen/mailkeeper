@@ -37,6 +37,11 @@ public struct JournalEvent: Codable, Sendable, Equatable {
         JournalEvent(kind: .account, time: time, account: id, accountKind: kind, accountName: name)
     }
 
+    public static func gone(account: String, mailbox: String, uidValidity: UInt32?, uid: UInt32?, providerID: String? = nil,
+                            time: Double = Date().timeIntervalSince1970) -> JournalEvent {
+        JournalEvent(kind: .gone, time: time, account: account, mailbox: mailbox, uidValidity: uidValidity, uid: uid, providerID: providerID)
+    }
+
     public static func seen(_ loc: LocationInfo, sha256: String, time: Double = Date().timeIntervalSince1970) -> JournalEvent {
         JournalEvent(kind: .seen, time: time, account: loc.account, mailbox: loc.mailbox,
                      uidValidity: loc.uidValidity, uid: loc.uid, providerID: loc.providerID,
