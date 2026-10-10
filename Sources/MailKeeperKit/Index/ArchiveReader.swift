@@ -189,12 +189,16 @@ public final class ArchiveReader {
         case .domain: "CASE WHEN instr(m.from_addr, '@') > 0 THEN lower(substr(m.from_addr, instr(m.from_addr, '@') + 1)) END"
         case .list: "m.list_id"
         }
+        // A name only for single senders: for a domain or list it would be an arbitrary member's.
+        let name = mode == .sender ? "max(name)" : "NULL"
         let sql = """
-            SELECT k, max(name), count(*), sum(size), max(date), min(date), sum(unread), max(unsub) FROM (
+            SELECT k, \(name), count(*), sum(size), max(date), min(date), sum(unread), max(unsub) FROM (
                 SELECT \(key) AS k, m.from_name AS name, m.size AS size, m.date AS date, m.list_unsubscribe AS unsub,
-                       NOT EXISTS (SELECT 1 FROM locations l WHERE l.message_id = m.id
-                                   AND instr(' ' || lower(l.flags) || ' ', ' \\seen ') > 0) AS unread
-                FROM messages m\(whereClause)
+                       seen.message_id IS NULL AS unread
+                FROM messages m
+                LEFT JOIN (SELECT DISTINCT message_id FROM locations
+                           WHERE instr(' ' || lower(flags) || ' ', ' \\seen ') > 0) seen ON seen.message_id = m.id
+                \(whereClause)
             ) WHERE k IS NOT NULL AND k != '' GROUP BY k ORDER BY count(*) DESC, k LIMIT ?
             """
         return try self.db.query(sql, params + [.int(Int64(limit))]) { row in

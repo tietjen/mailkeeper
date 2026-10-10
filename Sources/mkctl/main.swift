@@ -20,6 +20,8 @@ usage: mkctl [--archive <dir>] <command>
   search <query…> [--limit <n>]               search (newest first), e.g. from:amazon has:pdf after:2024
                                               fields: from to subject body filename sender has larger smaller
                                               after before until date account folder label list is on only msgid
+  groups [--by sender|domain|list] [--limit n] [query…]
+                                              cleanup view: largest groups (of the query's messages)
   show <id>                                   one message: headers, locations, text
   account add gmail <address> --id <id>       add a Gmail account (app password, All Mail + labels)
   account add proton <address> --id <id> [--port 1143] [--trust <fingerprint>]
@@ -190,6 +192,22 @@ func summarize(_ p: ImportProgress, start: Date) {
             print("\(String(repeating: " ", count: max(0, 7 - id.count)))\(id)  \(formatDate(m.date))  \(from)  \(clean(m.subject))")
         }
         print(String(format: "%d hits in %.3fs", ids.count, elapsed))
+
+    case "groups":
+        let limit = Int(option("--limit") ?? "30") ?? 30
+        guard let mode = GroupMode(rawValue: option("--by") ?? "sender") else { throw CLIError(description: "--by sender | domain | list") }
+        let query = args.joined(separator: " ")
+        let reader = try ArchiveReader(layout: try ArchiveLayout.open(at: root, create: false))
+        let t0 = Date()
+        let groups = try reader.groups(MessageFilter(text: query.isEmpty ? nil : query), by: mode, limit: limit)
+        let elapsed = Date().timeIntervalSince(t0)
+        for g in groups {
+            let unread = g.count > 0 ? g.unread * 100 / g.count : 0
+            let count = String(g.count).padding(toLength: 6, withPad: " ", startingAt: 0)
+            let size = bytes(g.bytes).padding(toLength: 10, withPad: " ", startingAt: 0)
+            print("\(count) \(size) \(String(format: "%3d", unread))% unread  \(clean(g.key))\(g.name.map { "  (\(clean($0)))" } ?? "")")
+        }
+        print(String(format: "%d groups in %.3fs", groups.count, elapsed))
 
     case "show":
         guard let idText = args.first, let id = Int64(idText) else { throw CLIError(description: "show <id>") }
