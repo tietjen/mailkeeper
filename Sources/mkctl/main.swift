@@ -1,1 +1,178 @@
-print("mkctl")
+import Foundation
+import MailKeeperKit
+
+// mkctl — command line access to a MailKeeper archive (imports, search, maintenance).
+// No dependencies; arguments are parsed by hand.
+
+setvbuf(stdout, nil, _IOLBF, 0)
+
+let usage = """
+usage: mkctl [--archive <dir>] <command>
+
+  init                                        create an empty archive
+  import maildir <dir> --account <id>         import a Maildir tree (mbsync, Dovecot, Maildir++)
+  import mbox <file> --account <id> [--mailbox <name>]
+                                              import an mbox file (Google Takeout supported)
+  import eml <dir> --account <id>             import a folder of .eml files
+  stats                                       counts and sizes
+  accounts                                    accounts and mailboxes
+  search <terms…> [--limit <n>]               full-text search (newest first)
+  show <id>                                   one message: headers, locations, text
+  verify                                      re-hash every blob
+  rebuild-index                               rebuild index.sqlite from blobs + journal
+
+archive: --archive, else $MAILKEEPER_ARCHIVE, else ~/Library/Application Support/MailKeeper/Archive
+"""
+
+struct CLIError: Error, CustomStringConvertible {
+    let description: String
+}
+
+var args = Array(CommandLine.arguments.dropFirst())
+
+@MainActor func option(_ name: String) -> String? {
+    guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
+    let v = args[i + 1]
+    args.removeSubrange(i...(i + 1))
+    return v
+}
+
+@MainActor func requireOption(_ name: String) throws -> String {
+    guard let v = option(name) else { throw CLIError(description: "missing \(name)") }
+    return v
+}
+
+@MainActor func archiveURL() -> URL {
+    if let a = option("--archive") { return URL(fileURLWithPath: (a as NSString).expandingTildeInPath) }
+    if let env = ProcessInfo.processInfo.environment["MAILKEEPER_ARCHIVE"] {
+        return URL(fileURLWithPath: (env as NSString).expandingTildeInPath)
+    }
+    return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appending(path: "MailKeeper/Archive")
+}
+
+func bytes(_ n: Int64) -> String {
+    ByteCountFormatter.string(fromByteCount: n, countStyle: .file)
+}
+
+func formatDate(_ d: Date?) -> String {
+    guard let d else { return "—" }
+    return d.formatted(.iso8601.year().month().day())
+}
+
+func progressPrinter(start: Date) -> @Sendable (ImportProgress) -> Void {
+    { p in
+        let secs = Date().timeIntervalSince(start)
+        let rate = secs > 0 ? Double(p.messages) / secs : 0
+        FileHandle.standardError.write(Data(String(
+            format: "\r%7d messages  %@  new %d  +loc %d  same %d  failed %d  %.0f/s   ",
+            p.messages, bytes(p.bytes), p.newMessages, p.newLocations, p.unchanged, p.failed, rate).utf8))
+    }
+}
+
+func summarize(_ p: ImportProgress, start: Date) {
+    FileHandle.standardError.write(Data("\n".utf8))
+    print(String(format: "imported %d messages (%@) in %.1fs — new %d, new locations %d, unchanged %d, failed %d",
+                 p.messages, bytes(p.bytes), Date().timeIntervalSince(start), p.newMessages, p.newLocations, p.unchanged, p.failed))
+    if let e = p.lastError { print("last error: \(e)") }
+}
+
+@MainActor func run() async throws {
+    let root = archiveURL()
+    guard let command = args.first else { print(usage); return }
+    args.removeFirst()
+
+    switch command {
+    case "init":
+        let layout = try ArchiveLayout.open(at: root, create: true)
+        print("archive ready at \(layout.root.path)")
+        if layout.volumeIsEncrypted == false { print("warning: the volume is not encrypted") }
+
+    case "import":
+        guard let kind = args.first else { throw CLIError(description: "import what? maildir | mbox | eml") }
+        args.removeFirst()
+        let account = try requireOption("--account")
+        let mailbox = option("--mailbox")
+        guard let path = args.first else { throw CLIError(description: "missing source path") }
+        let source = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        let layout = try ArchiveLayout.open(at: root, create: true)
+        let writer = try ArchiveWriter(layout: layout)
+        let start = Date()
+        let progress = progressPrinter(start: start)
+        let result: ImportProgress
+        switch kind {
+        case "maildir": result = try await MaildirImporter(root: source, account: account).run(writer: writer, progress: progress)
+        case "mbox": result = try await MboxImporter(file: source, account: account, mailbox: mailbox).run(writer: writer, progress: progress)
+        case "eml": result = try await EMLImporter(root: source, account: account).run(writer: writer, progress: progress)
+        default: throw CLIError(description: "unknown import kind \(kind)")
+        }
+        summarize(result, start: start)
+
+    case "stats":
+        let reader = try ArchiveReader(layout: try ArchiveLayout.open(at: root, create: false))
+        let s = try reader.stats()
+        print("accounts \(s.accounts) · messages \(s.messages) · locations \(s.locations) · blobs \(s.blobs) (\(bytes(s.blobBytes)))")
+
+    case "accounts":
+        let reader = try ArchiveReader(layout: try ArchiveLayout.open(at: root, create: false))
+        for a in try reader.accounts() {
+            print("\(a.id) (\(a.kind)) — \(a.messageCount) messages")
+            for m in a.mailboxes { print("    \(m.name)  \(m.count)") }
+        }
+
+    case "search":
+        let limit = Int(option("--limit") ?? "25") ?? 25
+        let terms = args.joined(separator: " ")
+        guard !terms.isEmpty else { throw CLIError(description: "search terms missing") }
+        let reader = try ArchiveReader(layout: try ArchiveLayout.open(at: root, create: false))
+        let t0 = Date()
+        let ids = try reader.messageIDs(MessageFilter(text: terms))
+        let elapsed = Date().timeIntervalSince(t0)
+        for m in try reader.summaries(Array(ids.prefix(limit))) {
+            print("\(String(format: "%7d", m.id))  \(formatDate(m.date))  \(m.fromDisplay.prefix(28).padding(toLength: 28, withPad: " ", startingAt: 0))  \(m.subject ?? "")")
+        }
+        print(String(format: "%d hits in %.3fs", ids.count, elapsed))
+
+    case "show":
+        guard let idText = args.first, let id = Int64(idText) else { throw CLIError(description: "show <id>") }
+        let reader = try ArchiveReader(layout: try ArchiveLayout.open(at: root, create: false))
+        guard let d = try reader.detail(id), let p = try reader.parsedMessage(id) else { throw CLIError(description: "no message \(id)") }
+        print("Subject:    \(p.subject ?? "")")
+        print("From:       \(p.from.map(\.display).joined(separator: ", "))")
+        print("To:         \(p.to.map(\.display).joined(separator: ", "))")
+        print("Date:       \(p.date.map { $0.formatted() } ?? "—")")
+        print("Message-ID: \(d.messageID ?? "—")")
+        if let list = d.listID { print("List-Id:    \(list)") }
+        for a in p.attachments { print("Attachment: \(a.filename ?? "(unnamed)") — \(a.mimeType), \(bytes(Int64(a.size)))\(a.isInline ? " inline" : "")") }
+        for l in d.locations {
+            print("Location:   \(l.account)/\(l.mailbox)\(l.uid.map { " uid \($0)" } ?? "") flags[\(l.flags.joined(separator: " "))]\(l.labels.isEmpty ? "" : " labels[\(l.labels.joined(separator: ", "))]") blob \(l.sha256.prefix(12))…")
+        }
+        print("")
+        print(String(p.text.prefix(2000)))
+
+    case "verify":
+        let writer = try ArchiveWriter(layout: try ArchiveLayout.open(at: root, create: false))
+        let bad = try await writer.verifyBlobs()
+        print(bad.isEmpty ? "all blobs verified" : "\(bad.count) damaged blobs:\n" + bad.joined(separator: "\n"))
+        if !bad.isEmpty { exit(1) }
+
+    case "rebuild-index":
+        let writer = try ArchiveWriter(layout: try ArchiveLayout.open(at: root, create: false))
+        let start = Date()
+        let n = try await writer.rebuildIndex { n in FileHandle.standardError.write(Data("\r\(n) locations".utf8)) }
+        print(String(format: "\nrebuilt index from %d locations in %.1fs", n, Date().timeIntervalSince(start)))
+
+    case "help", "--help", "-h":
+        print(usage)
+
+    default:
+        throw CLIError(description: "unknown command \(command)\n\n\(usage)")
+    }
+}
+
+do {
+    try await run()
+} catch {
+    FileHandle.standardError.write(Data("mkctl: \(error)\n".utf8))
+    exit(1)
+}

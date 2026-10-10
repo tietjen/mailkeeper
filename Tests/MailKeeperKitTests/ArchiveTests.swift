@@ -117,6 +117,10 @@ struct IndexTests {
         #expect(try ids("mueller") == [1, 2])
         #expect(try ids("strassenbau") == [2])
         #expect(try ids("Rech") == [1])  // prefix while typing
+        #expect(try ids("mueller rechnung") == [1])  // variant group followed by another term
+        #expect(try ids("rechnung mueller") == [1])
+        #expect(try ids("Termin  Müller ") == [2])
+        #expect(try ids("\"\" ( ) * NEAR") == [])  // FTS syntax characters are inert
         #expect(try reader.messageIDs(MessageFilter(account: "acc", mailbox: "Spam")) == [3])
         #expect(try reader.summaries([3, 1]).map(\.id) == [3, 1])
     }

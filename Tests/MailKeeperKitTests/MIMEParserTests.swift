@@ -249,7 +249,7 @@ struct HeaderPieceTests {
 
     @Test func searchQuery() {
         #expect(SearchText.ftsQuery("Grüße") == #"("Grüsse"* OR "gruesse"*)"#)
-        #expect(SearchText.ftsQuery("mueller rechnung ") == #"("mueller" OR "müller") "rechnung""#)
+        #expect(SearchText.ftsQuery("mueller rechnung ") == #"("mueller" OR "müller") AND "rechnung""#)
         #expect(SearchText.ftsQuery("\"\" ;") == nil)
         #expect(SearchText.ftsQuery("a\"b") == #""ab"*"#)
     }

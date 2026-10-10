@@ -21,7 +21,7 @@ public enum SearchText {
             let prefix = prefixLast && n == terms.count - 1 && !input.hasSuffix(" ")
             let variants = spellingVariants(term).map { "\"\($0)\"" + (prefix ? "*" : "") }
             return variants.count == 1 ? variants[0] : "(" + variants.joined(separator: " OR ") + ")"
-        }.joined(separator: " ")
+        }.joined(separator: " AND ")  // FTS5 has no implicit AND after a parenthesised group
     }
 
     static func spellingVariants(_ term: String) -> [String] {
