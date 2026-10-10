@@ -54,6 +54,9 @@ struct QuerySQL {
         case .sender(let address):
             params.append(.text(address))
             return "m.from_addr = ? COLLATE NOCASE"
+        case .domain(let domain):
+            params.append(.text(domain))
+            return "lower(substr(m.from_addr, instr(m.from_addr, '@') + 1)) = ? AND instr(m.from_addr, '@') > 0"
         case .has(.any):
             return "m.attachment_count > 0"
         case .has(.pdf):
@@ -85,6 +88,9 @@ struct QuerySQL {
         case .list(let id):
             params.append(.text("%" + Self.escapeLike(id) + "%"))
             return "m.list_id LIKE ? ESCAPE '\\'"
+        case .listID(let id):
+            params.append(.text(id))
+            return "m.list_id = ?"
         case .isList:
             return "(m.list_id IS NOT NULL OR m.list_unsubscribe = 1)"
         case .flag(.unread):

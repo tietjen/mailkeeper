@@ -4,6 +4,21 @@ import MailKeeperKit
 import Observation
 import SwiftUI
 
+/// The content column: the message list, or the cleanup view grouped one way.
+enum ViewMode: String, CaseIterable, Identifiable {
+    case messages, sender, domain, list
+    var id: String { rawValue }
+
+    var group: GroupMode? {
+        switch self {
+        case .messages: nil
+        case .sender: .sender
+        case .domain: .domain
+        case .list: .list
+        }
+    }
+}
+
 enum SidebarItem: Hashable {
     case all
     case account(String)
@@ -50,6 +65,8 @@ final class AppModel {
     private(set) var savedSearches: [SavedSearch] = []
     private(set) var savedCounts: [UUID: Int] = [:]
     private(set) var labels: [String] = []
+    var viewMode: ViewMode = .messages { didSet { if viewMode != oldValue { reloadList() } } }
+    private(set) var groups: [MessageGroup] = []
     var sort: MessageSort = .date
     var ascending = false
     private(set) var messageIDs: [Int64] = []
@@ -191,6 +208,11 @@ final class AppModel {
         }
         filter.text = text
         do {
+            if let mode = viewMode.group {
+                groups = try reader.groups(filter, by: mode)
+                listError = nil
+                return
+            }
             messageIDs = try reader.messageIDs(filter, sort: sort, ascending: ascending)
             listError = nil
         } catch let error as QueryError {
@@ -218,6 +240,12 @@ final class AppModel {
         text.removeSubrange(chip.range)
         let rest = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         searchText = rest.isEmpty ? "" : rest + " "  // the trailing space keeps the last word exact
+    }
+
+    /// Cleanup view → the group's messages: back to the list, narrowed by the group's exact query.
+    func openGroup(_ group: MessageGroup) {
+        appendFilter(group.query)
+        viewMode = .messages
     }
 
     /// Appends a filter term (from the Filter menu) to the search text.

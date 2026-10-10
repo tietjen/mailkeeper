@@ -104,7 +104,8 @@ public enum QueryCompletion {
         ("after:", "ab Datum: 2024, 2024-03, 17.3.2024, 30d"), ("before:", "vor Datum"), ("until:", "bis einschließlich"),
         ("date:", "im Zeitraum: 2024-05, heute"), ("larger:", "größer als: 500K, 5M"), ("smaller:", "kleiner als"),
         ("folder:", "Ordner (Archiv/* für Unterordner)"), ("account:", "Konto"), ("label:", "Label"),
-        ("list:", "Mailingliste (List-Id)"), ("sender:", "exakte Absenderadresse"), ("filename:", "Name eines Anhangs"),
+        ("list:", "Mailingliste (Teil der List-Id)"), ("sender:", "exakte Absenderadresse"),
+        ("domain:", "exakte Absender-Domain"), ("listid:", "exakte List-Id"), ("filename:", "Name eines Anhangs"),
         ("body:", "nur im Text"), ("only:archive", "nicht mehr auf dem Server"), ("on:server", "noch auf dem Server"),
     ]
 

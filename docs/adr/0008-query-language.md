@@ -21,11 +21,12 @@ and later the model all use it; the model's output is shown as query text before
 rechnung "jahres abrechnung"        words and phrases, all of them (AND)
 from:amazon  to:  subject:  body:   words in that field (name and address for from/to)
 sender:billing@amazon.de            exact sender address
+domain:amazon.de  listid:news.x.de  exact sender domain (no subdomains), exact List-Id
 filename:vertrag  has:attachment|pdf|image|calendar
 larger:5M  smaller:100K             size (K/M/G = 1024)
 after:2024-03  before:2025  until:2024-12-31  date:2024-05   calendar periods, local time
 after:30d  before:1y                relative (d, w, m, y)
-account:gmail  folder:INBOX  folder:Archiv/*  label:Steuer  list:newsletter.example
+account:gmail  folder:INBOX  folder:Archiv/*  label:Steuer  list:newsletter   (List-Id contains)
 is:unread|read|flagged|answered|list   on:server  only:archive   msgid:<id@host>
 -word  -from:x                      negation
 a OR b   ( … )                      alternatives and grouping; AND binds tighter than OR
@@ -44,6 +45,9 @@ a OR b   ( … )                      alternatives and grouping; AND binds tight
 - **Safety:** every user value is an SQL parameter; FTS terms are quoted and stripped of
   quotes; LIKE patterns are escaped. Input is limited to 4096 characters, 64 terms and a
   nesting depth of 16.
+- **Exact fields for drill-downs:** `sender:`, `domain:` and `listid:` match exactly, so a
+  group in the cleanup view and the list it opens contain the same messages — the basis for
+  bulk actions in Phase 4.
 - Location predicates (`account:`, `folder:`, `label:`, flags, `on:server`) are evaluated
   per predicate ("some location matches"), not jointly on the same location.
 

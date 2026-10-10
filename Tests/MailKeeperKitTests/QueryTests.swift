@@ -274,3 +274,34 @@ struct SavedSearchTests {
         #expect(s("rechnung ").isEmpty && s("").isEmpty && s("xyz:").isEmpty)
     }
 }
+
+@Suite("Cleanup groups")
+struct GroupTests {
+    @Test func everyGroupsQuerySelectsExactlyItsMessages() async throws {
+        let r = try await QueryArchiveTests.archive()
+        for mode in GroupMode.allCases {
+            let groups = try r.groups(MessageFilter(), by: mode)
+            #expect(!groups.isEmpty, "\(mode)")
+            for g in groups {
+                #expect(try r.count(MessageFilter(base: g.query)) == g.count, "\(g.query)")
+            }
+        }
+        let senders = try r.groups(MessageFilter(), by: .sender)
+        #expect(senders.map(\.key).sorted() == ["billing@amazon.de", "cal@example.org", "mueller@firma.de", "news@example.com"])
+        let amazon = try #require(senders.first { $0.key == "billing@amazon.de" })
+        #expect(amazon.name == "Amazon" && amazon.unread == 0 && amazon.query == "sender:billing@amazon.de")
+        let lists = try r.groups(MessageFilter(), by: .list)
+        #expect(lists.map(\.key) == ["news.example.com"] && lists[0].unsubscribe && lists[0].unread == 1)
+        #expect(try r.groups(MessageFilter(text: "has:attachment"), by: .domain).map(\.key).sorted() == ["amazon.de", "example.org"])
+    }
+
+    @Test func exactFieldsDoNotMatchNeighbours() async throws {
+        let r = try await QueryArchiveTests.archive()
+        #expect(try QueryArchiveTests.subjects(r, "domain:amazon.de") == ["Ihre Rechnung"])
+        #expect(try QueryArchiveTests.subjects(r, "domain:@AMAZON.DE") == ["Ihre Rechnung"])
+        #expect(try QueryArchiveTests.subjects(r, "domain:de").isEmpty)
+        #expect(try QueryArchiveTests.subjects(r, "listid:news.example.com") == ["Wochenrückblick"])
+        #expect(try QueryArchiveTests.subjects(r, "listid:example.com").isEmpty)
+        #expect(try QueryArchiveTests.subjects(r, "list:example") == ["Wochenrückblick"])
+    }
+}

@@ -54,6 +54,40 @@ public struct ArchiveStats: Sendable, Equatable {
     public var blobBytes: Int64
 }
 
+/// Cleanup view: messages grouped by sender address, sender domain or mailing list.
+public enum GroupMode: String, Sendable, CaseIterable {
+    case sender, domain, list
+}
+
+public struct MessageGroup: Sendable, Hashable, Identifiable {
+    public var mode: GroupMode
+    /// Address, domain or List-Id (lowercased).
+    public var key: String
+    /// A sender name seen in the group.
+    public var name: String?
+    public var count: Int
+    public var bytes: Int64
+    public var newest: Date?
+    public var oldest: Date?
+    /// Messages without \Seen in any location.
+    public var unread: Int
+    /// Some message offers List-Unsubscribe.
+    public var unsubscribe: Bool
+
+    public var id: String { mode.rawValue + ":" + key }
+
+    /// Exactly this group's messages (ADR-0008: sender:, domain:, listid: are exact).
+    public var query: String {
+        let field = switch mode {
+        case .sender: "sender"
+        case .domain: "domain"
+        case .list: "listid"
+        }
+        let quoted = key.contains(where: { $0.isWhitespace || "()\"".contains($0) })
+        return "\(field):" + (quoted ? "\"\(key.replacingOccurrences(of: "\"", with: ""))\"" : key)
+    }
+}
+
 public enum MessageSort: String, Sendable, CaseIterable {
     case date, from, subject, size
 }
@@ -144,6 +178,31 @@ public final class ArchiveReader {
     public func count(_ filter: MessageFilter) throws -> Int {
         let (whereClause, params) = try Self.whereClause(filter)
         return Int(try self.db.queryOne("SELECT count(*) FROM messages m" + whereClause, params) { $0.int(0) } ?? 0)
+    }
+
+    /// Groups of the messages matching `filter`, largest first. Keys come from the same
+    /// expressions the exact query fields use, so a group and its `query` agree.
+    public func groups(_ filter: MessageFilter, by mode: GroupMode, limit: Int = 2_000) throws -> [MessageGroup] {
+        let (whereClause, params) = try Self.whereClause(filter)
+        let key = switch mode {
+        case .sender: "lower(m.from_addr)"
+        case .domain: "CASE WHEN instr(m.from_addr, '@') > 0 THEN lower(substr(m.from_addr, instr(m.from_addr, '@') + 1)) END"
+        case .list: "m.list_id"
+        }
+        let sql = """
+            SELECT k, max(name), count(*), sum(size), max(date), min(date), sum(unread), max(unsub) FROM (
+                SELECT \(key) AS k, m.from_name AS name, m.size AS size, m.date AS date, m.list_unsubscribe AS unsub,
+                       NOT EXISTS (SELECT 1 FROM locations l WHERE l.message_id = m.id
+                                   AND instr(' ' || lower(l.flags) || ' ', ' \\seen ') > 0) AS unread
+                FROM messages m\(whereClause)
+            ) WHERE k IS NOT NULL AND k != '' GROUP BY k ORDER BY count(*) DESC, k LIMIT ?
+            """
+        return try self.db.query(sql, params + [.int(Int64(limit))]) { row in
+            MessageGroup(mode: mode, key: row.text(0) ?? "", name: row.text(1), count: Int(row.int(2)), bytes: row.int(3),
+                         newest: row.optionalDouble(4).map(Date.init(timeIntervalSince1970:)),
+                         oldest: row.optionalDouble(5).map(Date.init(timeIntervalSince1970:)),
+                         unread: Int(row.int(6)), unsubscribe: row.bool(7))
+        }
     }
 
     /// Distinct labels across all locations (Gmail labels, Takeout), for completion.

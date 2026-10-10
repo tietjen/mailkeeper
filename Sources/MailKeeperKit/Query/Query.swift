@@ -17,6 +17,8 @@ public enum QueryPredicate: Sendable, Equatable {
     case text(TextField, String, prefix: Bool)
     /// Exact sender address, case-insensitive.
     case sender(String)
+    /// Exact sender domain (the part after @), case-insensitive; no subdomains.
+    case domain(String)
     case has(Attachment)
     case larger(Int64)
     case smaller(Int64)
@@ -27,7 +29,10 @@ public enum QueryPredicate: Sendable, Equatable {
     case account(String)
     case folder(String, prefix: Bool)
     case label(String)
+    /// List-Id contains the text.
     case list(String)
+    /// List-Id equals the text.
+    case listID(String)
     case isList
     case flag(Flag)
     case onServer
@@ -78,7 +83,7 @@ public enum QueryParser {
 
     enum Field: String, CaseIterable {
         case from, to, subject, body, filename, sender, has, larger, smaller
-        case after, before, until, date, account, folder, label, list, `is`, on, only, msgid
+        case after, before, until, date, account, folder, label, list, listid, domain, `is`, on, only, msgid
 
         static let aliases: [String: Field] = {
             var map = Dictionary(uniqueKeysWithValues: allCases.map { ($0.rawValue, $0) })
@@ -338,6 +343,13 @@ public enum QueryParser {
                 return (.predicate(.label(try required().lowercased())), "Label: \(value)")
             case .list:
                 return (.predicate(.list(try required().lowercased())), "Liste: \(value)")
+            case .listid:
+                return (.predicate(.listID(try required().lowercased())), "Liste: \(value)")
+            case .domain:
+                var v = try required().lowercased()
+                if v.hasPrefix("@") { v.removeFirst() }
+                guard !v.isEmpty else { throw QueryError("\(name) braucht eine Domain wie amazon.de.") }
+                return (.predicate(.domain(v)), "Domain: \(v)")
             case .is:
                 switch try required().lowercased() {
                 case "unread", "ungelesen", "neu": return (.predicate(.flag(.unread)), "ungelesen")

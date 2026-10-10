@@ -10,7 +10,13 @@ struct ContentView: View {
                 .frame(minWidth: 190)  // hard floor: narrower, the list shows only the counts
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 400)
         } content: {
-            MessageTable(model: model)
+            Group {
+                if model.viewMode == .messages {
+                    MessageTable(model: model)
+                } else {
+                    GroupTable(model: model)
+                }
+            }
                 .navigationSplitViewColumnWidth(min: 420, ideal: 640)
                 .safeAreaInset(edge: .top, spacing: 0) { QueryBar(model: model) }
                 .overlay {
@@ -36,6 +42,8 @@ struct ContentView: View {
                         } description: {
                             Text(error)
                         }
+                    } else if model.viewMode != .messages {
+                        if model.groups.isEmpty { ContentUnavailableView("Nichts zum Aufräumen", systemImage: "sparkles") }
                     } else if model.messageIDs.isEmpty {
                         ContentUnavailableView(model.searchText.isEmpty ? "Keine Nachrichten" : "Keine Treffer",
                                                systemImage: model.searchText.isEmpty ? "tray" : "magnifyingglass")
@@ -60,6 +68,16 @@ struct ContentView: View {
             }
         }
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker("Ansicht", selection: $model.viewMode) {
+                    Label("Nachrichten", systemImage: "list.bullet").tag(ViewMode.messages)
+                    Label("Absender", systemImage: "person.2").tag(ViewMode.sender)
+                    Label("Domains", systemImage: "globe").tag(ViewMode.domain)
+                    Label("Listen", systemImage: "newspaper").tag(ViewMode.list)
+                }
+                .pickerStyle(.segmented)
+                .help("Nachrichten einzeln oder zum Aufräumen gruppiert nach Absender, Domain oder Mailingliste")
+            }
             ToolbarItem {
                 FilterMenu(model: model)
             }
