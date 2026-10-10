@@ -82,6 +82,14 @@ public enum MIMEParser {
         let root = parsePart(Data(data), depth: 0, budget: &budget, truncated: &truncated, defaultType: "text/plain")
         var collector = BodyCollector()
         collector.collect(root)
+        // Embedded = an image the HTML actually shows via cid:. Everything else is an attachment,
+        // including Apple Mail's `inline; filename=…pdf` and Outlook's Content-IDs on every file.
+        let shown = referencedContentIDs(collector.html)
+        for i in collector.attachments.indices {
+            let a = collector.attachments[i]
+            collector.attachments[i].isInline = a.mimeType.hasPrefix("image/")
+                && a.contentID.map { shown.contains($0.lowercased()) } == true
+        }
 
         let h = root.headers
         var text = collector.plain.joined(separator: "\n\n")
@@ -113,6 +121,28 @@ public enum MIMEParser {
             truncated: truncated
         )
     }
+
+    /// `<content-id>`s (lowercased) referenced as `cid:` from the HTML, in one linear pass.
+    static func referencedContentIDs(_ html: [String]) -> Set<String> {
+        var out: Set<String> = []
+        for doc in html {
+            let b = Array(doc.utf8)
+            var i = 0
+            while i + 4 <= b.count {
+                guard b[i] | 0x20 == UInt8(ascii: "c"), b[i + 1] | 0x20 == UInt8(ascii: "i"),
+                      b[i + 2] | 0x20 == UInt8(ascii: "d"), b[i + 3] == UInt8(ascii: ":") else { i += 1; continue }
+                var j = i + 4
+                while j < b.count, j - i < 1_024, !Self.cidTerminators.contains(b[j]) { j += 1 }
+                if j > i + 4, let raw = String(bytes: b[(i + 4)..<j], encoding: .utf8) {
+                    out.insert("<" + (raw.removingPercentEncoding ?? raw).lowercased() + ">")
+                }
+                i = j
+            }
+        }
+        return out
+    }
+
+    private static let cidTerminators: Set<UInt8> = Set("\"' <>()\t\r\n".utf8)
 
     static func parsePart(_ data: Data, depth: Int, budget: inout Int, truncated: inout Bool, defaultType: String) -> MIMEPart {
         budget -= 1
@@ -197,7 +227,7 @@ private struct BodyCollector {
             }
             plain += plainAlt?.plain ?? []
             html += htmlAlt?.html ?? []
-            // inline resources (cid images) of the chosen HTML alternative
+            // cid candidates (embedded images) only from the chosen HTML alternative
             attachments += htmlAlt?.attachments.filter(\.isInline) ?? []
             return
         }
@@ -219,7 +249,7 @@ private struct BodyCollector {
             mimeType: part.contentType,
             size: part.estimatedDecodedSize,
             contentID: part.contentID,
-            isInline: part.disposition == "inline" || (part.disposition == nil && part.contentID != nil),
+            isInline: part.contentID != nil,  // provisional: a cid candidate; parse() decides
             partPath: path
         ))
     }

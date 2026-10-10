@@ -102,6 +102,57 @@ struct MIMEParserTests {
         #expect(img?.isInline == true)
     }
 
+    @Test("Embedded only when the HTML shows it: Apple Mail inline PDFs, Outlook CIDs")
+    func embeddedVersusAttached() {
+        let p = MIMEParser.parse(eml("""
+        Content-Type: multipart/mixed; boundary=m
+
+        --m
+        Content-Type: multipart/related; boundary=r
+
+        --r
+        Content-Type: text/html
+
+        <img src=CID:logo%40firma.de> <a href="cid:vertrag">PDF</a>
+        --r
+        Content-Type: image/png
+        Content-ID: <Logo@firma.de>
+
+        x
+        --r
+        Content-Type: application/pdf
+        Content-ID: <vertrag>
+        Content-Disposition: inline; filename=vertrag.pdf
+
+        y
+        --r--
+        --m
+        Content-Type: application/pdf
+        Content-Disposition: inline; filename="Rechnung.pdf"
+
+        z
+        --m
+        Content-Type: image/jpeg
+        Content-ID: <foto@iphone>
+        Content-Disposition: inline; filename=IMG_0001.jpg
+
+        w
+        --m
+        Content-Type: application/zip
+        Content-ID: <outlook-att@x>
+        Content-Disposition: attachment; filename=daten.zip
+
+        v
+        --m--
+        """))
+        let byName = Dictionary(uniqueKeysWithValues: p.attachments.map { ($0.filename ?? $0.mimeType, $0.isInline) })
+        #expect(byName["image/png"] == true)        // referenced (case and %-encoding differ)
+        #expect(byName["vertrag.pdf"] == false)     // referenced, but documents always show
+        #expect(byName["Rechnung.pdf"] == false)    // Apple Mail: inline disposition, no cid
+        #expect(byName["IMG_0001.jpg"] == false)    // cid, but no HTML shows it
+        #expect(byName["daten.zip"] == false)       // Outlook puts CIDs on every file
+    }
+
     @Test func latin1BodyAndBEncodedSubject() {
         var d = eml("""
         Subject: =?ISO-8859-1?B?R3L832UgYXVzIGRlbSBBcmNoaXY=?=
