@@ -164,10 +164,13 @@ struct ReaderView: View {
 
     var body: some View {
         Group {
-            if let loaded, loaded.id == messageID {
-                content(loaded.detail, loaded.message, loaded.thread)
-            } else if failed {
+            if failed {
                 ContentUnavailableView("Nachricht nicht lesbar", systemImage: "exclamationmark.triangle")
+            } else if let loaded {
+                // While the next message loads, the previous one stays (dimmed) instead of a
+                // spinner: no flicker, and the conversation list keeps its place.
+                content(loaded.detail, loaded.message, loaded.thread)
+                    .opacity(loaded.id == messageID ? 1 : 0.5)
             } else {
                 ProgressView()
             }
@@ -331,35 +334,60 @@ struct ConversationList: View {
     let model: AppModel
     let current: Int64
     let thread: [MessageSummary]
-    @State private var expanded = false
+    /// Remembered across messages and launches: opening another mail of the conversation
+    /// keeps the list open.
+    @AppStorage("readerConversationExpanded") private var expanded = false
+
+    private static let rowHeight: CGFloat = 22
+    private static let visibleRows = 8
 
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(thread) { m in
-                    Button { model.reveal(m.id) } label: {
-                        HStack(spacing: 8) {
-                            Text(m.date.map { $0.formatted(date: .numeric, time: .shortened) } ?? "—")
-                                .monospacedDigit()
-                                .frame(width: 118, alignment: .leading)
-                            Text(DisplayText.safe(m.fromDisplay)).lineLimit(1).frame(width: 150, alignment: .leading)
-                            Text(DisplayText.safe(m.subject ?? "")).lineLimit(1)
-                            Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 4) {
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(thread) { m in row(m).id(m.id) }
                         }
-                        .fontWeight(m.id == current ? .semibold : .regular)
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    .disabled(m.id == current)
+                    .frame(height: Self.rowHeight * CGFloat(min(thread.count, Self.visibleRows)))
+                    .scrollIndicators(thread.count > Self.visibleRows ? .automatic : .never)
+                    .onAppear { proxy.scrollTo(current, anchor: .center) }
+                    .onChange(of: current) { withAnimation { proxy.scrollTo(current, anchor: .center) } }
                 }
                 Button("Ganze Konversation in der Liste zeigen") { model.showThread(of: current) }
                     .buttonStyle(.link)
-                    .padding(.top, 2)
             }
             .font(.callout)
             .padding(.top, 2)
         } label: {
             Text("\(thread.count) Nachrichten in dieser Konversation").font(.callout)
         }
+    }
+
+    /// The open message: tinted background, accent marker, bold. Others: plain, clickable.
+    private func row(_ m: MessageSummary) -> some View {
+        let isCurrent = m.id == current
+        return Button { if !isCurrent { model.reveal(m.id) } } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "arrowtriangle.right.fill")
+                    .font(.caption2)
+                    .foregroundStyle(Color.accentColor)
+                    .opacity(isCurrent ? 1 : 0)
+                Text(m.date.map { $0.formatted(date: .numeric, time: .shortened) } ?? "—")
+                    .monospacedDigit()
+                    .frame(width: 118, alignment: .leading)
+                Text(DisplayText.safe(m.fromDisplay)).lineLimit(1).frame(width: 150, alignment: .leading)
+                Text(DisplayText.safe(m.subject ?? "")).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .fontWeight(isCurrent ? .semibold : .regular)
+            .padding(.horizontal, 6)
+            .frame(height: Self.rowHeight)
+            .background(RoundedRectangle(cornerRadius: 5).fill(isCurrent ? Color.accentColor.opacity(0.18) : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)  // not .disabled: that would grey out the highlight
+        .help(isCurrent ? String(localized: "Diese Nachricht ist geöffnet") : String(localized: "Nachricht öffnen"))
     }
 }
