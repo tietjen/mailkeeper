@@ -15,20 +15,35 @@ struct MessageTable: NSViewRepresentable {
         table.usesAlternatingRowBackgroundColors = true
         table.allowsMultipleSelection = false
         table.rowSizeStyle = .medium
-        let columns: [(MessageSort?, String, String, CGFloat)] = [
-            (.date, "date", String(localized: "Datum"), 96),
-            (.from, "from", String(localized: "Von"), 210),
-            (.subject, "subject", String(localized: "Betreff"), 420),
-            (nil, "attach", "📎", 26),
-            (.size, "size", String(localized: "Größe"), 70),
+        // Only "Von" and "Betreff" absorb width changes of the table; the others keep their width
+        // (and stay user-resizable). Without minimum widths the uniform autoresizing squeezed the
+        // date column to a few points and took back every manual resize.
+        let columns: [(sort: MessageSort?, id: String, title: String, width: CGFloat, min: CGFloat, flexible: Bool)] = [
+            (.date, "date", String(localized: "Datum"), 92, 72, false),
+            (.from, "from", String(localized: "Von"), 210, 110, true),
+            (.subject, "subject", String(localized: "Betreff"), 420, 180, true),
+            (nil, "attach", "📎", 26, 26, false),
+            (.size, "size", String(localized: "Größe"), 72, 56, false),
         ]
-        for (sort, id, title, width) in columns {
-            let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
-            col.title = title
-            col.width = width
-            if let sort { col.sortDescriptorPrototype = NSSortDescriptor(key: sort.rawValue, ascending: sort != .date) }
+        for c in columns {
+            let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(c.id))
+            col.title = c.title
+            col.minWidth = c.min
+            col.width = c.width
+            if c.id == "attach" {
+                col.maxWidth = c.width
+                col.resizingMask = []
+                col.headerToolTip = String(localized: "Anhänge")
+            } else {
+                col.maxWidth = c.flexible ? 4000 : 400
+                col.resizingMask = c.flexible ? [.autoresizingMask, .userResizingMask] : .userResizingMask
+            }
+            if let sort = c.sort { col.sortDescriptorPrototype = NSSortDescriptor(key: sort.rawValue, ascending: sort != .date) }
             table.addTableColumn(col)
         }
+        table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle  // among flexible columns only
+        table.autosaveName = "MailKeeper.MessageTable"  // remembers widths and order
+        table.autosaveTableColumns = true
         table.sortDescriptors = [NSSortDescriptor(key: MessageSort.date.rawValue, ascending: false)]
         table.dataSource = context.coordinator
         table.delegate = context.coordinator

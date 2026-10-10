@@ -7,7 +7,8 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             Sidebar(model: model)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 240)
+                .frame(minWidth: 190)  // hard floor: narrower, the list shows only the counts
+                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 400)
         } content: {
             MessageTable(model: model)
                 .navigationSplitViewColumnWidth(min: 420, ideal: 640)
