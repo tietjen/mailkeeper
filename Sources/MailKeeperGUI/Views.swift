@@ -5,82 +5,85 @@ struct ContentView: View {
     @Bindable var model: AppModel
 
     var body: some View {
-        NavigationSplitView {
-            Sidebar(model: model)
-                .frame(minWidth: 190)  // hard floor: narrower, the list shows only the counts
-                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 400)
-        } content: {
-            Group {
-                if model.viewMode == .messages {
-                    MessageTable(model: model)
-                } else {
-                    GroupTable(model: model)
+        VStack(spacing: 0) {
+            NavigationSplitView {
+                Sidebar(model: model)
+                    .frame(minWidth: 190)  // hard floor: narrower, the list shows only the counts
+                    .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 400)
+            } content: {
+                Group {
+                    if model.viewMode == .messages {
+                        MessageTable(model: model)
+                    } else {
+                        GroupTable(model: model)
+                    }
                 }
-            }
-                .navigationSplitViewColumnWidth(min: 420, ideal: 640)
-                .overlay {
-                    if model.preparingArchive {
-                        ContentUnavailableView {
-                            ProgressView()
-                        } description: {
-                            Text("Das Archiv wird für diese Version vorbereitet (Konversationen, Suche) …")
-                        }
-                    } else if let error = model.openError {
-                        ContentUnavailableView {
-                            Label("Archiv nicht geöffnet", systemImage: "archivebox")
-                        } description: {
-                            Text(error)
-                        } actions: {
-                            Button("Archiv wählen …") { model.chooseArchive() }
-                        }
-                    } else if let error = model.listError {
-                        ContentUnavailableView {
-                            Label("Index nicht lesbar", systemImage: "exclamationmark.triangle")
-                        } description: {
-                            Text(error)
-                        } actions: {
-                            Button("Erneut versuchen") { model.refresh() }
-                        }
-                    } else if let error = model.queryError {
-                        ContentUnavailableView {
-                            Label("Suche unvollständig", systemImage: "exclamationmark.magnifyingglass")
-                        } description: {
-                            Text(error)
-                        }
-                    } else if model.viewMode != .messages ? model.groups.isEmpty : model.messageIDs.isEmpty {
-                        let searching = !model.searchText.allSatisfy(\.isWhitespace)
-                        ContentUnavailableView {
-                            Label(searching ? "Keine Treffer" : (model.viewMode == .messages ? "Keine Nachrichten" : "Nichts zum Aufräumen"),
-                                  systemImage: searching ? "magnifyingglass" : (model.viewMode == .messages ? "tray" : "sparkles"))
-                        } description: {
-                            if searching {
-                                Text("Die Suche lässt hier nichts übrig. Alle Begriffe müssen zutreffen; oben kannst du einzelne mit × entfernen.")
+                    .navigationSplitViewColumnWidth(min: 420, ideal: 640)
+                    .overlay {
+                        if model.preparingArchive {
+                            ContentUnavailableView {
+                                ProgressView()
+                            } description: {
+                                Text("Das Archiv wird für diese Version vorbereitet (Konversationen, Suche) …")
                             }
-                        } actions: {
-                            if searching { Button("Suche zurücksetzen") { model.setSearch("") } }
+                        } else if let error = model.openError {
+                            ContentUnavailableView {
+                                Label("Archiv nicht geöffnet", systemImage: "archivebox")
+                            } description: {
+                                Text(error)
+                            } actions: {
+                                Button("Archiv wählen …") { model.chooseArchive() }
+                            }
+                        } else if let error = model.listError {
+                            ContentUnavailableView {
+                                Label("Index nicht lesbar", systemImage: "exclamationmark.triangle")
+                            } description: {
+                                Text(error)
+                            } actions: {
+                                Button("Erneut versuchen") { model.refresh() }
+                            }
+                        } else if let error = model.queryError {
+                            ContentUnavailableView {
+                                Label("Suche unvollständig", systemImage: "exclamationmark.magnifyingglass")
+                            } description: {
+                                Text(error)
+                            }
+                        } else if model.viewMode != .messages ? model.groups.isEmpty : model.messageIDs.isEmpty {
+                            let searching = !model.searchText.allSatisfy(\.isWhitespace)
+                            ContentUnavailableView {
+                                Label(searching ? "Keine Treffer" : (model.viewMode == .messages ? "Keine Nachrichten" : "Nichts zum Aufräumen"),
+                                      systemImage: searching ? "magnifyingglass" : (model.viewMode == .messages ? "tray" : "sparkles"))
+                            } description: {
+                                if searching {
+                                    Text("Die Suche lässt hier nichts übrig. Alle Begriffe müssen zutreffen; oben kannst du einzelne mit × entfernen.")
+                                }
+                            } actions: {
+                                if searching { Button("Suche zurücksetzen") { model.setSearch("") } }
+                            }
                         }
                     }
-                }
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    VStack(spacing: 0) {
-                        if model.sidebarSelection == .trash { TrashBar(model: model) }
-                        QueryBar(model: model)
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        VStack(spacing: 0) {
+                            if model.sidebarSelection == .trash { TrashBar(model: model) }
+                            QueryBar(model: model)
+                        }
                     }
-                }
-        } detail: {
-            if model.viewMode != .messages {
-                if let detail = model.groupDetail {
-                    GroupDetailView(model: model, detail: detail)
+            } detail: {
+                if model.viewMode != .messages {
+                    if let detail = model.groupDetail {
+                        GroupDetailView(model: model, detail: detail)
+                    } else {
+                        CleanupOverviewView(model: model)
+                    }
+                } else if model.actionSelection.count > 1 {
+                    SelectionSummaryView(model: model)
+                } else if let id = model.selectedMessageID {
+                    ReaderView(model: model, messageID: id)
                 } else {
-                    CleanupOverviewView(model: model)
+                    ContentUnavailableView("Keine Nachricht ausgewählt", systemImage: "envelope")
                 }
-            } else if model.actionSelection.count > 1 {
-                SelectionSummaryView(model: model)
-            } else if let id = model.selectedMessageID {
-                ReaderView(model: model, messageID: id)
-            } else {
-                ContentUnavailableView("Keine Nachricht ausgewählt", systemImage: "envelope")
             }
+            StatusBar(model: model)  // below, not an inset: the AppKit table ignores insets (last row was hidden)
         }
         .searchable(text: $model.searchText, placement: .toolbar, prompt: "Suchen, z. B. from:amazon has:pdf")
         .searchSuggestions {
@@ -128,7 +131,6 @@ struct ContentView: View {
                 .help("Mails aus Maildir, mbox oder .eml-Dateien ins Archiv übernehmen")
             }
         }
-        .safeAreaInset(edge: .bottom) { StatusBar(model: model) }
         .sheet(item: $model.pendingPlan) { PlanSheet(model: model, plan: $0) }
         .sheet(item: $model.actionResult) { ResultSheet(model: model, job: $0) }
         .alert("Aktion", isPresented: Binding(get: { model.actionError != nil }, set: { if !$0 { model.actionError = nil } })) {
