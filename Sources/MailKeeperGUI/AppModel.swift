@@ -502,6 +502,7 @@ final class AppModel {
             }
             messageIDs = try reader.messageIDs(filter, sort: sort, ascending: ascending)
             listError = nil
+            explainEmptyResult(filter)
         } catch let error as QueryError {
             messageIDs = []
             groups = []
@@ -655,11 +656,45 @@ final class AppModel {
 
     /// Removes one top-level term from the search text.
     func removeChip(_ chip: QueryChip) {
-        guard let range = currentRange(of: chip) else { return }
+        guard let rest = textWithout(chip) else { return }
+        setSearch(rest)
+    }
+
+    private func textWithout(_ chip: QueryChip) -> String? {
+        guard let range = currentRange(of: chip) else { return nil }
         var text = searchText
         text.removeSubrange(range)
         let rest = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        setSearch(rest.isEmpty ? "" : rest + " ")  // the trailing space keeps the last word exact
+        return rest.isEmpty ? "" : rest + " "  // the trailing space keeps the last word exact
+    }
+
+    /// A term whose removal would give results back, for the "Keine Treffer" view (TJ: a search
+    /// for large mails on the server found nothing — the archive holds only imports).
+    struct EmptyHint: Identifiable {
+        var id: String { chip.text }
+        var chip: QueryChip
+        var count: Int
+    }
+
+    private(set) var emptyHints: [EmptyHint] = []
+    /// Whether any message in this archive has a known server location (imports have none).
+    private(set) var archiveKnowsServers = true
+
+    private func explainEmptyResult(_ filter: MessageFilter) {
+        emptyHints = []
+        guard messageIDs.isEmpty, viewMode == .messages, let reader, let chips = query?.chips, !chips.isEmpty else { return }
+        for chip in chips.prefix(8) {
+            guard let rest = textWithout(chip) else { continue }
+            var without = filter
+            without.text = rest.isEmpty ? nil : rest
+            if let n = try? reader.count(without), n > 0 { emptyHints.append(EmptyHint(chip: chip, count: n)) }
+        }
+        emptyHints.sort { $0.count > $1.count }
+        if chips.contains(where: { $0.text.lowercased().contains("on:server") }) {
+            archiveKnowsServers = ((try? reader.count(MessageFilter(text: "on:server "))) ?? 1) > 0
+        } else {
+            archiveKnowsServers = true
+        }
     }
 
     /// Cleanup view → the group's messages: back to the list, narrowed by the group's exact query.

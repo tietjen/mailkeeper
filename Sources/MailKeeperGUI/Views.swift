@@ -58,7 +58,23 @@ struct ContentView: View {
                                       systemImage: searching ? "magnifyingglass" : (model.viewMode == .messages ? "tray" : "sparkles"))
                             } description: {
                                 if searching {
-                                    Text("Die Suche lässt hier nichts übrig. Alle Begriffe müssen zutreffen; oben kannst du einzelne mit × entfernen.")
+                                    VStack(spacing: 10) {
+                                        Text("Die Suche lässt hier nichts übrig. Alle Begriffe müssen zutreffen.")
+                                        if !model.archiveKnowsServers {
+                                            Text("„Auf dem Server“ trifft in diesem Archiv nie zu: Es enthält nur importierte Mails (Maildir, mbox, .eml), und für die kennt MailKeeper keinen Server-Ort. Den gibt es erst für Mails, die ein Konto abgerufen hat (Einstellungen › Konten).")
+                                                .foregroundStyle(.orange)
+                                        }
+                                        if !model.emptyHints.isEmpty {
+                                            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 4) {
+                                                ForEach(model.emptyHints) { hint in
+                                                    GridRow {
+                                                        Text("Ohne „\(DisplayText.safe(hint.chip.label))“: \(hint.count.formatted()) Treffer")
+                                                        Button("Entfernen") { model.removeChip(hint.chip) }.controlSize(.small)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             } actions: {
                                 if searching { Button("Suche zurücksetzen") { model.setSearch("") } }
