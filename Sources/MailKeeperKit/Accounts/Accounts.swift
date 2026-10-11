@@ -105,7 +105,10 @@ public struct AccountStore: Sendable {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         let staging = url.deletingLastPathComponent().appending(path: ".accounts-\(UUID().uuidString).part")
-        try writeDurably(try encoder.encode(accounts), to: staging)
+        do { try writeDurably(try encoder.encode(accounts), to: staging) } catch {
+            unlink(staging.path)
+            throw error
+        }
         guard rename(staging.path, url.path) == 0 else {
             unlink(staging.path)
             throw ArchiveError.io("rename accounts.json", path: url.path)

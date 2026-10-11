@@ -52,7 +52,10 @@ public struct SavedSearchStore: Sendable {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         let staging = url.deletingLastPathComponent().appending(path: ".saved-searches-\(UUID().uuidString).part")
-        try writeDurably(try encoder.encode(searches), to: staging)
+        do { try writeDurably(try encoder.encode(searches), to: staging) } catch {
+            unlink(staging.path)  // a full disk must not leave the staging file behind
+            throw error
+        }
         guard rename(staging.path, url.path) == 0 else {
             unlink(staging.path)
             throw ArchiveError.io("rename saved-searches.json", path: url.path)
@@ -72,6 +75,22 @@ public struct SavedSearchStore: Sendable {
         guard all.contains(where: { $0.id == id }) else { throw SavedSearchError.unknown(id) }
         all.removeAll { $0.id == id }
         try save(all)
+    }
+
+    /// The current view as one self-contained query: sidebar scope AND search text. The text is
+    /// always parenthesised behind a scope — "a ODER b" must not become "(scope a) OR b".
+    public static func query(account: String? = nil, mailbox: String? = nil, base: String? = nil, text: String) -> String {
+        func value(_ v: String) -> String {
+            v.contains(where: { $0.isWhitespace || "()\"".contains($0) }) || v.hasPrefix("-")
+                ? "\"" + v.replacingOccurrences(of: "\"", with: "") + "\"" : v
+        }
+        var scope: [String] = []
+        if let account { scope.append("account:" + value(account)) }
+        if let mailbox { scope.append("folder:" + value(mailbox)) }
+        if let base, !base.trimmingCharacters(in: .whitespaces).isEmpty { scope.append("(\(base))") }
+        let t = text.trimmingCharacters(in: .whitespaces)
+        if t.isEmpty { return scope.joined(separator: " ") }
+        return (scope + [scope.isEmpty ? t : "(\(t))"]).joined(separator: " ")
     }
 
     static func validated(_ search: SavedSearch) throws -> SavedSearch {

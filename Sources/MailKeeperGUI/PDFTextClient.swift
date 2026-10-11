@@ -13,6 +13,24 @@ final class PDFTextClient: AttachmentTextExtractor, @unchecked Sendable {
         let description: String
     }
 
+    /// The service ships inside the app bundle; a bare binary (swift run, debugger) has none,
+    /// and the queue must not run then (every PDF would be recorded as failed).
+    static var isBundled: Bool {
+        let url = Bundle.main.bundleURL.appending(path: "Contents/XPCServices/\(serviceName).xpc")
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    /// An invalid connection (service missing, signature rejected) says nothing about the PDF:
+    /// it stops the queue instead of failing the file. Interrupted (the service died while
+    /// reading this PDF — watchdog, crash) stays a failure of the PDF.
+    private static func classify(_ error: Error) -> Error {
+        let e = error as NSError
+        if e.domain == NSCocoaErrorDomain, e.code == NSXPCConnectionInvalid {
+            return AttachmentTextUnavailable("PDF service unavailable: \(e.localizedDescription)")
+        }
+        return error
+    }
+
     private let lock = NSLock()
     private var connection: NSXPCConnection?
 
@@ -39,9 +57,9 @@ final class PDFTextClient: AttachmentTextExtractor, @unchecked Sendable {
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 once.attach(continuation)
-                let proxy = connection.remoteObjectProxyWithErrorHandler { error in once.finish(.failure(error)) }
+                let proxy = connection.remoteObjectProxyWithErrorHandler { error in once.finish(.failure(Self.classify(error))) }
                 guard let service = proxy as? AttachmentTextService else {
-                    once.finish(.failure(ServiceError(description: "PDF service unavailable")))
+                    once.finish(.failure(AttachmentTextUnavailable("PDF service proxy unavailable")))
                     return
                 }
                 service.extractText(fromPDF: pdf) { status, text, detail in

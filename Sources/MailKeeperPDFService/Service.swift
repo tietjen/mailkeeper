@@ -22,7 +22,8 @@ final class Watchdog: Sendable {
     func start() {
         timer.schedule(deadline: .now() + 0.5, repeating: 0.5)
         timer.setEventHandler { [self] in
-            if let d = deadline.withLock({ $0 }), Date() > d { _exit(70) }
+            guard let d = deadline.withLock({ $0 }) else { return }  // idle: nothing to guard
+            if Date() > d { _exit(70) }
             if Self.footprint() > Self.memoryLimit { _exit(71) }
         }
         timer.resume()

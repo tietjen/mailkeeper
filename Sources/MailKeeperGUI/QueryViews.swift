@@ -121,6 +121,8 @@ struct SavedSearchSheet: View {
     let model: AppModel
     @State private var search: SavedSearch
     @State private var error: String?
+    /// Counted after typing pauses, not on every keystroke (a full-text count per key).
+    @State private var count: Int?
     @Environment(\.dismiss) private var dismiss
 
     init(model: AppModel, search: SavedSearch) {
@@ -149,7 +151,7 @@ struct SavedSearchSheet: View {
             }
             if let message = parseError ?? error {
                 Text(message).font(.caption).foregroundStyle(.red)
-            } else if let n = model.count(query: search.query) {
+            } else if let n = count {
                 Text("\(n.formatted()) Nachrichten").font(.caption).foregroundStyle(.secondary)
             }
             HStack {
@@ -162,6 +164,12 @@ struct SavedSearchSheet: View {
         }
         .padding(20)
         .frame(width: 480)
+        .task(id: search.query) {
+            count = nil
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, parseError == nil else { return }
+            count = model.count(query: search.query)
+        }
     }
 
     private func save() {

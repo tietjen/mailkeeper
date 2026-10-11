@@ -56,6 +56,8 @@ public struct QueryError: Error, Equatable, CustomStringConvertible, Sendable {
 public struct QueryChip: Sendable, Equatable {
     public var label: String
     public var range: Range<String.Index>
+    /// The term's source text, to check that `range` still points at it after edits.
+    public var text: String
 }
 
 public struct Query: Sendable, Equatable {
@@ -196,11 +198,12 @@ public enum QueryParser {
             let nonEmpty = groups.filter { !$0.isEmpty }
             if nonEmpty.count <= 1 {
                 let items = nonEmpty.first ?? []
-                return Query(root: Self.and(items.map(\.node)), chips: items.map { QueryChip(label: $0.label, range: $0.range) })
+                return Query(root: Self.and(items.map(\.node)),
+                             chips: items.map { QueryChip(label: $0.label, range: $0.range, text: String(text[$0.range])) })
             }
             let root = QueryNode.or(nonEmpty.map { Self.and($0.map(\.node))! })
             let range = tokens.first!.range.lowerBound..<tokens.last!.range.upperBound
-            return Query(root: root, chips: [QueryChip(label: String(text[range]), range: range)])
+            return Query(root: root, chips: [QueryChip(label: String(text[range]), range: range, text: String(text[range]))])
         }
 
         struct Item {
@@ -351,7 +354,7 @@ public enum QueryParser {
                 return (.predicate(.listID(try required().lowercased())), "Liste: \(value)")
             case .domain:
                 var v = try required().lowercased()
-                if v.hasPrefix("@") { v.removeFirst() }
+                if !quoted, v.hasPrefix("@") { v.removeFirst() }  // "@amazon.de"; a quoted value is taken as is
                 guard !v.isEmpty else { throw QueryError("\(name) braucht eine Domain wie amazon.de.") }
                 return (.predicate(.domain(v)), "Domain: \(v)")
             case .is:

@@ -85,8 +85,9 @@ public struct MessageGroup: Sendable, Hashable, Identifiable {
         case .domain: "domain"
         case .list: "listid"
         }
-        let quoted = key.contains(where: { $0.isWhitespace || "()\"".contains($0) })
-        return "\(field):" + (quoted ? "\"\(key.replacingOccurrences(of: "\"", with: ""))\"" : key)
+        // groups() leaves out keys with a quote; "@" first would be stripped from a bare domain
+        let quoted = key.hasPrefix("@") || key.contains(where: { $0.isWhitespace || "()".contains($0) })
+        return "\(field):" + (quoted ? "\"\(key)\"" : key)
     }
 }
 
@@ -119,6 +120,23 @@ public final class ArchiveReader {
     public let layout: ArchiveLayout
     private var connection: Database
     private var inode: UInt64
+
+    /// Whether opening would migrate the index first — possibly slow (v3 links every message
+    /// into conversations). The app then runs `migrate` in the background before creating a
+    /// reader on the main actor.
+    public static func needsMigration(_ layout: ArchiveLayout) -> Bool {
+        guard let db = try? Database(path: layout.indexURL.path, readOnly: true),
+              let version = try? db.queryOne("PRAGMA user_version", [], { $0.int(0) }) else { return false }
+        return version < Int64(Schema.currentVersion)
+    }
+
+    /// Migrates the index on a connection of its own; waits up to a minute for a writer
+    /// (mkctl) that holds the lock instead of failing after the usual 5 s.
+    public static func migrate(_ layout: ArchiveLayout) throws {
+        let db = try Database(path: layout.indexURL.path)
+        db.setBusyTimeout(milliseconds: 60_000)
+        try Schema.migrate(db)
+    }
 
     public init(layout: ArchiveLayout) throws {
         self.layout = layout
@@ -193,9 +211,10 @@ public final class ArchiveReader {
     /// expressions the exact query fields use, so a group and its `query` agree.
     public func groups(_ filter: MessageFilter, by mode: GroupMode, limit: Int = 2_000) throws -> [MessageGroup] {
         let (whereClause, params) = try Self.whereClause(filter)
+        // Same expressions and folding as the exact query fields (QuerySQL), so group and drill-down agree.
         let key = switch mode {
-        case .sender: "lower(m.from_addr)"
-        case .domain: "CASE WHEN instr(m.from_addr, '@') > 0 THEN lower(substr(m.from_addr, instr(m.from_addr, '@') + 1)) END"
+        case .sender: "mk_lower(m.from_addr)"
+        case .domain: "CASE WHEN instr(m.from_addr, '@') > 0 THEN mk_lower(substr(m.from_addr, instr(m.from_addr, '@') + 1)) END"
         case .list: "m.list_id"
         }
         // A name only for single senders: for a domain or list it would be an arbitrary member's.
@@ -208,7 +227,8 @@ public final class ArchiveReader {
                 LEFT JOIN (SELECT DISTINCT message_id FROM locations
                            WHERE instr(' ' || lower(flags) || ' ', ' \\seen ') > 0) seen ON seen.message_id = m.id
                 \(whereClause)
-            ) WHERE k IS NOT NULL AND k != '' GROUP BY k ORDER BY count(*) DESC, k LIMIT ?
+            ) WHERE k IS NOT NULL AND k != '' AND instr(k, '"') = 0  -- a quote cannot be expressed in a query value
+            GROUP BY k ORDER BY count(*) DESC, k LIMIT ?
             """
         return try self.db.query(sql, params + [.int(Int64(limit))]) { row in
             MessageGroup(mode: mode, key: row.text(0) ?? "", name: row.text(1), count: Int(row.int(2)), bytes: row.int(3),
@@ -312,8 +332,9 @@ public final class ArchiveReader {
                        threadCount: max(1, Int(row.int(8))))
     }
 
-    /// Progress of making PDF attachments searchable (ADR-0009).
-    public func attachmentTextStats() throws -> AttachmentTextStats {
+    /// Progress of making PDF attachments searchable (ADR-0009); `pending` counts what the
+    /// queue of `version` would still do — the same condition the writer uses.
+    public func attachmentTextStats(version: Int = AttachmentIndexer.version) throws -> AttachmentTextStats {
         let db = try self.db
         var stats = AttachmentTextStats()
         stats.withPDF = Int(try db.queryOne("""
@@ -323,6 +344,8 @@ public final class ArchiveReader {
         try db.forEach("SELECT status, count(*) FROM attachment_text GROUP BY status") { row in
             if let s = AttachmentText.Status(rawValue: row.text(0) ?? "") { stats.byStatus[s] = Int(row.int(1)) }
         }
+        stats.pending = Int(try db.queryOne("SELECT count(*) FROM messages m WHERE \(AttachmentIndexer.pendingCondition)",
+                                            [.int(Int64(version))]) { $0.int(0) } ?? 0)
         return stats
     }
 

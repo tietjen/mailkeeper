@@ -45,6 +45,7 @@ struct AttachmentIndexTests {
             mail("<p4@t.test>", subject: "P4", body: "gesperrt", pdfs: [("g.pdf", "application/pdf", "LOCKED")]),
             mail("<p5@t.test>", subject: "P5", body: "Telekom ohne Anhang", pdfs: []),
             mail("<p6@t.test>", subject: "P6", body: "Hallo", pdfs: [("Kuendigung.PDF", "application/octet-stream", "PDF:Kündigung Fitnessstudio")]),
+            mail("<p7@t.test>", subject: "P7", body: "Scan", pdfs: [("scan.pdf", "application/pdf", "SCAN")]),
         ]
         _ = try await writer.ingest(mails.enumerated().map { ($1, LocationInfo(account: "a", mailbox: "INBOX", providerID: "\($0)")) })
         return (layout, writer)
@@ -59,22 +60,24 @@ struct AttachmentIndexTests {
         let r = try ArchiveReader(layout: layout)
         #expect(try Self.subjects(r, "telekom") == ["P5"])  // before: only the body of P5
         let run = try await AttachmentIndexer(writer: writer, extractor: FakeExtractor()).run()
-        #expect(run.total == 5 && run.done == 5 && run.searchable == 3 && run.failed == 1)
+        #expect(run.total == 6 && run.done == 6 && run.searchable == 3 && run.failed == 1)
         let stats = try r.attachmentTextStats()
-        #expect(stats.withPDF == 5 && stats.pending == 0)
-        #expect(stats.byStatus == [.ok: 3, .failed: 1, .encrypted: 1])
+        #expect(stats.withPDF == 6 && stats.pending == 0)
+        #expect(stats.byStatus == [.ok: 3, .failed: 1, .encrypted: 1, .empty: 1])
+        // S3: a newer extractor retries failed and empty (not encrypted) — the app's gate sees it
+        #expect(try r.attachmentTextStats(version: AttachmentIndexer.version + 1).pending == 2)
         let cases: [(String, Set<String>)] = [
             ("telekom", ["P1", "P5"]), ("bestellung 2024", ["P1"]),   // body word AND pdf word
             ("pdf:bestellung", []), ("pdf:mietvertrag", ["P2"]), ("kündigung", ["P6"]), ("kuendigung", ["P6"]),
-            ("telekom OR mietvertrag", ["P1", "P2", "P5"]), ("-telekom has:pdf", ["P2", "P3", "P4", "P6"]),
+            ("telekom OR mietvertrag", ["P1", "P2", "P5"]), ("-telekom has:pdf", ["P2", "P3", "P4", "P6", "P7"]),
             ("pdf:telekom -subject:P1", []), ("fitness*", ["P6"]),
         ]
         for (q, expected) in cases { #expect(try Self.subjects(r, q) == expected, "\(q)") }
         // nothing left; a newer extractor retries failures only; a rebuild queues everything again
         #expect(try await AttachmentIndexer(writer: writer, extractor: FakeExtractor()).run().total == 0)
-        #expect(try await writer.pendingAttachmentTextCount(version: AttachmentIndexer.version + 1) == 1)
+        #expect(try await writer.pendingAttachmentTextCount(version: AttachmentIndexer.version + 1) == 2)
         _ = try await writer.rebuildIndex()
-        #expect(try await writer.pendingAttachmentTextCount(version: AttachmentIndexer.version) == 5)
+        #expect(try await writer.pendingAttachmentTextCount(version: AttachmentIndexer.version) == 6)
     }
 
     /// Import and sync cancel the queue mid-extraction: that must not record a failure.
@@ -91,7 +94,20 @@ struct AttachmentIndexTests {
         task.cancel()
         await #expect(throws: CancellationError.self) { _ = try await task.value }
         #expect(try ArchiveReader(layout: layout).attachmentTextStats().done == 0)
-        #expect(try await AttachmentIndexer(writer: writer, extractor: FakeExtractor()).run().done == 5)
+        #expect(try await AttachmentIndexer(writer: writer, extractor: FakeExtractor()).run().done == 6)
+    }
+
+    /// S4: a service that cannot run at all must not mark every PDF as failed.
+    @Test func unavailableServiceRecordsNothing() async throws {
+        struct Missing: AttachmentTextExtractor {
+            func extractText(pdf: Data) async throws -> AttachmentText { throw AttachmentTextUnavailable("no service") }
+        }
+        let (layout, writer) = try await Self.archive()
+        await #expect(throws: AttachmentTextUnavailable.self) {
+            _ = try await AttachmentIndexer(writer: writer, extractor: Missing()).run()
+        }
+        let stats = try ArchiveReader(layout: layout).attachmentTextStats()
+        #expect(stats.done == 0 && stats.pending == 6)
     }
 
     @Test func reindexingReplacesText() async throws {

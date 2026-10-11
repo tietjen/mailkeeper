@@ -87,6 +87,21 @@ public final class Database {
             if path != ":memory:" { chmod(path, 0o600) }
         }
         try execute("PRAGMA foreign_keys=ON;")
+        // SQLite's lower() and NOCASE fold ASCII only ("Ü" stays "Ü"). Queries and cleanup
+        // groups compare through mk_lower = Swift's lowercased(), the same folding the query
+        // parser applies to user input, so "label:überweisungen" finds "Überweisungen".
+        sqlite3_create_function_v2(h, "mk_lower", 1, SQLITE_UTF8 | SQLITE_DETERMINISTIC, nil, { context, _, values in
+            guard let value = values?[0], let text = sqlite3_value_text(value) else {
+                sqlite3_result_null(context)
+                return
+            }
+            sqlite3_result_text(context, String(cString: text).lowercased(), -1, SQLITE_TRANSIENT)
+        }, nil, nil, nil)
+    }
+
+    /// For a one-off connection that must wait for another process' write lock (migrations).
+    public func setBusyTimeout(milliseconds: Int32) {
+        sqlite3_busy_timeout(handle, milliseconds)
     }
 
     deinit {

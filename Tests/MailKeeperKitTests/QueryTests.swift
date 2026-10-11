@@ -324,3 +324,83 @@ struct QueryPlanTests {
         }
     }
 }
+
+@Suite("Phase 3 review regressions")
+struct Phase3ReviewTests {
+    /// Import account named after a folder, Unicode label, upper-case sender, umlaut folder.
+    static func archive() async throws -> ArchiveReader {
+        let layout = try ArchiveLayout.open(at: tempDir().appending(path: "r3"), create: true)
+        let writer = try ArchiveWriter(layout: layout)
+        try await writer.register(AccountInfo(id: "Alle Nachrichten", kind: "mbox", name: "Takeout"))
+        _ = try await writer.ingest([
+            (sampleMessage(id: "<u1@t.test>", subject: "Umlaute", from: "JÖRG <JÖRG@BEISPIEL.DE>"),
+             LocationInfo(account: "Alle Nachrichten", mailbox: "Entwürfe", providerID: "1", labels: ["Überweisungen"])),
+            (sampleMessage(id: "<u2@t.test>", subject: "Andere", from: "x@@weird.test"),
+             LocationInfo(account: "Alle Nachrichten", mailbox: "INBOX", providerID: "2")),
+        ])
+        return try ArchiveReader(layout: layout)
+    }
+
+    static func subjects(_ r: ArchiveReader, _ q: String) throws -> Set<String> {
+        Set(try r.summaries(try r.messageIDs(MessageFilter(text: q + " "))).compactMap(\.subject))
+    }
+
+    @Test("S1/S2: folding matches Unicode and case on both sides")
+    func unicodeFolding() async throws {
+        let r = try await Self.archive()
+        for q in ["account:\"Alle Nachrichten\"", "account:\"alle nachrichten\"", "account:\"ALLE NACHRICHTEN\""] {
+            #expect(try Self.subjects(r, q) == ["Umlaute", "Andere"], "\(q)")  // both live in that account
+        }
+        for q in ["label:Überweisungen", "label:überweisungen",
+                  "sender:jörg@beispiel.de", "sender:JÖRG@BEISPIEL.DE", "domain:Beispiel.de", "folder:entwürfe", "folder:ENTWÜRFE",
+                  "folder:Entw*"] {
+            #expect(try Self.subjects(r, q) == ["Umlaute"], "\(q)")
+        }
+    }
+
+    @Test("Group and drill-down agree for non-ASCII and odd keys")
+    func groupsStayExact() async throws {
+        let r = try await Self.archive()
+        for mode in GroupMode.allCases {
+            for g in try r.groups(MessageFilter(), by: mode) {
+                #expect(try r.count(MessageFilter(base: g.query)) == g.count, "\(g.query)")
+            }
+        }
+        let domains = try r.groups(MessageFilter(), by: .domain).map(\.key).sorted()
+        #expect(domains == ["@weird.test", "beispiel.de"])
+    }
+
+    @Test("S5: a saved view keeps its scope around the search text")
+    func savedQueryStaysNarrow() async throws {
+        #expect(SavedSearchStore.query(account: "Alle Nachrichten", text: "rechnung ODER quittung ")
+                == "account:\"Alle Nachrichten\" (rechnung ODER quittung)")
+        #expect(SavedSearchStore.query(account: "a", mailbox: "-Wichtig", text: "") == "account:a folder:\"-Wichtig\"")
+        #expect(SavedSearchStore.query(base: "is:unread OR is:flagged", text: "x") == "(is:unread OR is:flagged) (x)")
+        #expect(SavedSearchStore.query(text: "a OR b") == "a OR b")
+        let r = try await Self.archive()
+        let q = SavedSearchStore.query(account: "Alle Nachrichten", text: "Umlaute ODER Andere")
+        #expect(try Self.subjects(r, q) == ["Umlaute", "Andere"])
+        let narrow = SavedSearchStore.query(account: "nobody", text: "Umlaute ODER Andere")
+        #expect(try Self.subjects(r, narrow).isEmpty)  // was: (account AND Umlaute) OR Andere
+    }
+
+    @Test func chipsKnowTheirSourceText() throws {
+        let q = "from:a  \"b c\" -is:read"
+        #expect(try QueryParser.parse(q).chips.map(\.text) == ["from:a", "\"b c\"", "-is:read"])
+    }
+
+    @Test("S8: migration can run before (and apart from) the reader")
+    func migrationOffTheReader() async throws {
+        let (layout, _) = try await ThreadTests.archive(order: Array(0..<8))
+        let raw = try Database(path: layout.indexURL.path)
+        try raw.execute("""
+            DROP TABLE attachment_text; DROP TABLE attachment_text_fts;
+            DROP INDEX messages_thread; DROP TABLE message_refs; ALTER TABLE messages DROP COLUMN thread_id;
+            PRAGMA user_version = 2;
+            """)
+        #expect(ArchiveReader.needsMigration(layout))
+        try ArchiveReader.migrate(layout)
+        #expect(!ArchiveReader.needsMigration(layout))
+        #expect(try ThreadTests.partition(ArchiveReader(layout: layout)) == ThreadTests.expected)
+    }
+}

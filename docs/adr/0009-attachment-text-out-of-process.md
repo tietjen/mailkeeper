@@ -26,8 +26,10 @@ of milliseconds per file) and must not block import, sync or the UI.
   launchd starts a fresh one for the next request. Limits per PDF: 100 MB, 500 pages,
   512 K characters.
 - **Fails safe.** Encrypted (non-empty password), image-only, oversized or crashing PDFs are
-  recorded with their status and not retried until the extractor version changes. A failed PDF
-  never blocks the queue.
+  recorded with their status; a failed PDF never blocks the queue. Failed and empty results are
+  retried when the extractor version changes (better OCR); encrypted and oversized ones stay.
+  A service that cannot run at all (missing from the bundle, rejected signature) stops the
+  queue without recording anything — it says nothing about the PDFs (Phase 3 review).
 - **Background queue in the index.** `attachment_text` records the status per message, the
   text goes into its own contentless FTS table. A background indexer works newest first,
   yields to import and sync (they cancel it, it resumes afterwards) and survives restarts. The

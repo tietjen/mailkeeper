@@ -37,6 +37,14 @@ public protocol AttachmentTextExtractor: Sendable {
     func extractText(pdf: Data) async throws -> AttachmentText
 }
 
+/// The extractor cannot run at all (service missing from the bundle, invalid signature): the
+/// queue stops without recording anything — otherwise every PDF would be marked failed.
+/// A service that dies *while* reading a PDF is a real failure of that PDF instead.
+public struct AttachmentTextUnavailable: Error, CustomStringConvertible {
+    public var description: String
+    public init(_ description: String) { self.description = description }
+}
+
 public struct AttachmentIndexProgress: Sendable, Equatable {
     /// Messages waiting when the run started.
     public var total = 0
@@ -50,8 +58,17 @@ public struct AttachmentIndexProgress: Sendable, Equatable {
 /// Background queue (ADR-0009): makes PDF attachments searchable, newest messages first, one
 /// message at a time. Cancel it to free the writer for import or sync; it resumes later.
 public struct AttachmentIndexer: Sendable {
-    /// Bump to retry failed messages with an improved extractor.
+    /// Bump to retry failed and empty results with an improved extractor (better OCR). Encrypted
+    /// and oversized PDFs do not change with the extractor and stay as they are.
     public static let version = 1
+
+    /// Messages with a PDF attachment and no final result for `version` (one `?` parameter).
+    static let pendingCondition = """
+        m.id IN (SELECT a.message_id FROM attachments a WHERE a.is_inline = 0
+                 AND (a.mime_type = 'application/pdf' OR a.filename LIKE '%.pdf'))
+        AND m.id NOT IN (SELECT t.message_id FROM attachment_text t
+                         WHERE t.status NOT IN ('failed', 'empty') OR t.version >= ?)
+        """
     public static let maxPDFBytes = 100 << 20
     /// All PDFs of one message together (the body is capped the same way).
     public static let maxCharacters = 1 << 20
@@ -90,7 +107,8 @@ public struct AttachmentIndexer: Sendable {
         !a.isInline && (a.mimeType == "application/pdf" || a.filename?.lowercased().hasSuffix(".pdf") == true)
     }
 
-    /// Throws only CancellationError: a cancelled run must not record the message as failed.
+    /// Throws only CancellationError and AttachmentTextUnavailable: neither says anything about
+    /// the PDF, so nothing may be recorded.
     func text(ofBlob sha: String) async throws -> AttachmentText {
         let parsed: ParsedMessage
         do { parsed = MIMEParser.parse(try writer.layout.blobs.read(sha)) } catch {
@@ -113,6 +131,8 @@ public struct AttachmentIndexer: Sendable {
                 if !r.text.isEmpty { texts.append(r.text) }
             } catch is CancellationError {
                 throw CancellationError()
+            } catch let unavailable as AttachmentTextUnavailable {
+                throw unavailable
             } catch {
                 outcomes.append(AttachmentText(status: .failed, detail: "\(error)"))
             }
@@ -130,7 +150,8 @@ public struct AttachmentTextStats: Sendable, Equatable {
     /// Messages with at least one PDF attachment.
     public var withPDF = 0
     public var byStatus: [AttachmentText.Status: Int] = [:]
+    /// Waiting for the given extractor version (includes retries after a version bump).
+    public var pending = 0
 
     public var done: Int { byStatus.values.reduce(0, +) }
-    public var pending: Int { max(0, withPDF - done) }
 }

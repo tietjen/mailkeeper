@@ -18,6 +18,7 @@ struct QuerySQL {
     /// found in the message OR its attachment text — each word on its own under AND, so a word
     /// in the body and another in the PDF still match (ADR-0009).
     private mutating func combine(_ items: [QueryNode], op: String) -> String {
+        guard !items.isEmpty else { return op == "AND" ? "1" : "0" }  // the parser never builds these
         var parts: [String] = []
         var message: [String] = []
         var attachment: [String] = []
@@ -74,11 +75,11 @@ struct QuerySQL {
         case .text(let field, let value, let prefix):
             return match(Self.fts(field, value, prefix: prefix), in: "messages_fts")
         case .sender(let address):
-            params.append(.text(address))
-            return "m.from_addr = ? COLLATE NOCASE"
+            params.append(.text(address.lowercased()))
+            return "mk_lower(m.from_addr) = ?"
         case .domain(let domain):
-            params.append(.text(domain))
-            return "lower(substr(m.from_addr, instr(m.from_addr, '@') + 1)) = ? AND instr(m.from_addr, '@') > 0"
+            params.append(.text(domain.lowercased()))
+            return "(instr(m.from_addr, '@') > 0 AND mk_lower(substr(m.from_addr, instr(m.from_addr, '@') + 1)) = ?)"
         case .has(.any):
             return "m.attachment_count > 0"
         case .has(.pdf):
@@ -99,14 +100,16 @@ struct QuerySQL {
         case .dateBefore(let date):
             params.append(.double(date.timeIntervalSince1970))
             return "m.date < ?"
+        // Folding: mk_lower (Unicode, see Database) on the column, lowercased() on the value.
         case .account(let id):
-            return location("l.account_id = ?", .text(id))
+            return location("mk_lower(l.account_id) = ?", .text(id.lowercased()))
         case .folder(let name, prefix: false):
-            return location("l.mailbox = ? COLLATE NOCASE", .text(name))
+            return location("mk_lower(l.mailbox) = ?", .text(name.lowercased()))
         case .folder(let name, prefix: true):
-            return location("l.mailbox LIKE ? ESCAPE '\\'", .text(Self.escapeLike(name) + "%"))
+            return location("mk_lower(l.mailbox) LIKE ? ESCAPE '\\'", .text(Self.escapeLike(name.lowercased()) + "%"))
         case .label(let label):
-            return location("instr(char(31) || lower(l.labels) || char(31), char(31) || ? || char(31)) > 0", .text(label))
+            return location("instr(char(31) || mk_lower(l.labels) || char(31), char(31) || ? || char(31)) > 0",
+                            .text(label.lowercased()))
         case .list(let id):
             params.append(.text("%" + Self.escapeLike(id) + "%"))
             return "m.list_id LIKE ? ESCAPE '\\'"

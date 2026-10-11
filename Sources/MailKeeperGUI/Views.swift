@@ -20,7 +20,13 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 420, ideal: 640)
                 .safeAreaInset(edge: .top, spacing: 0) { QueryBar(model: model) }
                 .overlay {
-                    if let error = model.openError {
+                    if model.preparingArchive {
+                        ContentUnavailableView {
+                            ProgressView()
+                        } description: {
+                            Text("Das Archiv wird für diese Version vorbereitet (Konversationen, Suche) …")
+                        }
+                    } else if let error = model.openError {
                         ContentUnavailableView {
                             Label("Archiv nicht geöffnet", systemImage: "archivebox")
                         } description: {

@@ -55,6 +55,8 @@ final class AppModel {
     private(set) var accounts: [AccountSummary] = []
     private(set) var stats: ArchiveStats?
     private(set) var openError: String?
+    /// True while a schema migration runs in the background (first start after an update).
+    private(set) var preparingArchive = false
     private(set) var volumeEncrypted: Bool?
 
     var sidebarSelection: SidebarItem? = .all { didSet { reloadList() } }
@@ -133,15 +135,39 @@ final class AppModel {
 
     @discardableResult
     func open(_ url: URL, create: Bool) -> Bool {
+        textIndexTask?.cancel()  // belongs to the previous archive
+        textIndexTask = nil
+        textIndexToken = nil
+        textIndexProgress = nil
         do {
             let layout = try ArchiveLayout.open(at: url, create: create)
+            if ArchiveReader.needsMigration(layout) {
+                // Can take a while (conversations for every message): not on the main thread,
+                // and waiting for mkctl's lock instead of failing.
+                reader = nil
+                archiveRoot = url
+                openError = nil
+                preparingArchive = true
+                accounts = []
+                messageIDs = []
+                listGeneration += 1
+                Task { [weak self] in
+                    let result = await Task.detached(priority: .userInitiated) { Result { try ArchiveReader.migrate(layout) } }.value
+                    guard let self, self.archiveRoot == url, self.preparingArchive else { return }
+                    self.preparingArchive = false
+                    switch result {
+                    case .success: _ = self.open(url, create: false)
+                    case .failure(let error): self.openError = "\(error)"
+                    }
+                }
+                return true
+            }
+            preparingArchive = false
             reader = try ArchiveReader(layout: layout)
             archiveRoot = url
             volumeEncrypted = layout.volumeIsEncrypted
             openError = nil
             selectedMessageID = nil
-            textIndexTask?.cancel()  // belongs to the previous archive
-            textIndexTask = nil
             refresh()
             startTextIndexing()
             return true
@@ -209,10 +235,11 @@ final class AppModel {
         } catch {
             // "from:" while typing the value: keep the current list, no error yet.
             if searchText.hasSuffix(":") { return }
-            // Otherwise fail closed: no list rather than a wider one.
+            // Otherwise fail closed: no list (and no groups) rather than a wider one.
             query = nil
             queryError = error.message
             messageIDs = []
+            groups = []
             listGeneration += 1
             selectedMessageID = nil
             return
@@ -228,6 +255,7 @@ final class AppModel {
             listError = nil
         } catch let error as QueryError {
             messageIDs = []
+            groups = []
             queryError = String(localized: "Gespeicherte Suche: \(error.message)")
         } catch {
             messageIDs = []
@@ -246,9 +274,17 @@ final class AppModel {
 
     /// Removes one top-level term from the search text.
     func removeChip(_ chip: QueryChip) {
-        guard chip.range.upperBound <= searchText.endIndex else { return }
+        // The chip comes from the last parse; the text may have changed since (debounce). Use
+        // its range only if it still covers the same term, else find the term in a fresh parse.
+        var range: Range<String.Index>?
+        if chip.range.upperBound <= searchText.endIndex, String(searchText[chip.range]) == chip.text {
+            range = chip.range
+        } else if let fresh = try? QueryParser.parse(searchText).chips.first(where: { $0.text == chip.text }) {
+            range = fresh.range
+        }
+        guard let range else { return }
         var text = searchText
-        text.removeSubrange(chip.range)
+        text.removeSubrange(range)
         let rest = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         searchText = rest.isEmpty ? "" : rest + " "  // the trailing space keeps the last word exact
     }
@@ -277,16 +313,12 @@ final class AppModel {
 
     /// The current view as one self-contained query: sidebar scope plus search text.
     func queryForSaving() -> String {
-        let text = searchText.trimmingCharacters(in: .whitespaces)
-        let quote = { (v: String) in v.contains(where: { $0.isWhitespace || "()\"".contains($0) }) ? "\"\(v.replacingOccurrences(of: "\"", with: ""))\"" : v }
-        var scope: [String] = []
         switch sidebarSelection {
-        case .account(let a): scope = ["account:\(a)"]
-        case .mailbox(let a, let m): scope = ["account:\(a)", "folder:\(quote(m))"]
-        case .saved(let id): if let base = savedSearches.first(where: { $0.id == id })?.query { scope = ["(\(base))"] }
-        case .all, nil: break
+        case .account(let a): SavedSearchStore.query(account: a, text: searchText)
+        case .mailbox(let a, let m): SavedSearchStore.query(account: a, mailbox: m, text: searchText)
+        case .saved(let id): SavedSearchStore.query(base: savedSearches.first { $0.id == id }?.query, text: searchText)
+        case .all, nil: SavedSearchStore.query(text: searchText)
         }
-        return (scope + (text.isEmpty ? [] : [text.contains(" OR ") && !scope.isEmpty ? "(\(text))" : text])).joined(separator: " ")
     }
 
     func putSavedSearch(_ search: SavedSearch) throws {
@@ -371,7 +403,7 @@ final class AppModel {
     // MARK: Import
 
     func startImport(_ kind: ImportKind) {
-        guard let root = archiveRoot, !importRunning, !syncRunning else { return }
+        guard let root = archiveRoot, reader != nil, !importRunning, !syncRunning else { return }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = kind != .mbox
         panel.canChooseFiles = kind == .mbox
@@ -390,13 +422,9 @@ final class AppModel {
                 Task { @MainActor in self?.importStatus?.progress = p }
             }
             do {
-                let writer = try ArchiveWriter(layout: try ArchiveLayout.open(at: root, create: true))
-                let result: ImportProgress
-                switch kind {
-                case .maildir: result = try await MaildirImporter(root: source, account: account).run(writer: writer, progress: report)
-                case .mbox: result = try await MboxImporter(file: source, account: account).run(writer: writer, progress: report)
-                case .eml: result = try await EMLImporter(root: source, account: account).run(writer: writer, progress: report)
-                }
+                // In a function of its own: the writer (and its archive lock) is gone when it
+                // returns, before the PDF queue tries to open one.
+                let result = try await Self.runImport(kind, source: source, account: account, root: root, progress: report)
                 await MainActor.run {
                     self?.importStatus?.progress = result
                     self?.importStatus?.finished = true
@@ -415,6 +443,16 @@ final class AppModel {
         }
     }
 
+    private nonisolated static func runImport(_ kind: ImportKind, source: URL, account: String, root: URL,
+                                              progress: @escaping @Sendable (ImportProgress) -> Void) async throws -> ImportProgress {
+        let writer = try ArchiveWriter(layout: try ArchiveLayout.open(at: root, create: true))
+        switch kind {
+        case .maildir: return try await MaildirImporter(root: source, account: account).run(writer: writer, progress: progress)
+        case .mbox: return try await MboxImporter(file: source, account: account).run(writer: writer, progress: progress)
+        case .eml: return try await EMLImporter(root: source, account: account).run(writer: writer, progress: progress)
+        }
+    }
+
     func dismissImportStatus() {
         importStatus = nil
     }
@@ -426,7 +464,7 @@ final class AppModel {
     func startTextIndexing() {
         guard let root = archiveRoot, let reader, textIndexTask == nil, !syncRunning, !importRunning else { return }
         textStats = try? reader.attachmentTextStats()
-        guard (textStats?.pending ?? 0) > 0 else { return }
+        guard (textStats?.pending ?? 0) > 0, PDFTextClient.isBundled else { return }
         let extractor = pdfText
         let token = UUID()
         textIndexToken = token
@@ -497,7 +535,7 @@ final class AppModel {
 
     /// Fetches new mail from all configured accounts, one after another, read-only.
     func syncAll() {
-        guard let root = archiveRoot, !syncRunning, !importRunning, !accountConfigs.isEmpty else { return }
+        guard let root = archiveRoot, reader != nil, !syncRunning, !importRunning, !accountConfigs.isEmpty else { return }
         let accounts = accountConfigs
         let credentials = self.credentials
         syncRunning = true
