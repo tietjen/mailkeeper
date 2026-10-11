@@ -196,7 +196,8 @@ public actor AIRouter {
                 report.lines.append(.init(title: String(localized: "Embeddings (\(embedModel))"), ok: false, detail: "\(error)"))
             }
         } else {
-            report.lines.append(.init(title: String(localized: "Endpoint"), ok: false, detail: String(localized: "keiner eingetragen")))
+            report.lines.append(.init(title: String(localized: "Endpoint"), ok: false,
+                                      detail: String(localized: "keine Adresse eingetragen (ein grauer Text im Feld ist nur ein Beispiel)")))
         }
         let availability = OnDeviceProvider.availability
         if let onDevice, availability.available {

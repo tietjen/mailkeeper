@@ -1356,6 +1356,10 @@ final class AppModel {
     func saveAI(_ config: AIConfig, key: String?) throws {
         guard let layout = reader?.layout else { return }
         if let endpoint = config.endpoint, let problem = AIConfig.transportProblem(endpoint) { throw AIError.badAnswer(problem) }
+        if config.endpoint == nil, let key, !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // the key is stored per endpoint: without one it would silently get lost (TJ)
+            throw AIError.badAnswer(String(localized: "Erst die Adresse des Endpoints eintragen – der Schlüssel gehört zu ihr."))
+        }
         if let key = key?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty, let secretKey = config.secretKey {
             try credentials.saveSecret(key, key: secretKey, label: "MailKeeper – KI-Endpoint \(config.endpoint?.host() ?? "")",
                                        description: "API-Schlüssel (MailKeeper)")

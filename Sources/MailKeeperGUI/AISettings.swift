@@ -22,8 +22,13 @@ struct AISettings: View {
         Form {
             Toggle("KI-Funktionen verwenden", isOn: $enabled)
             Section("Endpoint (OpenAI-kompatibel, z. B. LiteLLM, Ollama, LM Studio)") {
-                TextField("Adresse", text: $endpoint, prompt: Text(verbatim: "http://litellm.rk1.ziti:4000/v1"))
+                // TJ took the grey example for a value: the prompt says it is one, and how it looks
+                TextField("Adresse", text: $endpoint, prompt: Text("leer – z. B. http://localhost:11434/v1"))
                 SecureField("API-Schlüssel", text: $key, prompt: Text(model.aiKeyStored ? "gespeichert – leer lassen, um ihn zu behalten" : "optional"))
+                if parsedEndpoint == nil, !key.isEmpty {
+                    Label("Erst die Adresse eintragen – der Schlüssel gehört zu ihr.", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange).font(.caption)
+                }
                 if let url = parsedEndpoint {
                     if let problem = AIConfig.transportProblem(url) {
                         Label(problem, systemImage: "xmark.octagon").foregroundStyle(.red).font(.caption)
@@ -36,7 +41,7 @@ struct AISettings: View {
             Section("Modell je Aufgabe") {
                 ForEach(Self.tasks, id: \.0) { task, title in
                     TextField(title, text: Binding(get: { models[task] ?? "" }, set: { models[task] = $0 }),
-                              prompt: Text(verbatim: AIConfig().model(for: task)))
+                              prompt: Text("Standard: \(AIConfig().model(for: task))"))
                 }
                 if let available = report?.models, !available.isEmpty {
                     Text("Freigegeben: \(available.joined(separator: ", "))").font(.caption).foregroundStyle(.secondary)
