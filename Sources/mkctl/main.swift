@@ -30,7 +30,7 @@ usage: mkctl [--archive <dir>] <command>
   restore <query…> [--to <account>:<mailbox>] [--now] [--yes]
                                               upload from the archive back to where it was (or --to);
                                               --now: arrival date today instead of the original
-  export <query…> (--eml <dir> | --mbox <file>)
+  export (<query…> | --all) (--eml <dir> | --mbox <file>)
                                               write messages out: one .eml each (exact bytes, never
                                               overwrites) or one mbox (mboxrd); blobs verified first
   show <id>                                   one message: headers, locations, text
@@ -328,17 +328,18 @@ func summarize(_ p: ImportProgress, start: Date) {
 
     case "export":
         let eml = option("--eml"), mbox = option("--mbox")
+        let all = args.contains("--all")
+        args.removeAll { $0 == "--all" }
         let query = args.joined(separator: " ")
-        guard (eml == nil) != (mbox == nil), let target = eml ?? mbox else {
-            throw CLIError(description: "export <query…> (--eml <dir> | --mbox <file>)")
+        guard (eml == nil) != (mbox == nil), let target = eml ?? mbox, query.isEmpty == all, !args.contains(where: { $0.hasPrefix("--") }) else {
+            throw CLIError(description: "export (<query…> | --all) (--eml <dir> | --mbox <file>)")
         }
         let destination = URL(fileURLWithPath: (target as NSString).expandingTildeInPath)
-        if eml != nil { try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true) }
-        if mbox != nil, FileManager.default.fileExists(atPath: destination.path) {
-            throw CLIError(description: "\(destination.path) exists — choose another file")
+        if eml != nil, !FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         }
         let layout = try ArchiveLayout.open(at: root, create: false)
-        let items = try ArchiveReader(layout: layout).exportItems(MessageFilter(text: query.isEmpty ? nil : query + " "))
+        let items = try ArchiveReader(layout: layout).exportItems(MessageFilter(text: all ? nil : query + " "))
         let report = try await ArchiveExporter(blobs: layout.blobs).export(items, format: eml != nil ? .eml : .mbox, to: destination) { done, total in
             print("\r\(done)/\(total)", terminator: "")
             fflush(stdout)

@@ -52,10 +52,12 @@ extension ArchiveReader {
     }
 }
 
-/// Writes archived messages out. Not destructive (ADR-0006): no queue, nothing in the archive
-/// changes, existing files are never overwritten (eml) — the mbox file is the one the user
-/// chose to (re)place. Each blob is verified first; a damaged or missing copy is left out and
-/// reported, never written. Files are 0600, eml files carry the message date as file date.
+/// Writes archived messages out. Not destructive (ADR-0006 §7): no queue, nothing in the archive
+/// changes, existing files are never overwritten (eml: O_EXCL, the next free name on a clash).
+/// An mbox goes to a new file, or — `replace`, the user confirmed it in the save panel — is
+/// built beside it and swapped in only when complete: a stop or a full disk leaves the old file
+/// as it was. Each blob is verified first; a damaged or missing copy is left out and reported,
+/// never written. Files are 0600, eml files carry the message date as file date.
 public struct ArchiveExporter: Sendable {
     public let blobs: BlobStore
 
@@ -63,7 +65,7 @@ public struct ArchiveExporter: Sendable {
         self.blobs = blobs
     }
 
-    public func export(_ items: [ExportItem], format: ExportFormat, to destination: URL,
+    public func export(_ items: [ExportItem], format: ExportFormat, to destination: URL, replace: Bool = false,
                        progress: @Sendable (Int, Int) -> Void = { _, _ in }) async throws -> ExportReport {
         var report = ExportReport(destination: destination)
         switch format {
@@ -72,9 +74,7 @@ public struct ArchiveExporter: Sendable {
             for (n, item) in items.enumerated() {
                 try Task.checkCancellation()
                 guard let data = verified(item, &report) else { continue }
-                let name = Self.uniqueName(Self.fileName(item), taken: &names)
-                let url = destination.appending(path: name)
-                try writeNew(data, to: url)
+                let url = try writeUnique(data, in: destination, name: Self.fileName(item), fallback: Self.plainName(item), taken: &names)
                 if let date = item.date {
                     try? FileManager.default.setAttributes([.modificationDate: date, .creationDate: date], ofItemAtPath: url.path)
                 }
@@ -83,27 +83,38 @@ public struct ArchiveExporter: Sendable {
                 if n % 50 == 0 { progress(n + 1, items.count) }
             }
         case .mbox:
-            let fd = open(destination.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+            // Replacing: build it in a temporary file on the same volume, swap in when complete.
+            // Otherwise a new file only (O_EXCL, no symlink followed): what is removed on a stop is ours.
+            let work = replace ? try Self.temporaryFile(beside: destination) : destination
+            let fd = open(work.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
             guard fd >= 0 else { throw ArchiveError.io("open: \(String(cString: strerror(errno)))", path: destination.path) }
             var complete = false
             defer {
                 close(fd)
-                if !complete { unlink(destination.path) }  // no half mbox left behind
+                if !complete { unlink(work.path) }  // no half mbox left behind; the replaced file stays
+                if replace { try? FileManager.default.removeItem(at: work.deletingLastPathComponent()) }
             }
             for (n, item) in items.enumerated() {
                 try Task.checkCancellation()
                 guard let data = verified(item, &report) else { continue }
-                var entry = Data(Self.separatorLine(item.date).utf8)
-                entry.append(Self.escapeFromLines(data))
+                try writeAll(fd, Data(Self.separatorLine(item.date).utf8), path: work.path)
+                try Self.forEachEscapedSegment(data) { try writeAll(fd, $0, path: work.path) }
                 // One LF: the blank line before the next "From " (or, for a message without a final
                 // line break, its end) — readers drop exactly this one, so the bytes come back as stored.
-                entry.append(0x0A)
-                try writeAll(fd, entry, path: destination.path)
+                try writeAll(fd, Data([0x0A]), path: work.path)
                 report.exported += 1
                 report.bytes += Int64(data.count)
                 if n % 50 == 0 { progress(n + 1, items.count) }
             }
-            guard fsync(fd) == 0 else { throw ArchiveError.io("fsync", path: destination.path) }
+            guard fsync(fd) == 0 else { throw ArchiveError.io("fsync", path: work.path) }
+            guard report.exported > 0 else { progress(items.count, items.count); return report }  // nothing to show: keep what was there
+            if replace {
+                if FileManager.default.fileExists(atPath: destination.path) {
+                    _ = try FileManager.default.replaceItemAt(destination, withItemAt: work)
+                } else {
+                    try FileManager.default.moveItem(at: work, to: destination)
+                }
+            }
             complete = true
         }
         progress(items.count, items.count)
@@ -112,7 +123,8 @@ public struct ArchiveExporter: Sendable {
 
     private func verified(_ item: ExportItem, _ report: inout ExportReport) -> Data? {
         guard let data = try? blobs.read(item.sha256) else {
-            report.problems[String(localized: "Archivkopie fehlt"), default: 0] += 1
+            let missing = !FileManager.default.fileExists(atPath: blobs.url(for: item.sha256).path)
+            report.problems[missing ? String(localized: "Archivkopie fehlt") : String(localized: "Archivkopie nicht lesbar"), default: 0] += 1
             return nil
         }
         guard sha256Hex(data) == item.sha256 else {
@@ -133,6 +145,22 @@ public struct ArchiveExporter: Sendable {
         var subject = (item.subject ?? "").isEmpty ? String(localized: "(ohne Betreff)") : item.subject!
         subject = String(subject.prefix(120)).replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: "\\", with: "-")
         return AttachmentSafety.sanitizedFilename("\(prefix) \(subject).eml", mimeType: "message/rfc822")
+    }
+
+    /// When a file system refuses the name (HFS+ length in NFD, exFAT's ? * " < > |): date and
+    /// a hash prefix, plain ASCII.
+    static func plainName(_ item: ExportItem) -> String {
+        String(fileName(ExportItem(sha256: item.sha256, size: item.size, date: item.date, subject: "x")).dropLast(".x.eml".count))
+            + " " + item.sha256.prefix(12) + ".eml"
+    }
+
+    /// A temporary file on the destination's volume (NSDocument's way; allowed in the sandbox).
+    static func temporaryFile(beside destination: URL) throws -> URL {
+        let dir = (try? FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask,
+                                                appropriateFor: destination, create: true))
+            ?? FileManager.default.temporaryDirectory.appending(path: "mk-export-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        return dir.appending(path: destination.lastPathComponent)
     }
 
     static func uniqueName(_ name: String, taken: inout Set<String>) -> String {
@@ -159,34 +187,56 @@ public struct ArchiveExporter: Sendable {
 
     /// mboxrd: every line matching `^>*From ` gets one more ">" (reversible exactly).
     static func escapeFromLines(_ data: Data) -> Data {
-        guard data.range(of: Data("From ".utf8)) != nil else { return data }
         var out = Data()
-        out.reserveCapacity(data.count + 64)
-        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
-            let bytes = raw.bindMemory(to: UInt8.self)
-            let from: [UInt8] = Array("From ".utf8)
-            var lineStart = true
-            for i in 0..<bytes.count {
-                if lineStart {
-                    var j = i
-                    while j < bytes.count, bytes[j] == UInt8(ascii: ">") { j += 1 }
-                    if j + from.count <= bytes.count, (0..<from.count).allSatisfy({ bytes[j + $0] == from[$0] }) {
-                        out.append(UInt8(ascii: ">"))
-                    }
-                }
-                out.append(bytes[i])
-                lineStart = bytes[i] == 0x0A
-            }
-        }
+        forEachEscapedSegment(data) { out.append($0) }
         return out
     }
 
-    /// A new file only (O_EXCL): an export never overwrites anything.
-    private func writeNew(_ data: Data, to url: URL) throws {
-        let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
-        guard fd >= 0 else { throw ArchiveError.io("open: \(String(cString: strerror(errno)))", path: url.path) }
-        defer { close(fd) }
-        try writeAll(fd, data, path: url.path)
+    /// The escaped message as segments of the original plus inserted ">" — written straight out,
+    /// no copy of a large message.
+    static func forEachEscapedSegment(_ data: Data, _ body: (Data) throws -> Void) rethrows {
+        guard data.range(of: Data("From ".utf8)) != nil else { return try body(data) }
+        let from = Data("From ".utf8), quote = Data(">".utf8)
+        var segmentStart = data.startIndex
+        var lineStart = data.startIndex
+        while lineStart < data.endIndex {
+            var j = lineStart
+            while j < data.endIndex, data[j] == UInt8(ascii: ">") { j += 1 }
+            if data[j...].starts(with: from) {
+                if segmentStart < lineStart { try body(data[segmentStart..<lineStart]) }
+                try body(quote)
+                segmentStart = lineStart
+            }
+            guard let lf = data[lineStart...].firstIndex(of: 0x0A) else { break }
+            lineStart = lf + 1
+        }
+        if segmentStart < data.endIndex { try body(data[segmentStart...]) }
+    }
+
+    /// A new file only (O_EXCL): an export never overwrites anything. On a clash the file
+    /// system saw and the name list did not (case folding, another program) the next name is
+    /// tried; a name the file system refuses falls back to a plain ASCII one.
+    private func writeUnique(_ data: Data, in dir: URL, name: String, fallback: String, taken: inout Set<String>) throws -> URL {
+        var base = name
+        for attempt in 0..<1_000 {
+            let url = dir.appending(path: Self.uniqueName(base, taken: &taken))
+            let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+            if fd < 0 {
+                let code = errno
+                if code == EEXIST { continue }
+                if (code == ENAMETOOLONG || code == EINVAL || code == EILSEQ), base != fallback, attempt < 999 { base = fallback; continue }
+                throw ArchiveError.io("open: \(String(cString: strerror(code)))", path: url.path)
+            }
+            defer { close(fd) }
+            do {
+                try writeAll(fd, data, path: url.path)
+            } catch {
+                unlink(url.path)  // ours, half written
+                throw error
+            }
+            return url
+        }
+        throw ArchiveError.io("no free file name", path: dir.appending(path: name).path)
     }
 
     private func writeAll(_ fd: Int32, _ data: Data, path: String) throws {

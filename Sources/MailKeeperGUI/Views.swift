@@ -382,7 +382,7 @@ struct StatusBar: View {
                 Text("\(p.title): \(p.done.formatted()) von \(p.total.formatted())" + (p.failed > 0 ? " · \(p.failed) fehlgeschlagen" : ""))
                 Button { model.cancelAction() } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.plain)
-                    .help("Nach dem laufenden Stapel anhalten; der Rest lässt sich fortsetzen")
+                    .help(p.resumable ? "Nach dem laufenden Stapel anhalten; der Rest lässt sich fortsetzen" : "Anhalten")
             } else if let job = model.unfinishedJobs.first {
                 Button {
                     model.resume(job)

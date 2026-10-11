@@ -81,6 +81,8 @@ struct ActionRunProgress: Equatable {
     var done: Int
     var total: Int
     var failed: Int
+    /// A queued job resumes after a stop; an export does not.
+    var resumable = true
 }
 
 enum ImportKind: String, CaseIterable, Identifiable {
@@ -947,14 +949,13 @@ final class AppModel {
         prepareExport(lastFilter, title: String(localized: "Alle Mails der Liste"))
     }
 
-    var canExportResults: Bool { lastFilter != nil && (stats?.messages ?? 0) > 0 }
+    var canExportResults: Bool { lastFilter != nil && !messageIDs.isEmpty }
 
     private func prepareExport(_ filter: MessageFilter, title: String) {
         guard let reader else { return }
         do {
-            let items = try reader.exportItems(filter)
-            pendingExport = ExportRequest(filter: filter, title: title, count: items.count,
-                                          bytes: items.reduce(Int64(0)) { $0 + Int64($1.size) })
+            let totals = try reader.totals(filter)
+            pendingExport = ExportRequest(filter: filter, title: title, count: totals.count, bytes: totals.bytes)
         } catch {
             actionError = "\(error)"
         }
@@ -962,7 +963,7 @@ final class AppModel {
 
     /// Asks where to, then writes in the background (progress and stop in the status bar).
     func runExport(_ request: ExportRequest, format: ExportFormat) {
-        guard let reader, !actionRunning else { return }
+        guard let layout = reader?.layout, !actionRunning, !syncRunning, !importRunning else { return }
         let destination: URL
         switch format {
         case .eml:
@@ -983,22 +984,26 @@ final class AppModel {
             destination = url
         }
         pendingExport = nil
-        let items: [ExportItem]
-        do { items = try reader.exportItems(request.filter) } catch { actionError = "\(error)"; return }
-        let blobs = reader.layout.blobs
+        let filter = request.filter
         actionRunning = true
-        actionProgress = ActionRunProgress(title: String(localized: "Exportieren"), done: 0, total: items.count, failed: 0)
+        actionProgress = ActionRunProgress(title: String(localized: "Exportieren"), done: 0, total: request.count, failed: 0, resumable: false)
+        // the PDF queue pauses (its expiry purge could remove a trashed blob mid-export)
+        let indexing = pauseTextIndexing()
         actionTask = Task.detached { [weak self] in
+            await indexing?.value
             let accessing = destination.startAccessingSecurityScopedResource()
             defer { if accessing { destination.stopAccessingSecurityScopedResource() } }
             var report: ExportReport?
             var problem: String?
             do {
-                report = try await ArchiveExporter(blobs: blobs).export(items, format: format, to: destination) { done, total in
+                let items = try ArchiveReader(layout: layout).exportItems(filter)  // off the main thread
+                // mbox: the save panel confirmed replacing an existing file
+                report = try await ArchiveExporter(blobs: layout.blobs).export(items, format: format, to: destination,
+                                                                               replace: format == .mbox) { done, total in
                     Task { @MainActor in self?.actionProgress?.done = done; self?.actionProgress?.total = total }
                 }
             } catch is CancellationError {
-                problem = format == .mbox ? String(localized: "Export abgebrochen; die unvollständige mbox-Datei ist entfernt.")
+                problem = format == .mbox ? String(localized: "Export abgebrochen; es ist keine mbox-Datei entstanden, eine ersetzte bleibt wie sie war.")
                                           : String(localized: "Export abgebrochen; die schon geschriebenen Dateien bleiben.")
             } catch {
                 problem = "\(error)"
@@ -1010,12 +1015,17 @@ final class AppModel {
                 self.actionTask = nil
                 if let report { self.exportResult = report }
                 if let problem { self.actionError = problem }
+                self.startTextIndexing()
             }
         }
     }
 
     func revealExport(_ report: ExportReport) {
-        NSWorkspace.shared.activateFileViewerSelecting([report.destination])
+        if report.destination.hasDirectoryPath || (try? report.destination.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+            NSWorkspace.shared.open(report.destination)  // the eml folder itself
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([report.destination])
+        }
     }
 
     /// Plan sheet: another destination or date for a restore, same selection.

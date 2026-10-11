@@ -57,13 +57,15 @@ APPEND, Proton rebuilds messages and ignores the APPEND date, Dovecot is textboo
    found by search instead, labels and flags stay as the server stored them (noted). After three
    refusals in a row an account's rest is not tried (full mailbox: no login storm). The
    connection itself checks that every STORE names only UIDs it appended.
+6. **Models never act:** LLM output can propose a queue entry; only the user executes it.
+   Rules may run unattended only for non-destructive actions (tags, labels in the archive).
 7. **Export (4.6):** not destructive, so no queue: one `.eml` per message (exactly the archived
    bytes, `O_EXCL` — never overwrites, date as file date) or one mbox (mboxrd: `From` line,
    `>From` escaping, bytes and line endings kept, one LF after each message — MailKeeper's mbox
    import gives back the same blobs). Every blob is verified first; damaged or missing copies
    are reported, not written. A stopped mbox export removes the half file. Files are 0600.
-6. **Models never act:** LLM output can propose a queue entry; only the user executes it.
-   Rules may run unattended only for non-destructive actions (tags, labels in the archive).
+   Replacing an mbox (confirmed in the save panel) builds it beside the old one and swaps it in
+   only when complete; a new file is `O_EXCL | O_NOFOLLOW`, so a stop removes only its own file.
 
 ## Consequences
 

@@ -73,16 +73,67 @@ struct ExportTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path).count == 2)
     }
 
-    @Test func aStoppedMboxExportLeavesNoHalfFile() async throws {
+    /// Stops the export from its own progress callback, after the first message.
+    static func stopped(_ exporter: ArchiveExporter, _ items: [ExportItem], to file: URL, replace: Bool) async -> Error? {
+        let box = TaskBox()
+        let task = Task {
+            try await exporter.export(items, format: .mbox, to: file, replace: replace) { done, _ in
+                if done < items.count { box.cancel() }
+            }
+        }
+        box.set(task)
+        do { _ = try await task.value; return nil } catch { return error }
+    }
+
+    final class TaskBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var task: Task<ExportReport, Error>?
+        private var pending = false
+        func set(_ t: Task<ExportReport, Error>) { lock.withLock { task = t; if pending { t.cancel() } } }
+        func cancel() { lock.withLock { if let task { task.cancel() } else { pending = true } } }
+    }
+
+    @Test func aStoppedNewMboxLeavesNoHalfFile() async throws {
         let (layout, reader) = try await Self.archive()
         let items = try reader.exportItems(MessageFilter())
         let file = tempDir().appending(path: "out.mbox")
-        await #expect(throws: CancellationError.self) {
-            _ = try await ArchiveExporter(blobs: layout.blobs).export(items, format: .mbox, to: file) { done, _ in
-                if done < items.count { withUnsafeCurrentTask { $0?.cancel() } }
-            }
-        }
+        let error = await Self.stopped(ArchiveExporter(blobs: layout.blobs), items, to: file, replace: false)
+        #expect(error is CancellationError)
         #expect(!FileManager.default.fileExists(atPath: file.path))
+    }
+
+    @Test func replacingAnMboxKeepsTheOldOneUntilTheNewOneIsComplete() async throws {
+        let (layout, reader) = try await Self.archive()
+        let items = try reader.exportItems(MessageFilter())
+        let exporter = ArchiveExporter(blobs: layout.blobs)
+        let file = tempDir().appending(path: "Mails-2019.mbox")
+        try Data("old".utf8).write(to: file)
+        // stopped: the confirmed-to-replace file is still the old one, no temporary left over
+        #expect(await Self.stopped(exporter, items, to: file, replace: true) is CancellationError)
+        #expect(try Data(contentsOf: file) == Data("old".utf8))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: file.deletingLastPathComponent().path) == ["Mails-2019.mbox"])
+        // nothing exportable (all copies damaged): the old file stays
+        let damaged = items.map { ExportItem(sha256: String(repeating: "0", count: 64), size: $0.size, date: $0.date, subject: $0.subject) }
+        let none = try await exporter.export(damaged, format: .mbox, to: file, replace: true)
+        let afterNone = try Data(contentsOf: file)
+        #expect(none.exported == 0 && afterNone == Data("old".utf8))
+        // complete: swapped in
+        let done = try await exporter.export(items, format: .mbox, to: file, replace: true)
+        let afterDone = try String(contentsOf: file, encoding: .utf8)
+        #expect(done.exported == 4 && afterDone.hasPrefix("From MAILER-DAEMON"))
+        // without replace an existing file is never touched
+        await #expect(throws: ArchiveError.self) { _ = try await exporter.export(items, format: .mbox, to: file, replace: false) }
+        #expect(try String(contentsOf: file, encoding: .utf8).hasPrefix("From MAILER-DAEMON"))
+    }
+
+    @Test func aNameClashTheListDidNotSeeTakesTheNextName() async throws {
+        let (layout, _) = try await Self.archive()
+        let dir = tempDir()
+        let item = ExportItem(sha256: try ArchiveReader(layout: layout).exportItems(MessageFilter())[0].sha256, size: 1, date: nil, subject: "Pass")
+        let long = ExportItem(sha256: item.sha256, size: 1, date: nil, subject: "Pa\u{017F}s")  // ſ: APFS folds it to s, lowercased() does not
+        let report = try await ArchiveExporter(blobs: layout.blobs).export([item, long], format: .eml, to: dir)
+        #expect(report.exported == 2)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path).count == 2)
     }
 
     @Test func separatorAndEscaping() {
