@@ -22,6 +22,7 @@ usage: mkctl [--archive <dir>] <command>
                                               after before until date account folder label list is on only msgid
   groups [--by sender|domain|list] [--limit n] [query…]
                                               cleanup view: largest groups (of the query's messages)
+  plan server-delete <query…> [--grace <d>]  dry run: what deleting on the server would do (nothing changes)
   show <id>                                   one message: headers, locations, text
   account add gmail <address> --id <id>       add a Gmail account (app password, All Mail + labels)
   account add proton <address> --id <id> [--port 1143] [--trust <fingerprint>]
@@ -214,6 +215,23 @@ func summarize(_ p: ImportProgress, start: Date) {
             print("\(count) \(size) \(String(format: "%3d", unread))% unread  \(clean(g.key))\(g.name.map { "  (\(clean($0)))" } ?? "")")
         }
         print(String(format: "%d groups in %.3fs", groups.count, elapsed))
+
+    case "plan":
+        // Dry run only (ADR-0006: plan → execute → verify); nothing is stored or executed.
+        guard args.first == "server-delete" else { throw CLIError(description: "plan server-delete <query…> [--grace <days>]") }
+        args.removeFirst()
+        let grace = Int(option("--grace") ?? "30") ?? 30
+        let query = args.joined(separator: " ")
+        let layout = try ArchiveLayout.open(at: root, create: false)
+        let reader = try ArchiveReader(layout: layout)
+        let accounts = try AccountStore(layout: layout).load()
+        let (job, summary) = try reader.planServerDelete(MessageFilter(text: query.isEmpty ? nil : query + " "),
+                                                         title: query, accounts: accounts, graceDays: grace)
+        print("\(summary.messages) messages · \(summary.archiveOnly) only in the archive (nothing on a server)")
+        print("would move to the server's Trash: \(job.count(.planned)) (\(bytes(job.openBytes)))"
+              + (summary.perAccount.isEmpty ? "" : " — " + summary.perAccount.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", ")))
+        for (reason, count) in job.reasons { print("skipped \(count): \(reason)") }
+        print("dry run — nothing changed")
 
     case "show":
         guard let idText = args.first, let id = Int64(idText) else { throw CLIError(description: "show <id>") }
