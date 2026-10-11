@@ -95,7 +95,7 @@ public struct QueryTranslator: Sendable {
         after:2024-03  before:2025  until:2024-12-31  date:2024-05   Zeiträume (Jahr, Monat oder Tag)
         after:30d  before:1y           relativ: d Tage, w Wochen, m Monate, y Jahre; date:heute, date:gestern
         account:x  folder:x  folder:Archiv/*  label:x
-        is:unread|read|flagged|answered|list   on:server   only:archive
+        is:unread|read|flagged|answered|list|sent   on:server   only:archive   (is:sent = selbst gesendete Mails)
         -wort  -from:x                 Ausschluss
         a OR b   ( … )                 Alternativen und Klammern; Leerzeichen heißt UND
 
@@ -117,6 +117,7 @@ public struct QueryTranslator: Sendable {
         „Mails von Max über den Workshop“ → from:max workshop | Mails von Max, in denen „Workshop“ vorkommt
         „Kündigungen als PDF“ → pdf:kündigung | PDF-Anhänge, in denen „Kündigung“ steht
         „alles im Ordner Steuer, außer von Elster“ → folder:Steuer -from:elster | Ordner Steuer ohne Mails von Elster
+        „was ich Max 2025 geschickt habe“ → is:sent to:max date:2025 | Von dir an Max gesendete Mails aus 2025
         Die explanation beschreibt nur das Ergebnis – nie, wie du übersetzt hast.
         """
     }

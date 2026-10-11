@@ -27,7 +27,7 @@ larger:5M  smaller:100K             size (K/M/G = 1024)
 after:2024-03  before:2025  until:2024-12-31  date:2024-05   calendar periods, local time
 after:30d  before:1y                relative (d, w, m, y)
 account:gmail  folder:INBOX  folder:Archiv/*  label:Steuer  list:newsletter   (List-Id contains)
-is:unread|read|flagged|answered|list   on:server  only:archive   msgid:<id@host>
+is:unread|read|flagged|answered|list|sent   on:server  only:archive   msgid:<id@host>
 thread:<id@host>                    the conversation containing that message (3.4, additive)
 pdf:kündigung                       only the text of PDF attachments; plain words also match it (3.5, ADR-0009)
 -word  -from:x                      negation

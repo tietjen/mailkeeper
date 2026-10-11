@@ -457,6 +457,28 @@ struct GroupDetailTests {
 struct OnServerTests {
     /// Imported mail has no server location MailKeeper knows of (TJ's mbsync import showed
     /// 24k mails "on the server" before this): Phase 4 must never act on such a claim.
+    /// is:sent — the sent mailbox by its usual names (mbsync "Sent", "INBOX.Sent", Gmail's
+    /// localised folder) or Gmail's \Sent label in All Mail; never a folder that merely contains the word.
+    @Test func sentMailByMailboxNameOrGmailLabel() async throws {
+        let layout = try ArchiveLayout.open(at: tempDir().appending(path: "sent"), create: true)
+        let writer = try ArchiveWriter(layout: layout)
+        _ = try await writer.ingest([
+            (sampleMessage(id: "<1@t.test>", subject: "maildir"), LocationInfo(account: "backup", mailbox: "Sent", providerID: "1")),
+            (sampleMessage(id: "<2@t.test>", subject: "dovecot"), LocationInfo(account: "imap", mailbox: "INBOX.Sent", uidValidity: 1, uid: 1)),
+            (sampleMessage(id: "<3@t.test>", subject: "localised"), LocationInfo(account: "imap", mailbox: "[Gmail]/Gesendet", uidValidity: 1, uid: 2)),
+            (sampleMessage(id: "<4@t.test>", subject: "gmail label"),
+             LocationInfo(account: "gmail", mailbox: "[Gmail]/All Mail", uidValidity: 1, uid: 3, labels: ["\\Sent", "Work"])),
+            (sampleMessage(id: "<5@t.test>", subject: "inbox"), LocationInfo(account: "imap", mailbox: "INBOX", uidValidity: 1, uid: 4)),
+            (sampleMessage(id: "<6@t.test>", subject: "lookalike"), LocationInfo(account: "imap", mailbox: "Sentimental", uidValidity: 1, uid: 5)),
+            (sampleMessage(id: "<7@t.test>", subject: "outlook"), LocationInfo(account: "ex", mailbox: "Gesendete Elemente", uidValidity: 1, uid: 6)),
+        ])
+        let r = try ArchiveReader(layout: layout)
+        let subjects = { (q: String) in Set(try r.summaries(try r.messageIDs(MessageFilter(text: q + " "))).compactMap(\.subject)) }
+        #expect(try subjects("is:sent") == ["maildir", "dovecot", "localised", "gmail label", "outlook"])
+        #expect(try subjects("ist:gesendet") == subjects("is:sent"))
+        #expect(try subjects("-is:sent") == ["inbox", "lookalike"])
+    }
+
     @Test func importedMailIsArchiveOnly() async throws {
         let layout = try ArchiveLayout.open(at: tempDir().appending(path: "os"), create: true)
         let writer = try ArchiveWriter(layout: layout)

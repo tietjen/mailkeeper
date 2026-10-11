@@ -58,7 +58,7 @@ struct FilterMenu: View {
 
     private let filters: [(String, String)] = [
         ("Mit Anhang", "has:attachment"), ("Mit PDF", "has:pdf"), ("Ungelesen", "is:unread"),
-        ("Markiert", "is:flagged"), ("Newsletter und Listen", "is:list"), ("Größer als 5 MB", "larger:5M"),
+        ("Markiert", "is:flagged"), ("Gesendet", "is:sent"), ("Newsletter und Listen", "is:list"), ("Größer als 5 MB", "larger:5M"),
         ("Letzte 30 Tage", "after:30d"), ("Älter als ein Jahr", "before:1y"), ("Nur noch im Archiv", "only:archive"),
     ]
 

@@ -35,6 +35,8 @@ public enum QueryPredicate: Sendable, Equatable {
     /// List-Id equals the text.
     case listID(String)
     case isList
+    /// Sent mail: a location in a sent mailbox, or Gmail's \Sent label.
+    case isSent
     case flag(Flag)
     case onServer
     case archiveOnly
@@ -371,7 +373,8 @@ public enum QueryParser {
                 case "flagged", "starred", "markiert", "wichtig": return (.predicate(.flag(.flagged)), "markiert")
                 case "answered", "replied", "beantwortet": return (.predicate(.flag(.answered)), "beantwortet")
                 case "list", "newsletter", "liste": return (.predicate(.isList), "Newsletter/Liste")
-                default: throw QueryError("„is:\(value)“ kenne ich nicht — unread, read, flagged, answered oder list.")
+                case "sent", "gesendet", "versendet": return (.predicate(.isSent), "gesendet")
+                default: throw QueryError("„is:\(value)“ kenne ich nicht — unread, read, flagged, answered, list oder sent.")
                 }
             case .on:
                 guard ["server"].contains(try required().lowercased()) else { throw QueryError("Gemeint ist „on:server“.") }

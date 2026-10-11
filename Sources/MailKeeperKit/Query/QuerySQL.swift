@@ -118,6 +118,8 @@ struct QuerySQL {
             return "m.list_id = ?"
         case .isList:
             return "(m.list_id IS NOT NULL OR m.list_unsubscribe = 1)"
+        case .isSent:
+            return location(Self.sentLocation)
         case .flag(.unread):
             return "NOT " + location(Self.flag, .text(" \\seen "))
         case .flag(.read):
@@ -144,6 +146,20 @@ struct QuerySQL {
 
     private static let flag = "instr(' ' || lower(l.flags) || ' ', ?) > 0"
     static let serverLocation = "l.on_server = 1 AND l.uid IS NOT NULL"
+
+    /// How servers and mail programs name the sent mailbox (last path component, any case) —
+    /// mbsync imports carry only the name; Gmail's All Mail carries the \Sent label instead.
+    static let sentNames = ["sent", "sent items", "sent messages", "sent mail", "gesendet",
+                            "gesendete objekte", "gesendete elemente", "gesendete nachrichten"]
+
+    /// Fixed strings only (no user value): the mailbox's last component in `sentNames`, or the label.
+    static let sentLocation: String = {
+        let boxes = sentNames.flatMap { n in
+            ["mk_lower(l.mailbox) = '\(n)'", "mk_lower(l.mailbox) LIKE '%/\(n)'", "mk_lower(l.mailbox) LIKE '%.\(n)'"]
+        }
+        let label = "instr(char(31) || mk_lower(l.labels) || char(31), char(31) || '\\sent' || char(31)) > 0"
+        return "(" + (boxes + [label]).joined(separator: " OR ") + ")"
+    }()
 
     /// Uncorrelated `IN` subqueries, evaluated once per query: a correlated EXISTS can make
     /// SQLite scan a big mailbox once per message (see ArchiveReader.whereClause).
