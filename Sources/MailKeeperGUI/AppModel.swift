@@ -246,7 +246,8 @@ final class AppModel {
     /// "Standard-Archiv" for the default location, else the folder's name.
     func archiveName(_ path: String?) -> String {
         guard let path else { return "MailKeeper" }
-        if URL(fileURLWithPath: path).standardizedFileURL == Self.defaultArchiveURL.standardizedFileURL {
+        // Compare paths: URL(fileURLWithPath:) adds a trailing "/" for an existing folder, so URLs differ.
+        if URL(fileURLWithPath: path).standardizedFileURL.path == Self.defaultArchiveURL.standardizedFileURL.path {
             return String(localized: "Standard-Archiv")
         }
         return URL(fileURLWithPath: path).lastPathComponent

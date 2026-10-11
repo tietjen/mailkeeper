@@ -237,15 +237,13 @@ struct HistoryCommands: Commands {
                 .disabled(!model.canGoForward)
             Divider()
             let entries = model.history.entries
-            ForEach(Array(entries.indices.suffix(15).reversed()), id: \.self) { i in
-                Button { model.restore(i) } label: {
-                    if i == model.history.index {
-                        Label(entries[i].label, systemImage: "checkmark")
-                    } else {
-                        Text(entries[i].label)
-                    }
+            Picker("Verlauf", selection: Binding(get: { model.history.index }, set: { model.restore($0) })) {
+                ForEach(Array(entries.indices.suffix(15).reversed()), id: \.self) { i in
+                    Text(entries[i].label).tag(i)
                 }
             }
+            .pickerStyle(.inline)
+            .labelsHidden()
         }
     }
 }
@@ -255,18 +253,17 @@ struct ArchiveMenuItems: View {
     let model: AppModel
 
     var body: some View {
-        ForEach(model.knownArchives) { archive in
-            Button {
-                model.switchTo(archive)
-            } label: {
-                let title = "\(model.archiveName(archive.path)) — \(model.abbreviated(archive.path))"
-                if archive.path == model.archiveRoot?.path {
-                    Label(title, systemImage: "checkmark")
-                } else {
-                    Text(title)
-                }
+        // An inline picker is what macOS menus show with a check mark on the current item
+        // (a Label with a checkmark symbol only draws an icon).
+        Picker("Archiv", selection: Binding(get: { model.archiveRoot?.path ?? "" }, set: { path in
+            if let archive = model.knownArchives.first(where: { $0.path == path }) { model.switchTo(archive) }
+        })) {
+            ForEach(model.knownArchives) { archive in
+                Text("\(model.archiveName(archive.path)) — \(model.abbreviated(archive.path))").tag(archive.path)
             }
         }
+        .pickerStyle(.inline)
+        .labelsHidden()
         Divider()
         Button("Anderes Archiv öffnen …") { model.openArchive() }
         Button("Neues Archiv anlegen …") { model.createArchive() }
