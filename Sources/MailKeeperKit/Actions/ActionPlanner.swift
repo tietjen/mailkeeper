@@ -20,11 +20,20 @@ extension ArchiveReader {
     /// Skip reason of an archive delete for a message still on a server.
     public static let stillOnServer = String(localized: "liegt noch auf einem Server – erst dort löschen")
 
+    /// Skip reason of a server delete inside the grace period. It counts from the arrival on the
+    /// server (INTERNALDATE), not from the Date header: a 2019 mail appended yesterday is new
+    /// there (TJ wondered why "Bulk 2500" from 14.3.2019 was "younger than 30 days").
+    public static func graceReason(_ days: Int) -> String {
+        days == 1 ? String(localized: "erst seit weniger als 1 Tag auf dem Server (Schonfrist)")
+                  : String(localized: "erst seit weniger als \(days) Tagen auf dem Server (Schonfrist)")
+    }
+
     /// Plans "delete on the server" for the messages of `filter` (ADR-0006 §2): one item per
     /// server location (fetched over IMAP, still present at the last fetch). Items whose
     /// preconditions fail are planned as skipped, with the reason:
     /// - the account is not set up here (no connection to act with);
-    /// - the date is unknown, or newer than the grace period (default 30 days);
+    /// - the date is unknown, or the message arrived on the server within the grace period
+    ///   (default 30 days; INTERNALDATE, the Date header only where no arrival is known);
     /// - the message is flagged on the server.
     /// The blob is verified and the Message-ID re-checked on the server when the item runs.
     public func planServerDelete(_ filter: MessageFilter, title: String, accounts: [AccountConfig],
@@ -58,7 +67,7 @@ extension ArchiveReader {
                 item.reason = String(localized: "Datum unbekannt")
             } else if let date, date > cutoff {
                 item.state = .skipped
-                item.reason = String(localized: "jünger als \(graceDays) Tage (Schonfrist)")
+                item.reason = Self.graceReason(graceDays)
             } else if flags.contains("\\flagged") {
                 item.state = .skipped
                 item.reason = String(localized: "markiert")

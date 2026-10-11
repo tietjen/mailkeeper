@@ -83,7 +83,7 @@ struct ServerDeletePlanTests {
         let bySubjectUID = Dictionary(uniqueKeysWithValues: job.items.map { ($0.location!.uid, $0) })
         #expect(job.items.count == 4)  // D has no server location, F is gone
         #expect(bySubjectUID[1]?.state == .planned && bySubjectUID[1]?.messageID == "<a@t.test>")
-        #expect(bySubjectUID[2]?.reason == "jünger als 30 Tage (Schonfrist)")
+        #expect(bySubjectUID[2]?.reason == "erst seit weniger als 30 Tagen auf dem Server (Schonfrist)")
         #expect(bySubjectUID[3]?.reason == "markiert")
         #expect(bySubjectUID[5]?.reason == "Konto ist hier nicht eingerichtet")
         #expect(summary.messages == 6 && summary.archiveOnly == 2 && summary.perAccount == ["imap": 1])

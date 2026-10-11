@@ -60,11 +60,18 @@ struct PlanSheet: View {
             .font(.callout)
 
             if job.kind == .serverDelete, !plan.stored {
-                Stepper(value: $graceDays, in: 0...3650) {
-                    Text("Schonfrist: nur Mails älter als \(graceDays) Tage")
+                VStack(alignment: .leading, spacing: 4) {
+                    Stepper(value: $graceDays, in: 0...3650) {
+                        Text(graceDays == 1 ? "Schonfrist: 1 Tag ab Eingang auf dem Server"
+                                            : "Schonfrist: \(graceDays) Tage ab Eingang auf dem Server")
+                    }
+                    .onChange(of: graceDays) { model.replan(plan, graceDays: graceDays) }
+                    .help("Schützt neue Mails und andere Programme, die das Postfach lesen (z. B. Paperless).")
+                    if job.reasons.contains(where: { $0.reason == ArchiveReader.graceReason(job.graceDays ?? graceDays) }) {
+                        Text("Gezählt wird ab dem Eingang auf dem Server, nicht ab dem Datum der Mail. Eine alte Mail, die erst kürzlich hochgeladen oder verschoben wurde, ist dort neu.")
+                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
                 }
-                .onChange(of: graceDays) { model.replan(plan, graceDays: graceDays) }
-                .help("Schützt neue Mails und andere Programme, die das Postfach lesen (z. B. Paperless).")
             }
 
             if !plan.examples.isEmpty {
