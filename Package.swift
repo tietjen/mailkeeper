@@ -32,13 +32,16 @@ let package = Package(
             .product(name: "NIOPosix", package: "swift-nio"),
             .product(name: "NIOSSL", package: "swift-nio-ssl"),
         ]),
-        .executableTarget(name: "mkctl", dependencies: ["MailKeeperKit", "MailKeeperIMAP"]),
-        .executableTarget(name: "MailKeeperGUI", dependencies: ["MailKeeperKit", "MailKeeperIMAP"]),
+        // ADR-0004: language models (OpenAI-compatible endpoint, Apple on-device). Kit stays model-free.
+        .target(name: "MailKeeperAI", dependencies: ["MailKeeperKit"]),
+        .executableTarget(name: "mkctl", dependencies: ["MailKeeperKit", "MailKeeperIMAP", "MailKeeperAI"]),
+        .executableTarget(name: "MailKeeperGUI", dependencies: ["MailKeeperKit", "MailKeeperIMAP", "MailKeeperAI"]),
         // PDFKit lives here and is linked only into the service, never into the app.
         .target(name: "MailKeeperPDF", dependencies: ["MailKeeperKit"]),
         .executableTarget(name: "MailKeeperPDFService", dependencies: ["MailKeeperKit", "MailKeeperPDF"]),
         .testTarget(name: "MailKeeperKitTests", dependencies: ["MailKeeperKit"]),
         .testTarget(name: "MailKeeperIMAPTests", dependencies: ["MailKeeperIMAP", "MailKeeperKit"]),
         .testTarget(name: "MailKeeperPDFTests", dependencies: ["MailKeeperPDF", "MailKeeperKit"]),
+        .testTarget(name: "MailKeeperAITests", dependencies: ["MailKeeperAI", "MailKeeperKit"]),
     ]
 )

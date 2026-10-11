@@ -17,6 +17,8 @@ struct MailKeeperApp: App {
             TabView {
                 AccountsSettings(model: model)
                     .tabItem { Label("Konten", systemImage: "person.crop.circle") }
+                AISettings(model: model)
+                    .tabItem { Label("KI", systemImage: "sparkles") }
             }
         }
         .commands {

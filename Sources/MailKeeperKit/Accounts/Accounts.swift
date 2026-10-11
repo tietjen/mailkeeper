@@ -197,4 +197,47 @@ public struct CredentialStore: Sendable {
         let status = SecItemDelete(query(account) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw AccountError.keychain(status) }
     }
+
+    // MARK: Other secrets (the KI endpoint's API key)
+
+    private func query(key: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: key]
+    }
+
+    public func saveSecret(_ secret: String, key: String, label: String, description: String) throws {
+        let data = Data(secret.utf8)
+        let update = SecItemUpdate(query(key: key) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if update == errSecSuccess { return }
+        guard update == errSecItemNotFound else { throw AccountError.keychain(update) }
+        var add = query(key: key)
+        add[kSecValueData as String] = data
+        add[kSecAttrLabel as String] = label
+        add[kSecAttrDescription as String] = description
+        let status = SecItemAdd(add as CFDictionary, nil)
+        guard status == errSecSuccess else { throw AccountError.keychain(status) }
+    }
+
+    public func secret(key: String) throws -> String? {
+        var q = query(key: key)
+        q[kSecReturnData as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        var out: CFTypeRef?
+        let status = SecItemCopyMatching(q as CFDictionary, &out)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess, let data = out as? Data else { throw AccountError.keychain(status) }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    public func secretExists(key: String) -> Bool {
+        var q = query(key: key)
+        q[kSecReturnAttributes as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        var out: CFTypeRef?
+        return SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess
+    }
+
+    public func deleteSecret(key: String) throws {
+        let status = SecItemDelete(query(key: key) as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw AccountError.keychain(status) }
+    }
 }

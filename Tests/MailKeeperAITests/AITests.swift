@@ -1,0 +1,183 @@
+import Foundation
+import Synchronization
+import Testing
+@testable import MailKeeperAI
+@testable import MailKeeperKit
+
+/// Answers requests from a script: one response per call, in order; records what was asked.
+final class StubProtocol: URLProtocol, @unchecked Sendable {
+    struct Reply: Sendable { var status: Int; var body: String; var error: URLError.Code? = nil }
+    static let script = Mutex<[Reply]>([])
+    static let seen = Mutex<[URLRequest]>([])
+
+    static func load(_ replies: [Reply]) { script.withLock { $0 = replies }; seen.withLock { $0 = [] } }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        var r = request
+        if r.httpBody == nil, let stream = r.httpBodyStream {  // URLSession moves the body into a stream
+            stream.open()
+            var data = Data(), buf = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable { let n = stream.read(&buf, maxLength: buf.count); if n <= 0 { break }; data.append(buf, count: n) }
+            stream.close()
+            r.httpBody = data
+        }
+        Self.seen.withLock { $0.append(r) }
+        let reply = Self.script.withLock { $0.isEmpty ? Reply(status: 500, body: "{}") : $0.removeFirst() }
+        if let code = reply.error { client?.urlProtocol(self, didFailWithError: URLError(code)); return }
+        let response = HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: nil, headerFields: nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(reply.body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+/// Stands in for the on-device model.
+struct FakeOnDevice: ChatProvider {
+    let path = AIPath.onDevice
+    let answer: String
+    func chat(_ request: ChatRequest, model: String, attempt: Int) async throws -> ChatResult {
+        ChatResult(text: answer, path: .onDevice, model: "apple-on-device", seconds: 0.1, attempt: attempt)
+    }
+}
+
+func completion(_ content: String?, finish: String = "stop") -> String {
+    let c = content.map { String(decoding: try! JSONSerialization.data(withJSONObject: $0, options: .fragmentsAllowed), as: UTF8.self) } ?? "null"
+    return """
+    {"model":"llm-fast","choices":[{"finish_reason":"\(finish)","message":{"role":"assistant","content":\(c),"reasoning_content":"secret thoughts"}}],
+     "usage":{"prompt_tokens":12,"completion_tokens":3}}
+    """
+}
+
+@Suite("KI-Anbindung (ADR-0004)", .serialized)
+struct AITests {
+    let base = URL(string: "http://litellm.rk1.ziti:4000/v1")!
+    var provider: OpenAICompatibleProvider { OpenAICompatibleProvider(baseURL: base, apiKey: "sk-test", timeout: 5, protocolClasses: [StubProtocol.self]) }
+    let request = ChatRequest(task: .search, system: "sys", user: "Mailinhalt GEHEIM",
+                              schema: .object(name: "q", properties: [.init("query", .string()), .init("why", .string(), optional: true)]))
+
+    @Test func schemaIsStrictJSONSchema() throws {
+        let s = request.schema!.jsonSchema()
+        #expect(s["additionalProperties"] as? Bool == false)
+        #expect(s["required"] as? [String] == ["query", "why"])
+        let why = (s["properties"] as? [String: Any])?["why"] as? [String: Any]
+        #expect(why?["type"] as? [String] == ["string", "null"])
+    }
+
+    @Test func configKnowsLocalEndpointsAndTransport() throws {
+        #expect(AIConfig.isLocal(URL(string: "http://litellm.rk1.ziti:4000/v1")!))
+        #expect(AIConfig.isLocal(URL(string: "http://192.168.1.5:11434/v1")!) && AIConfig.isLocal(URL(string: "http://localhost:1234")!))
+        #expect(!AIConfig.isLocal(URL(string: "https://api.openai.com/v1")!))
+        #expect(AIConfig.transportProblem(URL(string: "http://litellm.rk1.ziti:4000/v1")!) == nil)
+        #expect(AIConfig.transportProblem(URL(string: "http://192.168.1.5:11434/v1")!) != nil)  // ATS: HTTPS needed
+        var c = AIConfig(enabled: true, endpoint: base)
+        #expect(c.model(for: .classify) == "llm-fast" && c.model(for: .embed) == "embedding")
+        c.setModel(" classifier ", for: .classify)
+        #expect(c.model(for: .classify) == "classifier" && c.secretKey == "ai:litellm.rk1.ziti:4000")
+        let layout = try ArchiveLayout.open(at: tempDir().appending(path: "ai"), create: true)
+        try AIConfigStore(layout: layout).save(c)
+        #expect(AIConfigStore(layout: layout).load() == c)
+        let attributes = try FileManager.default.attributesOfItem(atPath: layout.root.appending(path: "ai.json").path)
+        #expect((attributes[.posixPermissions] as? Int) == 0o600)
+    }
+
+    @Test func endpointAnswersAndSendsWhatItShould() async throws {
+        StubProtocol.load([.init(status: 200, body: completion("```json\n{\"query\":\"from:amazon\",\"why\":null}\n```"))])
+        let r = try await provider.chat(request, model: "llm-fast", attempt: 1)
+        #expect(r.text == "{\"query\":\"from:amazon\",\"why\":null}" && r.path == .endpoint && r.promptTokens == 12)
+        let sent = try #require(StubProtocol.seen.withLock { $0.first })
+        #expect(sent.value(forHTTPHeaderField: "Authorization") == "Bearer sk-test")
+        let body = try #require(try JSONSerialization.jsonObject(with: sent.httpBody ?? Data()) as? [String: Any])
+        #expect(body["model"] as? String == "llm-fast" && body["temperature"] as? Int == 0)
+        #expect(((body["response_format"] as? [String: Any])?["json_schema"] as? [String: Any])?["strict"] as? Bool == true)
+    }
+
+    @Test func truncatedAndBadAnswersAreErrors() async throws {
+        StubProtocol.load([.init(status: 200, body: completion(nil, finish: "length"))])
+        await #expect(throws: AIError.truncated) { _ = try await provider.chat(request, model: "llm-fast", attempt: 1) }
+        StubProtocol.load([.init(status: 401, body: #"{"error":{"message":"Authentication Error, LiteLLM Virtual Key expected.‮"}}"#)])
+        do {
+            _ = try await provider.chat(request, model: "llm-fast", attempt: 1)
+            Issue.record("no error")
+        } catch let error as AIError {
+            guard case .server(401, let text) = error else { Issue.record("\(error)"); return }
+            #expect(text == "Authentication Error, LiteLLM Virtual Key expected.")  // bidi control removed
+        }
+    }
+
+    @Test func connectionFailuresAndOverloadGetOneMoreTryTimeoutsDoNot() async throws {
+        StubProtocol.load([.init(status: 503, body: "busy"), .init(status: 200, body: completion("{\"query\":\"x\",\"why\":null}"))])
+        _ = try await provider.chat(request, model: "llm-fast", attempt: 1)
+        #expect(StubProtocol.seen.withLock { $0.count } == 2)
+        StubProtocol.load([.init(status: 0, body: "", error: .timedOut), .init(status: 200, body: completion("{}"))])
+        await #expect(throws: AIError.timeout(5)) { _ = try await provider.chat(request, model: "llm-fast", attempt: 1) }
+        #expect(StubProtocol.seen.withLock { $0.count } == 1)  // the server is still generating: no second request
+    }
+
+    @Test func routerFallsBackToTheMacWhenTheEndpointIsAwayAndLogsNoContent() async throws {
+        let log = AICallLog(url: tempDir().appending(path: "ai.jsonl"))
+        let router = AIRouter(config: AIConfig(enabled: true, endpoint: base), endpoint: provider,
+                              onDevice: FakeOnDevice(answer: "{\"query\":\"from:mac\",\"why\":null}"), log: log)
+        StubProtocol.load([.init(status: 0, body: "", error: .cannotConnectToHost), .init(status: 0, body: "", error: .cannotConnectToHost)])
+        let first = try await router.chat(request)
+        #expect(first.path == .onDevice)
+        StubProtocol.load([])
+        _ = try await router.chat(request)  // endpoint paused for a minute: straight to the Mac
+        #expect(StubProtocol.seen.withLock { $0.isEmpty })
+        let entries = log.entries()
+        #expect(entries.map(\.outcome) == ["connection", "ok", "ok"] && entries.map(\.path) == [.endpoint, .onDevice, .onDevice])
+        let raw = try String(contentsOf: log.url, encoding: .utf8)
+        #expect(!raw.contains("GEHEIM") && !raw.contains("from:mac"))
+    }
+
+    @Test func aWrongAnswerFromTheEndpointIsNotHiddenByTheFallback() async throws {
+        let router = AIRouter(config: AIConfig(enabled: true, endpoint: base), endpoint: provider,
+                              onDevice: FakeOnDevice(answer: "{}"), log: AICallLog(url: tempDir().appending(path: "ai.jsonl")))
+        StubProtocol.load([.init(status: 400, body: #"{"error":{"message":"model not allowed"}}"#)])
+        await #expect(throws: AIError.self) { _ = try await router.chat(request) }
+        let off = AIRouter(config: AIConfig(enabled: false, endpoint: base), endpoint: provider, onDevice: nil,
+                           log: AICallLog(url: tempDir().appending(path: "ai2.jsonl")))
+        await #expect(throws: AIError.notConfigured) { _ = try await off.chat(request) }
+    }
+}
+
+func tempDir() -> URL {
+    let url = FileManager.default.temporaryDirectory.appending(path: "mk-ai-\(UUID().uuidString)")
+    try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    return url
+}
+
+/// Real models, opt-in: MAILKEEPER_AI=1 swift test --filter AILive
+/// Endpoint and key name from ~/.config/mailkeeper/test-accounts.json ("llm"), key via `security`.
+@Suite("AILive (real models)", .enabled(if: ProcessInfo.processInfo.environment["MAILKEEPER_AI"] == "1"), .serialized)
+struct AILiveTests {
+    static func config() throws -> (AIConfig, String) {
+        struct File: Decodable {
+            struct LLM: Decodable { struct KC: Decodable { let service: String; let account: String }; let baseURL: String; let keychain: KC }
+            let llm: LLM
+        }
+        let url = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".config/mailkeeper/test-accounts.json")
+        let file = try JSONDecoder().decode(File.self, from: Data(contentsOf: url))
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        p.arguments = ["find-generic-password", "-s", file.llm.keychain.service, "-a", file.llm.keychain.account, "-w"]
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+        try p.run()
+        let key = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .newlines)
+        p.waitUntilExit()
+        return (AIConfig(enabled: true, endpoint: URL(string: file.llm.baseURL)!), key)
+    }
+
+    @Test func connectionTest() async throws {
+        let (config, key) = try Self.config()
+        let report = await AIRouter(config: config, apiKey: key, log: AICallLog(url: tempDir().appending(path: "ai.jsonl"))).test()
+        for line in report.lines { print("\(line.ok ? "✓" : "✗") \(line.title): \(line.detail)") }
+        let failed = report.lines.filter { !$0.title.hasPrefix("Modell auf") && !$0.ok }.map(\.title)
+        #expect(failed.isEmpty)
+        #expect(report.models.contains("llm-fast") && report.models.contains("embedding"))
+    }
+}

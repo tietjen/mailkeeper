@@ -1,5 +1,6 @@
 import AppKit
 import LocalAuthentication
+import MailKeeperAI
 import MailKeeperIMAP
 import MailKeeperKit
 import Observation
@@ -1282,6 +1283,55 @@ final class AppModel {
     private func reloadAccounts(_ layout: ArchiveLayout) {
         accountConfigs = (try? AccountStore(layout: layout).load()) ?? []
         passwordPresent = Dictionary(uniqueKeysWithValues: accountConfigs.map { ($0.id, credentials.exists(for: $0)) })
+        aiConfig = AIConfigStore(layout: layout).load()
+        aiKeyStored = aiConfig.secretKey.map(credentials.secretExists) ?? false
+        aiRouterCache = nil
+    }
+
+    // MARK: KI (Phase 5, ADR-0004)
+
+    private(set) var aiConfig = AIConfig()
+    private(set) var aiKeyStored = false
+    private var aiRouterCache: AIRouter?
+
+    /// Settings › KI: saves the settings (in the archive) and, when given, the API key (keychain).
+    func saveAI(_ config: AIConfig, key: String?) throws {
+        guard let layout = reader?.layout else { return }
+        if let endpoint = config.endpoint, let problem = AIConfig.transportProblem(endpoint) { throw AIError.badAnswer(problem) }
+        if let key = key?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty, let secretKey = config.secretKey {
+            try credentials.saveSecret(key, key: secretKey, label: "MailKeeper – KI-Endpoint \(config.endpoint?.host() ?? "")",
+                                       description: "API-Schlüssel (MailKeeper)")
+        }
+        try AIConfigStore(layout: layout).save(config)
+        aiConfig = config
+        aiKeyStored = config.secretKey.map(credentials.secretExists) ?? false
+        aiRouterCache = nil
+    }
+
+    func removeAIKey() {
+        guard let secretKey = aiConfig.secretKey else { return }
+        try? credentials.deleteSecret(key: secretKey)
+        aiKeyStored = false
+        aiRouterCache = nil
+    }
+
+    /// The router for the current settings (key read from the keychain once).
+    func aiRouter() -> AIRouter? {
+        guard aiConfig.enabled else { return nil }
+        if let aiRouterCache { return aiRouterCache }
+        let key = aiConfig.secretKey.flatMap { try? credentials.secret(key: $0) }
+        let router = AIRouter(config: aiConfig, apiKey: key)
+        aiRouterCache = router
+        return router
+    }
+
+    /// The connection test of the settings, for a config not yet saved.
+    func testAI(_ config: AIConfig, key: String?) async -> AIRouter.TestReport {
+        var config = config
+        config.enabled = true
+        let typed = key?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stored = config.secretKey.flatMap { try? credentials.secret(key: $0) }
+        return await AIRouter(config: config, apiKey: (typed?.isEmpty == false ? typed : nil) ?? stored).test()
     }
 
     func addAccount(_ account: AccountConfig, password: String) throws {

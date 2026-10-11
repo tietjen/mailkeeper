@@ -24,6 +24,16 @@ and occasional requests that hang indefinitely.
    destructive action. Rules derived from suggestions are deterministic and user-accepted.
 5. Every LLM call is logged with task, provider/model, seconds, tokens, finish reason, attempt.
 
+*As built (5.1, 2026-10-11):* module `MailKeeperAI` (Kit stays model-free). Settings per archive
+in `ai.json` (endpoint, model alias per task, on-device fallback on/off, timeout), the API key in
+the keychain. The router tries the endpoint first; when it is not set up, unreachable, 502–504 or
+silent past the timeout, it pauses it for a minute and asks the on-device model (if allowed);
+wrong answers (4xx, bad JSON, truncated) are errors, never hidden by the fallback. Connection
+errors and 429/502/503 get one retry; a timeout never (the gateway keeps generating). On-device
+means `SystemLanguageModel` only — never Private Cloud Compute. HTTP only for localhost and
+`.ziti` (ATS); non-local endpoints get a warning. `~/Library/Logs/MailKeeper/ai.jsonl` logs
+task, path, model, seconds, tokens, finish reason, attempt and outcome — no prompt, no answer.
+
 ## Consequences
 
 - Backfills over 100k mails cannot be LLM-bound; throughput comes from steps 1–2.

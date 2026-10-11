@@ -1,4 +1,5 @@
 import Foundation
+import MailKeeperAI
 import MailKeeperIMAP
 import MailKeeperKit
 
@@ -43,6 +44,10 @@ usage: mkctl [--archive <dir>] <command>
   account list | test <id> | remove <id> [--keep-password]
                                               manage accounts (remove keeps the archived mail)
   sync [<id>…]                                fetch new mail from all (or the given) accounts, read-only
+  ai status | test                            KI settings of the archive; connection test (endpoint, on-device)
+  ai config [--on|--off] [--endpoint <url>] [--model <task>=<alias>]… [--on-device on|off]
+                                              tasks: search classify summarize embed
+  ai key [--password-stdin] | ai key --delete API key of the endpoint (keychain, never an argument)
   verify                                      re-hash every blob
   rebuild-index                               rebuild index.sqlite from blobs + journal
 
@@ -347,6 +352,61 @@ func summarize(_ p: ImportProgress, start: Date) {
         print("")
         print("exported \(report.exported) (\(bytes(report.bytes))) to \(destination.path)")
         for (reason, count) in report.problems.sorted(by: { $0.key < $1.key }) { print("left out \(count): \(reason)") }
+
+    case "ai":
+        let layout = try ArchiveLayout.open(at: root, create: false)
+        let store = AIConfigStore(layout: layout)
+        var config = store.load()
+        let credentials = CredentialStore()
+        switch args.first {
+        case "config":
+            args.removeFirst()
+            if args.contains("--on") { config.enabled = true }
+            if args.contains("--off") { config.enabled = false }
+            args.removeAll { $0 == "--on" || $0 == "--off" }
+            if let e = option("--endpoint") {
+                guard let url = URL(string: e), AIConfig.transportProblem(url) == nil else {
+                    throw CLIError(description: AIConfig.transportProblem(URL(string: e) ?? URL(fileURLWithPath: "/")) ?? "bad URL")
+                }
+                config.endpoint = url
+            }
+            if let o = option("--on-device") { config.onDevice = o == "on" }
+            while let m = option("--model") {
+                let parts = m.split(separator: "=", maxSplits: 1).map(String.init)
+                guard parts.count == 2, let task = AITask(rawValue: parts[0]), task != .test else {
+                    throw CLIError(description: "--model <search|classify|summarize|embed>=<alias>")
+                }
+                config.setModel(parts[1], for: task)
+            }
+            guard args.isEmpty else { throw CLIError(description: "unknown: \(args.joined(separator: " "))") }
+            try store.save(config)
+            fallthrough
+        case "status", nil:
+            print("KI: \(config.enabled ? "an" : "aus")")
+            print("Endpoint: \(config.endpoint?.absoluteString ?? "—")\(config.endpoint.map { AIConfig.isLocal($0) ? "" : "  (nicht lokal!)" } ?? "")")
+            print("Schlüssel: \(config.secretKey.map { credentials.secretExists(key: $0) ? "im Schlüsselbund" : "keiner" } ?? "—")")
+            for task in AITask.allCases where task != .test { print("Modell \(task.rawValue): \(config.model(for: task))") }
+            print("Modell auf diesem Mac: \(config.onDevice ? "als Ersatz" : "aus") (\(OnDeviceProvider.availability.reason))")
+        case "key":
+            guard let secretKey = config.secretKey else { throw CLIError(description: "first: ai config --endpoint <url>") }
+            if args.contains("--delete") {
+                try credentials.deleteSecret(key: secretKey)
+                print("Schlüssel gelöscht")
+            } else {
+                let key = try readPassword(prompt: "API-Schlüssel für \(config.endpoint?.host() ?? ""): ")
+                try credentials.saveSecret(key, key: secretKey, label: "MailKeeper – KI-Endpoint \(config.endpoint?.host() ?? "")",
+                                           description: "API-Schlüssel (MailKeeper)")
+                print("Schlüssel gespeichert")
+            }
+        case "test":
+            var probe = config
+            probe.enabled = true
+            let key = config.secretKey.flatMap { try? credentials.secret(key: $0) }
+            let report = await AIRouter(config: probe, apiKey: key).test()
+            for line in report.lines { print("\(line.ok ? "✓" : "✗") \(line.title): \(clean(line.detail))") }
+        default:
+            throw CLIError(description: "ai status | test | config … | key")
+        }
 
     case "show":
         guard let idText = args.first, let id = Int64(idText) else { throw CLIError(description: "show <id>") }
