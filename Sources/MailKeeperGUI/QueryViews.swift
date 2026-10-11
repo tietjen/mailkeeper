@@ -183,3 +183,63 @@ struct SavedSearchSheet: View {
         }
     }
 }
+
+/// Back and forward like Safari: a click goes one step, holding (or the arrow) lists the
+/// stations in that direction.
+struct HistoryButtons: View {
+    let model: AppModel
+
+    var body: some View {
+        let entries = model.history.entries
+        let index = model.history.index
+        Menu {
+            ForEach(Array((0..<max(0, index)).reversed()), id: \.self) { i in
+                Button(entries[i].label) { model.restore(i) }
+            }
+        } label: {
+            Label("Zurück", systemImage: "chevron.left")
+        } primaryAction: {
+            model.goBack()
+        }
+        .disabled(!model.canGoBack)
+        .help("Zurück (⌘[) – gedrückt halten zeigt den Verlauf")
+        Menu {
+            ForEach(Array(entries.indices.filter { $0 > index }), id: \.self) { i in
+                Button(entries[i].label) { model.restore(i) }
+            }
+        } label: {
+            Label("Vorwärts", systemImage: "chevron.right")
+        } primaryAction: {
+            model.goForward()
+        }
+        .disabled(!model.canGoForward)
+        .help("Vorwärts (⌘])")
+    }
+}
+
+/// Menu bar: Verlauf › Zurück, Vorwärts and the most recent stations.
+struct HistoryCommands: Commands {
+    let model: AppModel
+
+    var body: some Commands {
+        CommandMenu("Verlauf") {
+            Button("Zurück") { model.goBack() }
+                .keyboardShortcut("[")
+                .disabled(!model.canGoBack)
+            Button("Vorwärts") { model.goForward() }
+                .keyboardShortcut("]")
+                .disabled(!model.canGoForward)
+            Divider()
+            let entries = model.history.entries
+            ForEach(Array(entries.indices.suffix(15).reversed()), id: \.self) { i in
+                Button { model.restore(i) } label: {
+                    if i == model.history.index {
+                        Label(entries[i].label, systemImage: "checkmark")
+                    } else {
+                        Text(entries[i].label)
+                    }
+                }
+            }
+        }
+    }
+}

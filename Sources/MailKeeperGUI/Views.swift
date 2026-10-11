@@ -57,7 +57,7 @@ struct ContentView: View {
                                 Text("Die Suche lässt hier nichts übrig. Alle Begriffe müssen zutreffen; oben kannst du einzelne mit × entfernen.")
                             }
                         } actions: {
-                            if searching { Button("Suche zurücksetzen") { model.searchText = "" } }
+                            if searching { Button("Suche zurücksetzen") { model.setSearch("") } }
                         }
                     }
                 }
@@ -87,6 +87,9 @@ struct ContentView: View {
             }
         }
         .toolbar {
+            ToolbarItemGroup(placement: .navigation) {
+                HistoryButtons(model: model)
+            }
             ToolbarItem(placement: .principal) {
                 Picker("Ansicht", selection: $model.viewMode) {
                     Label("Nachrichten", systemImage: "list.bullet").tag(ViewMode.messages)

@@ -492,3 +492,25 @@ struct ListIDTests {
         #expect(MIMEParser.listID("   ") == (nil, nil))
     }
 }
+
+@Suite("Navigation history")
+struct NavigationHistoryTests {
+    @Test func backForwardAndBranching() {
+        var h = NavigationHistory<String>(limit: 4)
+        #expect(h.current == nil && !h.canGoBack && !h.canGoForward)
+        h.push("domains"); h.push("sender"); h.push("mails")
+        #expect(h.current == "mails" && h.canGoBack && !h.canGoForward)
+        #expect(h.move(to: h.index - 1) == "sender" && h.canGoForward)
+        h.push("other")  // a new step drops "mails"
+        #expect(h.entries == ["domains", "sender", "other"] && !h.canGoForward)
+        h.updateCurrent { $0 += "+selection" }
+        #expect(h.current == "other+selection")
+        h.push("o"); h.push("ot", replacingCurrent: true)  // typing folds into one step
+        #expect(h.entries == ["domains", "sender", "other+selection", "ot"])
+        h.push("five")  // limit 4: the oldest goes
+        #expect(h.entries == ["sender", "other+selection", "ot", "five"] && h.index == 3)
+        #expect(h.move(to: 9) == nil && h.index == 3)
+        h.clear()
+        #expect(h.current == nil && h.index == -1)
+    }
+}

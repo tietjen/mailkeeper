@@ -29,6 +29,7 @@ struct MailKeeperApp: App {
                     }
                 }
             }
+            HistoryCommands(model: model)
             CommandGroup(after: .toolbar) {
                 Button("Aktualisieren") { model.refresh() }
                     .keyboardShortcut("r")

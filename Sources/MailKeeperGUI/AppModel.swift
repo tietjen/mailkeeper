@@ -19,6 +19,24 @@ enum ViewMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// One station of the back/forward history: where the user was and what was selected.
+struct NavigationEntry: Sendable, Equatable {
+    var viewMode: ViewMode
+    var sidebar: SidebarItem?
+    var searchText: String
+    var groupID: String?
+    var messageID: Int64?
+    var label: String
+    /// Created by typing in the search field: the next keystrokes fold into it.
+    var typed: Bool
+    var time: Date
+
+    func samePlace(as other: NavigationEntry) -> Bool {
+        viewMode == other.viewMode && sidebar == other.sidebar
+            && searchText.trimmingCharacters(in: .whitespaces) == other.searchText.trimmingCharacters(in: .whitespaces)
+    }
+}
+
 enum SidebarItem: Hashable {
     case all
     case account(String)
@@ -59,18 +77,37 @@ final class AppModel {
     private(set) var preparingArchive = false
     private(set) var volumeEncrypted: Bool?
 
-    var sidebarSelection: SidebarItem? = .all { didSet { reloadList() } }
-    var searchText = "" { didSet { scheduleSearch() } }
+    var sidebarSelection: SidebarItem? = .all { didSet { if !batching { reloadList() } } }
+    var searchText = "" {
+        didSet {
+            searchTyped = !settingSearch  // the search field's binding, not a drill-down
+            if !batching { scheduleSearch() }
+        }
+    }
+    private var settingSearch = false
+    private var searchTyped = false
+    /// Several view properties change at once (history restore): one reload at the end.
+    private var batching = false
+    /// Back/forward (TJ: "Vor und Zurück … an eine bestimmte Stelle meiner Recherche").
+    private(set) var history = NavigationHistory<NavigationEntry>()
+    private var restoring = false
+    /// Selections changed by a reload must not rewrite the previous station.
+    private var reloading = false
     /// The parsed search text (chips), and why it does not parse.
     private(set) var query: Query?
     private(set) var queryError: String?
     private(set) var savedSearches: [SavedSearch] = []
     private(set) var savedCounts: [UUID: Int] = [:]
     private(set) var labels: [String] = []
-    var viewMode: ViewMode = .messages { didSet { if viewMode != oldValue { reloadList() } } }
+    var viewMode: ViewMode = .messages { didSet { if viewMode != oldValue, !batching { reloadList() } } }
     private(set) var groups: [MessageGroup] = []
     /// Cleanup view, right-hand pane: the selected group's details, else an overview.
-    var selectedGroupID: String? { didSet { if selectedGroupID != oldValue { loadGroupDetail() } } }
+    var selectedGroupID: String? {
+        didSet {
+            if selectedGroupID != oldValue { loadGroupDetail() }
+            noteSelection()
+        }
+    }
     private(set) var groupDetail: GroupDetail?
     private(set) var cleanupOverview: CleanupOverview?
     /// The filter of the last successful list/group load (scope + search).
@@ -86,7 +123,7 @@ final class AppModel {
     private(set) var messageIDs: [Int64] = []
     /// Bumped whenever `messageIDs` is replaced; the table reloads on change.
     private(set) var listGeneration = 0
-    var selectedMessageID: Int64?
+    var selectedMessageID: Int64? { didSet { if selectedMessageID != oldValue { noteSelection() } } }
     /// Bumped when the model selects a message itself (conversation list); the table follows.
     private(set) var selectionRequest = 0
 
@@ -141,6 +178,7 @@ final class AppModel {
 
     @discardableResult
     func open(_ url: URL, create: Bool) -> Bool {
+        if url != archiveRoot { history.clear() }  // stations of another archive mean nothing here
         textIndexTask?.cancel()  // belongs to the previous archive
         textIndexTask = nil
         textIndexToken = nil
@@ -232,6 +270,8 @@ final class AppModel {
 
     func reloadList() {
         guard let reader else { return }
+        reloading = true
+        defer { reloading = false }
         var filter = scopeFilter
         // Untrimmed: a trailing space ends the live prefix of the last word (ADR-0008).
         let text = searchText.allSatisfy(\.isWhitespace) ? nil : searchText
@@ -263,6 +303,7 @@ final class AppModel {
                 } else {
                     loadGroupDetail()  // same group (or none), new scope or search
                 }
+                recordNavigation()
                 return
             }
             messageIDs = try reader.messageIDs(filter, sort: sort, ascending: ascending)
@@ -279,6 +320,95 @@ final class AppModel {
         }
         listGeneration += 1
         if let sel = selectedMessageID, !messageIDs.contains(sel) { selectedMessageID = nil }
+        if listError == nil { recordNavigation() }
+    }
+
+    // MARK: Back / forward
+
+    var canGoBack: Bool { history.canGoBack }
+    var canGoForward: Bool { history.canGoForward }
+
+    func goBack() { if history.canGoBack { restore(history.index - 1) } }
+    func goForward() { if history.canGoForward { restore(history.index + 1) } }
+
+    /// Returns to a station: view, scope, search, then its selection — without a new step.
+    func restore(_ position: Int) {
+        guard let entry = history.move(to: position) else { return }
+        restoring = true
+        defer { restoring = false }
+        searchTask?.cancel()
+        batching = true
+        viewMode = entry.viewMode
+        sidebarSelection = entry.sidebar
+        setSearch(entry.searchText)
+        batching = false
+        reloadList()
+        if entry.viewMode != .messages { selectedGroupID = entry.groupID }
+        if let message = entry.messageID { reveal(message) } else { selectedMessageID = nil }
+    }
+
+    /// Search text set by the app (drill-downs, chips, buckets), not typed.
+    func setSearch(_ text: String) {
+        settingSearch = true
+        searchText = text
+        settingSearch = false
+    }
+
+    /// After a successful load: a new station, or the same place (only the selection moves).
+    private func recordNavigation() {
+        guard !restoring else { return }
+        var entry = NavigationEntry(viewMode: viewMode, sidebar: sidebarSelection, searchText: searchText,
+                                    groupID: viewMode == .messages ? nil : selectedGroupID,
+                                    messageID: viewMode == .messages ? selectedMessageID : nil,
+                                    label: "", typed: searchTyped, time: Date())
+        entry.label = navigationLabel(entry)
+        if let current = history.current, current.samePlace(as: entry) {
+            history.updateCurrent { $0.groupID = entry.groupID; $0.messageID = entry.messageID; $0.label = entry.label }
+            return
+        }
+        let keystroke = entry.typed && (history.current.map {
+            $0.typed && $0.viewMode == entry.viewMode && $0.sidebar == entry.sidebar && entry.time.timeIntervalSince($0.time) < 4
+        } ?? false)
+        history.push(entry, replacingCurrent: keystroke)
+    }
+
+    /// A row clicked in the table: the current station remembers it.
+    private func noteSelection() {
+        guard !restoring, !reloading, let current = history.current else { return }
+        var entry = current
+        entry.groupID = viewMode == .messages ? nil : selectedGroupID
+        entry.messageID = viewMode == .messages ? selectedMessageID : nil
+        let label = navigationLabel(entry)
+        history.updateCurrent { $0.groupID = entry.groupID; $0.messageID = entry.messageID; $0.label = label }
+    }
+
+    /// "Domains · Newsletter/Liste, ungelesen · krautreporter.de"
+    private func navigationLabel(_ e: NavigationEntry) -> String {
+        var parts: [String] = []
+        switch e.viewMode {
+        case .messages: parts.append(String(localized: "Nachrichten"))
+        case .sender: parts.append(String(localized: "Absender"))
+        case .domain: parts.append(String(localized: "Domains"))
+        case .list: parts.append(String(localized: "Listen"))
+        }
+        switch e.sidebar {
+        case .account(let a): parts.append(accounts.first { $0.id == a }?.name ?? a)
+        case .mailbox(_, let m): parts.append(m)
+        case .saved(let id): if let name = savedSearches.first(where: { $0.id == id })?.name { parts.append(name) }
+        case .all, nil: break
+        }
+        let search = e.searchText.trimmingCharacters(in: .whitespaces)
+        if !search.isEmpty {
+            let chips = (try? QueryParser.parse(search).chips.map(\.label)) ?? [search]
+            let text = chips.joined(separator: ", ")
+            parts.append(text.count > 60 ? String(text.prefix(60)) + "…" : text)
+        }
+        if let g = e.groupID, let group = groups.first(where: { $0.id == g }) {
+            parts.append(group.name ?? group.key)
+        } else if let m = e.messageID, let s = summaries([m]).first {
+            parts.append(s.subject ?? String(localized: "(kein Betreff)"))
+        }
+        return DisplayText.safe(parts.joined(separator: " · "))
     }
 
     // MARK: Query helpers
@@ -302,7 +432,7 @@ final class AppModel {
         var text = searchText
         text.removeSubrange(range)
         let rest = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        searchText = rest.isEmpty ? "" : rest + " "  // the trailing space keeps the last word exact
+        setSearch(rest.isEmpty ? "" : rest + " ")  // the trailing space keeps the last word exact
     }
 
     /// Cleanup view → the group's messages: back to the list, narrowed by the group's exact query.
@@ -340,11 +470,11 @@ final class AppModel {
         let wasActive = active.contains(bucket.query)
         var text = Self.removing(active, from: searchText)
         if !wasActive { text = (text.isEmpty ? "" : text) + bucket.query + " " }
-        searchText = text
+        setSearch(text)
     }
 
     func clearBuckets() {
-        searchText = Self.removing(ArchiveReader.cleanupBuckets.map(\.query).filter(isBucketActive), from: searchText)
+        setSearch(Self.removing(ArchiveReader.cleanupBuckets.map(\.query).filter(isBucketActive), from: searchText))
     }
 
     /// The search text without the given queries' terms (top-level terms only), normalised.
@@ -387,7 +517,7 @@ final class AppModel {
     /// Appends a filter term (from the Filter menu) to the search text.
     func appendFilter(_ term: String) {
         let base = searchText.trimmingCharacters(in: .whitespaces)
-        searchText = (base.isEmpty ? "" : base + " ") + term + " "
+        setSearch((base.isEmpty ? "" : base + " ") + term + " ")
     }
 
     // MARK: Saved searches
@@ -423,7 +553,7 @@ final class AppModel {
 
     /// After saving the current search as a view: show the view, clear the search field.
     func showSaved(_ id: UUID) {
-        searchText = ""
+        setSearch("")
         sidebarSelection = .saved(id)
     }
 
@@ -475,7 +605,7 @@ final class AppModel {
     func showThread(of id: Int64) {
         guard let query = (try? reader?.threadQuery(of: id)) ?? nil else { return }
         viewMode = .messages
-        searchText = query + " "
+        setSearch(query + " ")
         sidebarSelection = .all  // reloads now, with the new search text
         reveal(id)
     }
