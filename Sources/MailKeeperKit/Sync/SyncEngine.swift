@@ -186,7 +186,7 @@ public struct SyncEngine: Sendable {
                 switch r {
                 case .newMessage: report.newMessages += 1; p.newMessages += 1
                 case .newLocation: report.newLocations += 1; p.newLocations += 1
-                case .unchanged: break
+                case .unchanged, .tombstoned: break
                 }
             }
             let bytes = Int64(messages.reduce(0) { $0 + $1.data.count })

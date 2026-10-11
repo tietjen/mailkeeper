@@ -16,7 +16,7 @@ public struct ImportProgress: Sendable, Equatable {
             switch r {
             case .newMessage: newMessages += 1
             case .newLocation: newLocations += 1
-            case .unchanged: unchanged += 1
+            case .unchanged, .tombstoned: unchanged += 1
             }
         }
     }

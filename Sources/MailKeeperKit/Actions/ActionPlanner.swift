@@ -62,4 +62,25 @@ extension ArchiveReader {
         let job = ActionJob(kind: .serverDelete, title: title, query: filter.text, graceDays: graceDays, items: items)
         return (job, ActionPlanSummary(messages: total, archiveOnly: total - withLocation.count, perAccount: perAccount))
     }
+
+    /// Plans "delete from the archive" (ADR-0006 4): one item per message, to the archive trash
+    /// for 30 days. Messages still on a server stay there; once purged, sync will not fetch them
+    /// again (tombstones). `summary.archiveOnly` counts those that are on no server.
+    public func planArchiveDelete(_ filter: MessageFilter, title: String) throws -> (ActionJob, ActionPlanSummary) {
+        let (whereClause, params) = try Self.whereClause(filter)
+        var items: [ActionItem] = []
+        var onServer = 0
+        try db.forEach("""
+            SELECT m.identity, m.primary_blob, m.message_id, m.size, m.date,
+                   EXISTS (SELECT 1 FROM locations l WHERE l.message_id = m.id AND \(QuerySQL.serverLocation))
+            FROM messages m\(whereClause) ORDER BY m.date, m.id
+            """, params) { row in
+            if row.bool(5) { onServer += 1 }
+            items.append(ActionItem(id: items.count, sha256: row.text(1) ?? "", messageID: row.text(2), size: Int(row.int(3)),
+                                    date: row.optionalDouble(4).map(Date.init(timeIntervalSince1970:)), location: nil,
+                                    identity: row.text(0)))
+        }
+        let job = ActionJob(kind: .archiveDelete, title: title, query: filter.text, graceDays: nil, items: items)
+        return (job, ActionPlanSummary(messages: items.count, archiveOnly: items.count - onServer, perAccount: [:]))
+    }
 }

@@ -394,6 +394,8 @@ struct Phase3ReviewTests {
         let (layout, _) = try await ThreadTests.archive(order: Array(0..<8))
         let raw = try Database(path: layout.indexURL.path)
         try raw.execute("""
+            DROP TABLE tombstones; DROP TABLE tombstone_locations; DROP INDEX messages_trashed;
+            ALTER TABLE messages DROP COLUMN trashed;
             DROP TABLE attachment_text; DROP TABLE attachment_text_fts;
             DROP INDEX messages_thread; DROP TABLE message_refs; ALTER TABLE messages DROP COLUMN thread_id;
             PRAGMA user_version = 2;

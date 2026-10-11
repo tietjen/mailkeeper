@@ -64,7 +64,8 @@ public struct AttachmentIndexer: Sendable {
 
     /// Messages with a PDF attachment and no final result for `version` (one `?` parameter).
     static let pendingCondition = """
-        m.id IN (SELECT a.message_id FROM attachments a WHERE a.is_inline = 0
+        m.trashed IS NULL
+        AND m.id IN (SELECT a.message_id FROM attachments a WHERE a.is_inline = 0
                  AND (a.mime_type = 'application/pdf' OR a.filename LIKE '%.pdf'))
         AND m.id NOT IN (SELECT t.message_id FROM attachment_text t
                          WHERE t.status NOT IN ('failed', 'empty') OR t.version >= ?)

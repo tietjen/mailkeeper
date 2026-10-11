@@ -125,6 +125,17 @@ enum Schema {
             text, content='', contentless_delete=1, tokenize='unicode61 remove_diacritics 2'
         );
         """,
+        // v5: archive trash and tombstones (Phase 4.3, ADR-0006 4). Projections of journal
+        // events (trashed/untrashed/purged).
+        """
+        ALTER TABLE messages ADD COLUMN trashed REAL;
+        CREATE INDEX messages_trashed ON messages(trashed) WHERE trashed IS NOT NULL;
+        CREATE TABLE tombstones(key TEXT PRIMARY KEY, purged REAL NOT NULL) WITHOUT ROWID;
+        CREATE TABLE tombstone_locations(
+            account_id TEXT NOT NULL, mailbox TEXT NOT NULL, uid_validity INTEGER NOT NULL, uid INTEGER NOT NULL,
+            PRIMARY KEY(account_id, mailbox, uid_validity, uid)
+        ) WITHOUT ROWID;
+        """,
     ]
 
     static var currentVersion: Int { migrations.count }

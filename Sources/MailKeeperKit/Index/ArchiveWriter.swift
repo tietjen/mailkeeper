@@ -7,9 +7,14 @@ public enum IngestResult: Sendable, Equatable {
     case newLocation(Int64)
     /// The location was already known; flags/labels/last-seen were refreshed.
     case unchanged(Int64)
+    /// The message was deleted from the archive for good (tombstone): nothing was stored.
+    case tombstoned
 
     public var messageID: Int64 {
-        switch self { case .newMessage(let id), .newLocation(let id), .unchanged(let id): id }
+        switch self {
+        case .newMessage(let id), .newLocation(let id), .unchanged(let id): id
+        case .tombstoned: -1
+        }
     }
 }
 
@@ -106,8 +111,20 @@ public actor ArchiveWriter {
     private func ingestOne(_ data: Data, at loc: LocationInfo, mode: Mode, time: Double) throws -> IngestResult {
         let sha: String
         var intact = true
+        var early: (parsed: ParsedMessage, identity: String)?
         switch mode {
-        case .live: sha = try blobs.put(data).sha256
+        case .live:
+            // A message deleted for good comes back neither by sync nor by re-import: check the
+            // tombstones before anything is stored (bytes, then - for unknown bytes - identity).
+            let candidate = sha256Hex(data)
+            if try isTombstoned("sha:" + candidate) { return .tombstoned }
+            if try db.queryOne("SELECT 1 FROM message_blobs WHERE sha256 = ?", [.text(candidate)], { _ in true }) == nil {
+                let parsed = MIMEParser.parse(data)
+                let identity = try resolveIdentity(parsed, sha: candidate)
+                if try isTombstoned("id:" + identity) { return .tombstoned }
+                early = (parsed, identity)
+            }
+            sha = try blobs.put(data).sha256
         case .replay(let s, let ok): sha = s; intact = ok
         }
         try db.run("INSERT OR IGNORE INTO blobs(sha256, size, added, verified) VALUES (?, ?, ?, ?)",
@@ -137,8 +154,8 @@ public actor ArchiveWriter {
         var isNewMessage = false
         var messageRowID = try db.queryOne("SELECT message_id FROM message_blobs WHERE sha256 = ?", [.text(sha)]) { $0.int(0) }
         if messageRowID == nil {
-            let parsed = MIMEParser.parse(data)
-            let identity = try resolveIdentity(parsed, sha: sha)
+            let parsed = early?.parsed ?? MIMEParser.parse(data)
+            let identity = try early?.identity ?? resolveIdentity(parsed, sha: sha)
             messageRowID = try db.queryOne("SELECT id FROM messages WHERE identity = ?", [.text(identity)]) { $0.int(0) }
             if messageRowID == nil {
                 messageRowID = try insertMessage(parsed, identity: identity, sha: sha, size: data.count, time: time)
@@ -280,6 +297,7 @@ public actor ArchiveWriter {
         db = try Database(path: fresh, wal: false)  // releases (closes) the live connection
         var report = RebuildReport()
         var missing = Set<String>(), damaged = Set<String>()
+        var archiveEvents: [JournalEvent] = []  // trash/purge refer to messages: applied after all seen events
         do {
             try Schema.migrate(db)
             try db.execute("BEGIN IMMEDIATE")
@@ -315,6 +333,17 @@ public actor ArchiveWriter {
                     }
                 case .gone:
                     try markGoneRow(event)
+                case .trashed, .untrashed, .purged:
+                    archiveEvents.append(event)
+                }
+            }
+            for event in archiveEvents.sorted(by: { $0.time < $1.time }) {
+                guard let identity = event.identity else { report.skippedEvents += 1; continue }
+                if event.kind == .purged {
+                    try applyPurge(identity: identity, shas: event.shas ?? [], locations: event.locations ?? [], time: event.time)
+                    missing.subtract(event.shas ?? [])  // deleted on purpose, not lost
+                } else {
+                    try applyTrash(event.kind, identity: identity, time: event.time)
                 }
             }
             try db.execute("COMMIT")
@@ -379,9 +408,124 @@ public actor ArchiveWriter {
     }
 
     /// Every UID ever seen in this mailbox/validity (also those gone since — UIDs are never reused).
+    /// UIDs the archive has - or deleted for good (tombstones): sync fetches neither.
     public func knownUIDs(account: String, mailbox: String, uidValidity: UInt32) throws -> Set<UInt32> {
-        Set(try db.query("SELECT uid FROM locations WHERE account_id = ? AND mailbox = ? AND uid_validity = ? AND uid IS NOT NULL",
-                         [.text(account), .text(mailbox), .int(Int64(uidValidity))]) { UInt32(truncatingIfNeeded: $0.int(0)) })
+        let params: [SQLValue] = [.text(account), .text(mailbox), .int(Int64(uidValidity))]
+        return Set(try db.query("""
+            SELECT uid FROM locations WHERE account_id = ? AND mailbox = ? AND uid_validity = ? AND uid IS NOT NULL
+            UNION SELECT uid FROM tombstone_locations WHERE account_id = ? AND mailbox = ? AND uid_validity = ?
+            """, params + params) { UInt32(truncatingIfNeeded: $0.int(0)) })
+    }
+
+    // MARK: Archive trash (Phase 4.3, ADR-0006 4)
+
+    private func isTombstoned(_ key: String) throws -> Bool {
+        try db.queryOne("SELECT 1 FROM tombstones WHERE key = ?", [.text(key)]) { _ in true } ?? false
+    }
+
+    /// Moves messages to the archive trash (hidden from every view, purged after the grace time).
+    @discardableResult
+    public func trash(_ identities: [String], time: Double = Date().timeIntervalSince1970) throws -> Int {
+        try setTrashed(identities, time: time, kind: .trashed)
+    }
+
+    @discardableResult
+    public func untrash(_ identities: [String]) throws -> Int {
+        try setTrashed(identities, time: Date().timeIntervalSince1970, kind: .untrashed)
+    }
+
+    /// Journal first (synced), then the index - like ingest.
+    private func setTrashed(_ identities: [String], time: Double, kind: JournalEvent.Kind) throws -> Int {
+        let live = kind == .trashed ? "trashed IS NULL" : "trashed IS NOT NULL"
+        var changing: [String] = []
+        for identity in identities
+        where try db.queryOne("SELECT 1 FROM messages WHERE identity = ? AND \(live)", [.text(identity)], { _ in true }) != nil {
+            changing.append(identity)
+        }
+        guard !changing.isEmpty else { return 0 }
+        for identity in changing { try journal.append(.trash(kind, identity: identity, time: time)) }
+        try journal.sync()
+        try db.transaction {
+            for identity in changing { try applyTrash(kind, identity: identity, time: time) }
+        }
+        return changing.count
+    }
+
+    private func applyTrash(_ kind: JournalEvent.Kind, identity: String, time: Double) throws {
+        try db.run("UPDATE messages SET trashed = ? WHERE identity = ?",
+                   [kind == .trashed ? .double(time) : .null, .text(identity)])
+    }
+
+    public struct PurgeReport: Sendable, Equatable {
+        public var messages = 0
+        public var blobs = 0
+        public var bytes: Int64 = 0
+    }
+
+    /// Deletes messages from the archive for good: rows, search text, blobs no longer referenced.
+    /// Tombstones (identity, bytes, IMAP locations) keep sync and import from bringing them back.
+    public func purge(_ identities: [String], time: Double = Date().timeIntervalSince1970) throws -> PurgeReport {
+        var report = PurgeReport()
+        var candidates: Set<String> = []
+        var plans: [(identity: String, shas: [String], tombs: [JournalEvent.Tombstone])] = []
+        for identity in identities {
+            guard let id = try db.queryOne("SELECT id FROM messages WHERE identity = ?", [.text(identity)], { $0.int(0) }) else { continue }
+            let shas = try db.query("SELECT sha256 FROM message_blobs WHERE message_id = ? UNION SELECT sha256 FROM locations WHERE message_id = ?",
+                                    [.int(id), .int(id)]) { $0.text(0) ?? "" }
+            let tombs = try db.query("""
+                SELECT account_id, mailbox, uid_validity, uid FROM locations
+                WHERE message_id = ? AND uid IS NOT NULL AND uid_validity IS NOT NULL
+                """, [.int(id)]) {
+                JournalEvent.Tombstone(account: $0.text(0) ?? "", mailbox: $0.text(1) ?? "",
+                                       uidValidity: UInt32(truncatingIfNeeded: $0.int(2)), uid: UInt32(truncatingIfNeeded: $0.int(3)))
+            }
+            plans.append((identity, shas, tombs))
+        }
+        guard !plans.isEmpty else { return report }
+        for p in plans { try journal.append(.purged(identity: p.identity, shas: p.shas, locations: p.tombs, time: time)) }
+        try journal.sync()
+        try db.transaction {
+            for p in plans {
+                try applyPurge(identity: p.identity, shas: p.shas, locations: p.tombs, time: time)
+                candidates.formUnion(p.shas)
+                report.messages += 1
+            }
+        }
+        // Blob files after the index commit, and only if nothing refers to them any more.
+        for sha in candidates where BlobStore.isValidSHA(sha) {
+            let used = try db.queryOne("SELECT 1 FROM message_blobs WHERE sha256 = ? UNION SELECT 1 FROM locations WHERE sha256 = ?",
+                                       [.text(sha), .text(sha)]) { _ in true } ?? false
+            guard !used else { continue }
+            let size = try db.queryOne("SELECT size FROM blobs WHERE sha256 = ?", [.text(sha)]) { $0.int(0) } ?? 0
+            try db.run("DELETE FROM blobs WHERE sha256 = ?", [.text(sha)])
+            if unlink(blobs.url(for: sha).path) == 0 {
+                report.blobs += 1
+                report.bytes += size
+            }
+        }
+        return report
+    }
+
+    private func applyPurge(identity: String, shas: [String], locations: [JournalEvent.Tombstone], time: Double) throws {
+        if let id = try db.queryOne("SELECT id FROM messages WHERE identity = ?", [.text(identity)], { $0.int(0) }) {
+            try db.run("DELETE FROM messages_fts WHERE rowid = ?", [.int(id)])
+            try db.run("DELETE FROM attachment_text_fts WHERE rowid = ?", [.int(id)])
+            try db.run("DELETE FROM messages WHERE id = ?", [.int(id)])  // cascades locations, attachments, refs, text
+        }
+        try db.run("INSERT OR REPLACE INTO tombstones(key, purged) VALUES (?, ?)", [.text("id:" + identity), .double(time)])
+        for sha in shas { try db.run("INSERT OR REPLACE INTO tombstones(key, purged) VALUES (?, ?)", [.text("sha:" + sha), .double(time)]) }
+        for t in locations {
+            try db.run("INSERT OR IGNORE INTO tombstone_locations(account_id, mailbox, uid_validity, uid) VALUES (?, ?, ?, ?)",
+                       [.text(t.account), .text(t.mailbox), .int(Int64(t.uidValidity)), .int(Int64(t.uid))])
+        }
+    }
+
+    /// Purges what has been in the trash for longer than `days` (ADR-0006: 30).
+    public func purgeExpired(days: Int = 30, now: Date = Date()) throws -> PurgeReport {
+        let cutoff = now.timeIntervalSince1970 - Double(days) * 86_400
+        let expired = try db.query("SELECT identity FROM messages WHERE trashed IS NOT NULL AND trashed < ?",
+                                   [.double(cutoff)]) { $0.text(0) ?? "" }
+        return try purge(expired, time: now.timeIntervalSince1970)
     }
 
     public func onServerUIDs(account: String, mailbox: String, uidValidity: UInt32) throws -> Set<UInt32> {

@@ -48,12 +48,15 @@ public struct ActionItem: Codable, Hashable, Sendable, Identifiable {
     public var size: Int
     public var date: Date?
     public var location: ServerLocation?
+    /// The message's archive identity (archive actions; stable across index rebuilds).
+    public var identity: String?
     public var state: State
     /// Why it was skipped or failed — shown to the user.
     public var reason: String?
 
     public init(id: Int, sha256: String, messageID: String?, size: Int, date: Date?, location: ServerLocation?,
-                state: State = .planned, reason: String? = nil) {
+                identity: String? = nil, state: State = .planned, reason: String? = nil) {
+        self.identity = identity
         self.id = id
         self.sha256 = sha256
         self.messageID = messageID

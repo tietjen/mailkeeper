@@ -9,7 +9,13 @@ public struct JournalEvent: Codable, Sendable, Equatable {
         case account   // an account was registered
         case seen      // a message was observed at a location
         case gone      // a location no longer exists on the server
+        case trashed   // a message went to the archive trash (Phase 4.3)
+        case untrashed // ... and came back
+        case purged    // ... and was deleted for good: tombstoned, never fetched or imported again
     }
+
+    /// Archive-wide events (trash, purge) live under this pseudo account.
+    public static let archiveAccount = "_archive"
 
     public var kind: Kind
     public var time: Double
@@ -26,11 +32,34 @@ public struct JournalEvent: Codable, Sendable, Equatable {
     public var internalDate: Double?
     public var flags: [String]?
     public var labels: [String]?
+    // trash / purge
+    public var identity: String?
+    public var shas: [String]?
+    public var locations: [Tombstone]?
+
+    /// An IMAP location of a purged message: sync must not fetch it again.
+    public struct Tombstone: Codable, Sendable, Equatable, Hashable {
+        public var account: String
+        public var mailbox: String
+        public var uidValidity: UInt32
+        public var uid: UInt32
+
+        enum CodingKeys: String, CodingKey { case account = "a", mailbox = "mb", uidValidity = "uv", uid = "u" }
+    }
 
     enum CodingKeys: String, CodingKey {
         case kind = "k", time = "t", account = "a", accountKind = "ak", accountName = "an"
         case mailbox = "mb", uidValidity = "uv", uid = "u", providerID = "pid", sha256 = "sha"
-        case internalDate = "id", flags = "f", labels = "l"
+        case internalDate = "id", flags = "f", labels = "l", identity = "idn", shas = "shas", locations = "locs"
+    }
+
+    public static func trash(_ kind: Kind, identity: String, time: Double = Date().timeIntervalSince1970) -> JournalEvent {
+        JournalEvent(kind: kind, time: time, account: archiveAccount, identity: identity)
+    }
+
+    public static func purged(identity: String, shas: [String], locations: [Tombstone],
+                              time: Double = Date().timeIntervalSince1970) -> JournalEvent {
+        JournalEvent(kind: .purged, time: time, account: archiveAccount, identity: identity, shas: shas, locations: locations)
     }
 
     public static func account(_ id: String, kind: String, name: String, time: Double = Date().timeIntervalSince1970) -> JournalEvent {

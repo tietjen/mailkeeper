@@ -50,10 +50,13 @@ public struct MessageDetail: Sendable {
 
 public struct ArchiveStats: Sendable, Equatable {
     public var accounts: Int
+    /// Messages outside the archive trash.
     public var messages: Int
     public var locations: Int
     public var blobs: Int
     public var blobBytes: Int64
+    /// Messages in the archive trash.
+    public var trashed = 0
 }
 
 /// Cleanup view: messages grouped by sender address, sender domain or mailing list.
@@ -104,16 +107,21 @@ public struct MessageFilter: Sendable, Equatable {
     public var base: String?
     /// Further queries AND-ed on (a cleanup group's exact query, an overview bucket).
     public var also: [String] = []
+    /// Messages in the archive trash are hidden unless asked for (the trash view).
+    public var trash: TrashScope = .exclude
+
+    public enum TrashScope: Sendable, Equatable { case exclude, only }
     /// Reference time for relative dates ("30d").
     public var now: Date
 
     public init(account: String? = nil, mailbox: String? = nil, text: String? = nil, base: String? = nil,
-                also: [String] = [], now: Date = Date()) {
+                also: [String] = [], trash: TrashScope = .exclude, now: Date = Date()) {
         self.account = account
         self.mailbox = mailbox
         self.text = text
         self.base = base
         self.also = also
+        self.trash = trash
         self.now = now
     }
 }
@@ -171,11 +179,13 @@ public final class ArchiveReader {
         let db = try self.db
         let boxes = try db.query("""
             SELECT account_id, mailbox, count(DISTINCT message_id) FROM locations
+            WHERE message_id NOT IN (SELECT id FROM messages WHERE trashed IS NOT NULL)
             GROUP BY account_id, mailbox ORDER BY account_id, mailbox COLLATE NOCASE
             """) { MailboxSummary(account: $0.text(0) ?? "", name: $0.text(1) ?? "", count: Int($0.int(2))) }
         return try db.query("""
             SELECT a.id, a.kind, a.display_name,
-                   (SELECT count(DISTINCT message_id) FROM locations l WHERE l.account_id = a.id)
+                   (SELECT count(DISTINCT message_id) FROM locations l WHERE l.account_id = a.id
+                    AND l.message_id NOT IN (SELECT id FROM messages WHERE trashed IS NOT NULL))
             FROM accounts a ORDER BY a.display_name COLLATE NOCASE
             """) { row in
             let id = row.text(0) ?? ""
@@ -262,7 +272,7 @@ public final class ArchiveReader {
     }
 
     static func whereClause(_ filter: MessageFilter) throws -> (String, [SQLValue]) {
-        var conditions: [String] = []
+        var conditions: [String] = [filter.trash == .only ? "m.trashed IS NOT NULL" : "m.trashed IS NULL"]
         var params: [SQLValue] = []
         // Uncorrelated IN, evaluated once. A correlated EXISTS let SQLite pick the (account,
         // mailbox) index per message: 60 s for a 39k INBOX (43k × 39k rows).
@@ -294,7 +304,7 @@ public final class ArchiveReader {
             let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ",")
             try db.forEach("""
                 SELECT id, date, from_name, from_addr, subject, size, attachment_count, snippet,
-                       (SELECT count(*) FROM messages t WHERE t.thread_id = m.thread_id)
+                       (SELECT count(*) FROM messages t WHERE t.thread_id = m.thread_id AND t.trashed IS NULL)
                 FROM messages m WHERE id IN (\(placeholders))
                 """, chunk.map { .int($0) }) { row in
                 byID[row.int(0)] = Self.summary(row)
@@ -307,7 +317,7 @@ public final class ArchiveReader {
         let db = try self.db
         guard let (summary, mid, list, blob) = try db.queryOne("""
             SELECT id, date, from_name, from_addr, subject, size, attachment_count, snippet,
-                   (SELECT count(*) FROM messages t WHERE t.thread_id = m.thread_id), message_id, list_id, primary_blob
+                   (SELECT count(*) FROM messages t WHERE t.thread_id = m.thread_id AND t.trashed IS NULL), message_id, list_id, primary_blob
             FROM messages m WHERE id = ?
             """, [.int(id)], { row in (Self.summary(row), row.text(9), row.text(10), row.text(11) ?? "") }) else { return nil }
         let locations = try db.query("""
@@ -332,10 +342,11 @@ public final class ArchiveReader {
 
     public func stats() throws -> ArchiveStats {
         try self.db.queryOne("""
-            SELECT (SELECT count(*) FROM accounts), (SELECT count(*) FROM messages), (SELECT count(*) FROM locations),
-                   (SELECT count(*) FROM blobs), (SELECT coalesce(sum(size), 0) FROM blobs)
+            SELECT (SELECT count(*) FROM accounts), (SELECT count(*) FROM messages WHERE trashed IS NULL),
+                   (SELECT count(*) FROM locations), (SELECT count(*) FROM blobs), (SELECT coalesce(sum(size), 0) FROM blobs),
+                   (SELECT count(*) FROM messages WHERE trashed IS NOT NULL)
             """) { ArchiveStats(accounts: Int($0.int(0)), messages: Int($0.int(1)), locations: Int($0.int(2)),
-                                blobs: Int($0.int(3)), blobBytes: $0.int(4)) }
+                                blobs: Int($0.int(3)), blobBytes: $0.int(4), trashed: Int($0.int(5))) }
             ?? ArchiveStats(accounts: 0, messages: 0, locations: 0, blobs: 0, blobBytes: 0)
     }
 
@@ -354,6 +365,7 @@ public final class ArchiveReader {
         stats.withPDF = Int(try db.queryOne("""
             SELECT count(DISTINCT message_id) FROM attachments
             WHERE is_inline = 0 AND (mime_type = 'application/pdf' OR filename LIKE '%.pdf')
+              AND message_id NOT IN (SELECT id FROM messages WHERE trashed IS NOT NULL)
             """) { $0.int(0) } ?? 0)
         try db.forEach("SELECT status, count(*) FROM attachment_text GROUP BY status") { row in
             if let s = AttachmentText.Status(rawValue: row.text(0) ?? "") { stats.byStatus[s] = Int(row.int(1)) }
@@ -369,7 +381,7 @@ public final class ArchiveReader {
     public func thread(of id: Int64, limit: Int = 500) throws -> [MessageSummary] {
         let ids = try self.db.query("""
             SELECT t.id FROM messages m JOIN messages t ON t.thread_id = m.thread_id
-            WHERE m.id = ? ORDER BY t.date NULLS FIRST, t.id LIMIT ?
+            WHERE m.id = ? AND (t.trashed IS NULL OR t.id = m.id) ORDER BY t.date NULLS FIRST, t.id LIMIT ?
             """, [.int(id), .int(Int64(limit))]) { $0.int(0) }
         return try summaries(ids.isEmpty ? [id] : ids)
     }
