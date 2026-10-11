@@ -27,6 +27,60 @@ public struct ServerLocation: Codable, Hashable, Sendable {
     }
 }
 
+/// Where a restore puts a message and what goes along (ADR-0006 §5).
+public struct RestoreTarget: Codable, Hashable, Sendable {
+    public var account: String
+    public var mailbox: String
+    /// System flags only (\Seen \Answered \Flagged \Draft): \Deleted never goes back up.
+    public var flags: [String]
+    /// Gmail labels added after the APPEND (empty for other providers).
+    public var labels: [String]
+    /// INTERNALDATE for the APPEND; nil = now. Proton ignores it and uses the Date header.
+    public var internalDate: Date?
+
+    public init(account: String, mailbox: String, flags: [String] = [], labels: [String] = [], internalDate: Date? = nil) {
+        self.account = account
+        self.mailbox = mailbox
+        self.flags = flags
+        self.labels = labels
+        self.internalDate = internalDate
+    }
+
+    /// The flags a restore carries: the four system flags a client sets, in canonical spelling.
+    public static func restorableFlags(_ flags: [String]) -> [String] {
+        let canonical = ["\\seen": "\\Seen", "\\answered": "\\Answered", "\\flagged": "\\Flagged", "\\draft": "\\Draft"]
+        var out: [String] = []
+        for f in flags { if let c = canonical[f.lowercased()], !out.contains(c) { out.append(c) } }
+        return out
+    }
+
+    /// Gmail labels a restore adds: the user's own plus Inbox, Important and Starred — never
+    /// Trash, Spam, Sent or Draft (Gmail manages those itself).
+    public static func restorableLabels(_ labels: [String]) -> [String] {
+        let system: Set<String> = ["\\inbox", "\\important", "\\starred"]
+        return labels.filter { !$0.isEmpty && (!$0.hasPrefix("\\") || system.contains($0.lowercased())) }
+    }
+}
+
+/// What the plan sheet chose for a restore.
+public struct RestoreOptions: Codable, Hashable, Sendable {
+    public enum Destination: Codable, Hashable, Sendable {
+        /// Back to where it was last seen, in each account it is no longer in.
+        case original
+        /// One mailbox for all (imported mail has no server origin).
+        case mailbox(account: String, mailbox: String)
+    }
+
+    public var destination: Destination
+    /// The original arrival date (default), or now — then it counts as newly arrived.
+    public var keepDate: Bool
+
+    public init(destination: Destination = .original, keepDate: Bool = true) {
+        self.destination = destination
+        self.keepDate = keepDate
+    }
+}
+
 /// One message (and, for server actions, one of its locations) in a job.
 public struct ActionItem: Codable, Hashable, Sendable, Identifiable {
     public enum State: String, Codable, Sendable, CaseIterable {
@@ -50,13 +104,16 @@ public struct ActionItem: Codable, Hashable, Sendable, Identifiable {
     public var location: ServerLocation?
     /// The message's archive identity (archive actions; stable across index rebuilds).
     public var identity: String?
+    /// Restore: where it goes.
+    public var target: RestoreTarget?
     public var state: State
     /// Why it was skipped or failed — shown to the user.
     public var reason: String?
 
     public init(id: Int, sha256: String, messageID: String?, size: Int, date: Date?, location: ServerLocation?,
-                identity: String? = nil, state: State = .planned, reason: String? = nil) {
+                identity: String? = nil, target: RestoreTarget? = nil, state: State = .planned, reason: String? = nil) {
         self.identity = identity
+        self.target = target
         self.id = id
         self.sha256 = sha256
         self.messageID = messageID
@@ -76,12 +133,15 @@ public struct ActionJob: Codable, Sendable, Identifiable {
     /// The search it was planned from (ADR-0008), for the record.
     public var query: String?
     public var graceDays: Int?
+    /// Restore: what the plan sheet chose (for replanning and the record).
+    public var restore: RestoreOptions?
     public var created: Date
     public var items: [ActionItem]
     public var cancelled = false
 
     public init(id: UUID = UUID(), kind: ActionKind, title: String, query: String?, graceDays: Int?,
-                created: Date = Date(), items: [ActionItem]) {
+                restore: RestoreOptions? = nil, created: Date = Date(), items: [ActionItem]) {
+        self.restore = restore
         self.id = id
         self.kind = kind
         self.title = title
@@ -264,7 +324,8 @@ public struct AuditLog: Sendable {
 
     public func append(job: ActionJob, item: ActionItem) throws {
         let entry = Entry(time: Date().timeIntervalSince1970, job: job.id, action: job.kind, result: item.state,
-                          account: item.location?.account, mailbox: item.location?.mailbox,
+                          account: item.location?.account ?? item.target?.account,
+                          mailbox: item.location?.mailbox ?? item.target?.mailbox,
                           uidValidity: item.location?.uidValidity, uid: item.location?.uid,
                           sha256: item.sha256, reason: item.reason)
         let encoder = JSONEncoder()

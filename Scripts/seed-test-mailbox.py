@@ -4,6 +4,8 @@
   (no argument)    "MailKeeper-Bulk": top up to 2 500 tiny messages (bulk sync test)
   --delete-test    "MailKeeper-DeleteTest": add 3 fresh messages (server-delete test)
   --cleanup-trash  remove the delete test's messages (Message-ID mk-del-*) from Trash
+  --restore-test   "MailKeeper-RestoreTest": add 3 fresh messages (delete → restore test)
+  --cleanup-restore remove the restore test's messages (mk-rst-*) from its folder and Trash
 
 Credentials come from ~/.config/mailkeeper/test-accounts.json and the login keychain via
 /usr/bin/security; nothing secret is printed. Never point this at a real mailbox — it writes.
@@ -27,6 +29,33 @@ if "--delete-test" in sys.argv:
                f"Date: Thu, 14 Mar 2019 10:00:00 +0100\r\nMessage-ID: <mk-del-{stamp}-{n}@mailkeeper.test>\r\n\r\nDelete me {n}.\r\n")
         m.append(folder, None, imaplib.Time2Internaldate(time.time() - 400 * 86400), msg.encode())
     print(f"{folder}: 3 messages added (mk-del-{stamp}-*)")
+    m.logout()
+    sys.exit(0)
+
+if "--restore-test" in sys.argv:
+    folder, stamp = "MailKeeper-RestoreTest", int(time.time())
+    m.create(folder)
+    for n, flags in [(1, r"(\Seen)"), (2, r"(\Seen \Answered)"), (3, None)]:
+        msg = (f"From: restore-test@mailkeeper.test\r\nTo: inbox@mailkeeper.test\r\nSubject: Restore test {n}\r\n"
+               f"Date: Thu, 14 Mar 2019 10:00:00 +0100\r\nMessage-ID: <mk-rst-{stamp}-{n}@mailkeeper.test>\r\n\r\nBring me back {n}.\r\n")
+        m.append(folder, flags, imaplib.Time2Internaldate(time.time() - 400 * 86400 + n * 3600), msg.encode())
+    print(f"{folder}: 3 messages added (mk-rst-{stamp}-*)")
+    m.logout()
+    sys.exit(0)
+
+if "--cleanup-restore" in sys.argv:
+    total = 0
+    for folder in ["MailKeeper-RestoreTest", "Trash"]:
+        typ, data = m.select(folder)
+        if typ != "OK":
+            continue
+        typ, found = m.uid("SEARCH", None, "HEADER", "Message-ID", "mk-rst-")
+        uids = found[0].split()
+        if uids:
+            m.uid("STORE", b",".join(uids), "+FLAGS.SILENT", r"(\Deleted)")
+            m.uid("EXPUNGE", b",".join(uids))  # UIDPLUS: only these
+        total += len(uids)
+    print(f"restore test: {total} messages removed")
     m.logout()
     sys.exit(0)
 

@@ -896,14 +896,15 @@ final class AppModel {
         plan(kind, filter: filter, title: group.name ?? group.key)
     }
 
-    func plan(_ kind: ActionKind, filter: MessageFilter, title: String, graceDays: Int = 30) {
+    func plan(_ kind: ActionKind, filter: MessageFilter, title: String, graceDays: Int = 30, restore: RestoreOptions = RestoreOptions()) {
         guard let reader else { return }
         do {
             let planned: (ActionJob, ActionPlanSummary)
             switch kind {
             case .serverDelete: planned = try reader.planServerDelete(filter, title: title, accounts: accountConfigs, graceDays: graceDays)
             case .archiveDelete: planned = try reader.planArchiveDelete(filter, title: title)
-            case .restore, .export: return
+            case .restore: planned = try reader.planRestore(filter, title: title, accounts: accountConfigs, options: restore)
+            case .export: return
             }
             let examples = try reader.summaries(Array(try reader.messageIDs(filter).prefix(5)))
             pendingPlan = PlannedAction(job: planned.0, summary: planned.1, filter: filter, examples: examples)
@@ -917,6 +918,25 @@ final class AppModel {
         self.plan(plan.job.kind, filter: plan.filter, title: plan.job.title, graceDays: graceDays)
         pendingPlan?.id = plan.id  // same sheet, new numbers
     }
+
+    /// Plan sheet: another destination or date for a restore, same selection.
+    func replan(_ plan: PlannedAction, restore: RestoreOptions) {
+        self.plan(.restore, filter: plan.filter, title: plan.job.title, restore: restore)
+        pendingPlan?.id = plan.id
+    }
+
+    /// Where a restore may go: mailboxes of the accounts set up here that MailKeeper syncs
+    /// (known in the archive, inside the account's selection) — never one it does not look at.
+    var restoreTargets: [(account: String, mailboxes: [String])] {
+        accountConfigs.compactMap { config in
+            let boxes = (accounts.first { $0.id == config.id }?.mailboxes.map(\.name) ?? [])
+                .filter { config.policy.include?.contains($0) ?? true }
+            return boxes.isEmpty ? nil : (config.id, boxes)
+        }
+    }
+
+    /// Kind of an account set up here (the plan sheet mentions Proton's slow uploads).
+    func accountKind(_ id: String) -> AccountConfig.Kind? { accountConfigs.first { $0.id == id }?.kind }
 
     /// The user's go: store the job, run it in the background (the PDF queue pauses, like for
     /// import and sync), show the result.
@@ -970,9 +990,21 @@ final class AppModel {
             return try await ArchiveDeleteExecutor(writer: writer, store: ActionStore(layout: layout), audit: audit).run(id) { d, t in
                 progress(d, t, 0)
             }
-        case .restore, .export:
+        case .restore:
+            return try await SyncCoordinator.restoreOnServer(id, writer: writer, accounts: accounts, credentials: credentials,
+                                                             audit: audit) { p in progress(p.done + p.failed + p.skipped, p.total, p.failed) }
+        case .export:
             return try ActionStore(layout: layout).load(id)
         }
+    }
+
+    /// Plan sheet rows: per account (server delete) or per target mailbox (restore).
+    private static func perTarget(_ items: [ActionItem]) -> [String: Int] {
+        var out: [String: Int] = [:]
+        for i in items {
+            if let a = i.location?.account { out[a, default: 0] += 1 } else if let t = i.target { out["\(t.account) › \(t.mailbox)", default: 0] += 1 }
+        }
+        return out
     }
 
     func cancelAction() { actionTask?.cancel() }
@@ -988,12 +1020,10 @@ final class AppModel {
             i.reason = nil
             return i
         }
-        var retry = ActionJob(kind: job.kind, title: job.title, query: job.query, graceDays: job.graceDays, items: items)
+        var retry = ActionJob(kind: job.kind, title: job.title, query: job.query, graceDays: job.graceDays, restore: job.restore, items: items)
         retry.title = String(localized: "\(job.title) – erneut")
         actionResult = nil
-        var perAccount: [String: Int] = [:]
-        for i in items { if let a = i.location?.account { perAccount[a, default: 0] += 1 } }
-        pendingPlan = PlannedAction(job: retry, summary: ActionPlanSummary(messages: items.count, archiveOnly: 0, perAccount: perAccount),
+        pendingPlan = PlannedAction(job: retry, summary: ActionPlanSummary(messages: items.count, archiveOnly: 0, perAccount: Self.perTarget(items)),
                                     filter: MessageFilter(ids: []), examples: [])
     }
 
@@ -1004,9 +1034,7 @@ final class AppModel {
     }
 
     func resume(_ job: ActionJob) {
-        var perAccount: [String: Int] = [:]
-        for i in job.open { if let a = i.location?.account { perAccount[a, default: 0] += 1 } }
-        pendingPlan = PlannedAction(job: job, summary: ActionPlanSummary(messages: job.open.count, archiveOnly: 0, perAccount: perAccount),
+        pendingPlan = PlannedAction(job: job, summary: ActionPlanSummary(messages: job.open.count, archiveOnly: 0, perAccount: Self.perTarget(job.open)),
                                     filter: MessageFilter(ids: []), examples: [], stored: true)
     }
 
@@ -1020,7 +1048,7 @@ final class AppModel {
         switch kind {
         case .serverDelete: String(localized: "Auf dem Server löschen")
         case .archiveDelete: String(localized: "Aus dem Archiv löschen")
-        case .restore: String(localized: "Zurückspielen")
+        case .restore: String(localized: "Auf den Server zurückspielen")
         case .export: String(localized: "Exportieren")
         }
     }

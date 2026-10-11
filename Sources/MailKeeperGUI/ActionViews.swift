@@ -7,13 +7,21 @@ struct PlanSheet: View {
     let model: AppModel
     let plan: PlannedAction
     @State private var graceDays: Int
+    @State private var destination: RestoreOptions.Destination
+    @State private var keepDate: Bool
     @Environment(\.dismiss) private var dismiss
 
     init(model: AppModel, plan: PlannedAction) {
         self.model = model
         self.plan = plan
         _graceDays = State(initialValue: plan.job.graceDays ?? 30)
+        let restore = plan.job.restore ?? RestoreOptions()
+        _destination = State(initialValue: restore.destination)
+        _keepDate = State(initialValue: restore.keepDate)
     }
+
+    /// Options can change only while planning from a selection (not on resume or retry).
+    private var replannable: Bool { !plan.stored && plan.filter.ids != [] }
 
     private var job: ActionJob { plan.job }
     private var runs: Int { job.open.count }
@@ -28,7 +36,8 @@ struct PlanSheet: View {
 
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 6) {
                 GridRow {
-                    Text(job.kind == .serverDelete ? "In den Papierkorb des Servers" : "In den Papierkorb des Archivs")
+                    Text(job.kind == .serverDelete ? "In den Papierkorb des Servers"
+                         : job.kind == .restore ? "Auf den Server zurück" : "In den Papierkorb des Archivs")
                     Text("\(runs.formatted()) Mails · \(job.openBytes.formatted(.byteCount(style: .file)))").fontWeight(.semibold)
                 }
                 if job.kind == .serverDelete {
@@ -42,6 +51,13 @@ struct PlanSheet: View {
                         GridRow {
                             Text("Nur im Archiv (nichts zu tun)").foregroundStyle(.secondary)
                             Text(plan.summary.archiveOnly.formatted())
+                        }
+                    }
+                } else if job.kind == .restore {
+                    ForEach(plan.summary.perAccount.sorted { $0.key < $1.key }, id: \.key) { target, count in
+                        GridRow {
+                            Text("Nach \(DisplayText.safe(target))").foregroundStyle(.secondary).lineLimit(1)
+                            Text(count.formatted())
                         }
                     }
                 } else if plan.summary.messages - plan.summary.archiveOnly > 0 {
@@ -74,6 +90,27 @@ struct PlanSheet: View {
                 }
             }
 
+            if job.kind == .restore, replannable {
+                VStack(alignment: .leading, spacing: 8) {
+                    Picker("Wohin", selection: $destination) {
+                        Text("Wo sie zuletzt lagen").tag(RestoreOptions.Destination.original)
+                        ForEach(model.restoreTargets, id: \.account) { target in
+                            Section(DisplayText.safe(target.account)) {
+                                ForEach(target.mailboxes, id: \.self) { box in
+                                    Text(verbatim: DisplayText.safe(box))
+                                        .tag(RestoreOptions.Destination.mailbox(account: target.account, mailbox: box))
+                                }
+                            }
+                        }
+                    }
+                    .fixedSize()
+                    Toggle("Ursprüngliches Eingangsdatum behalten", isOn: $keepDate)
+                        .help("Aus: Die Mail gilt auf dem Server als heute eingegangen. Proton nimmt immer das Datum aus der Mail.")
+                }
+                .onChange(of: destination) { model.replan(plan, restore: RestoreOptions(destination: destination, keepDate: keepDate)) }
+                .onChange(of: keepDate) { model.replan(plan, restore: RestoreOptions(destination: destination, keepDate: keepDate)) }
+            }
+
             if !plan.examples.isEmpty {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Beispiele").font(.caption).foregroundStyle(.secondary)
@@ -103,7 +140,8 @@ struct PlanSheet: View {
                 }
                 Spacer()
                 Button("Abbrechen") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button(runs == 0 ? "Nichts zu tun" : "Ausführen", role: .destructive) { model.execute(plan) }
+                Button(runs == 0 ? "Nichts zu tun" : job.kind == .restore ? "Zurückspielen" : "Ausführen",
+                       role: job.kind == .restore ? nil : .destructive) { model.execute(plan) }
                     .keyboardShortcut(.defaultAction)
                     .disabled(runs == 0 || model.actionRunning || model.syncRunning || model.importRunning)
             }
@@ -118,9 +156,16 @@ struct PlanSheet: View {
             String(localized: "Die Mails wandern in den Papierkorb ihres Servers; das Archiv behält sie. Unmittelbar vorher prüft MailKeeper jede einzelne: Archivkopie intakt, noch dieselbe Mail, nicht inzwischen markiert.")
         case .archiveDelete:
             String(localized: "Die Mails wandern in den Papierkorb des Archivs und werden nach 30 Tagen endgültig gelöscht; bis dahin lassen sie sich wiederherstellen. Was noch auf einem Server liegt, bleibt dort — nach dem endgültigen Löschen holt MailKeeper es nicht wieder.")
-        case .restore, .export:
+        case .restore:
+            String(localized: "MailKeeper lädt die Mails aus dem Archiv wieder auf den Server – mit ihrem Status (gelesen, beantwortet, markiert), bei Gmail mit den Labels. Vorher sucht es jede im Zielordner: Was dort schon liegt, kommt nicht doppelt. Danach holt es sie zur Kontrolle zurück. Ordner legt MailKeeper nicht an.")
+                + (protonInvolved ? " " + String(localized: "Proton braucht etwa 1,5 Sekunden je Mail und nimmt das Datum aus der Mail.") : "")
+        case .export:
             ""
         }
+    }
+
+    private var protonInvolved: Bool {
+        job.open.contains { $0.target.map { model.accountKind($0.account) == .protonBridge } ?? false }
     }
 }
 
@@ -182,6 +227,7 @@ struct SelectionSummaryView: View {
                 } else {
                     Button("Auf dem Server löschen …") { model.planSelection(.serverDelete) }
                     Button("Aus dem Archiv löschen …") { model.planSelection(.archiveDelete) }
+                    Button("Auf den Server zurückspielen …") { model.planSelection(.restore) }
                 }
             }
             .disabled(model.actionRunning)

@@ -321,6 +321,9 @@ struct ReaderView: View {
             Text(DisplayText.safe(detail)).foregroundStyle(.secondary).lineLimit(2)
             if d.place == .trash {
                 Button("Wiederherstellen") { model.restoreSelection() }.controlSize(.small).disabled(model.actionRunning)
+            } else if d.place == .archiveOnly {
+                Button("Zurückspielen …") { model.planSelection(.restore) }.controlSize(.small).disabled(model.actionRunning)
+                    .help("Die Mail aus dem Archiv wieder auf den Server laden")
             }
         }
         .font(.callout)

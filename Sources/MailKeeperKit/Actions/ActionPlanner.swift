@@ -104,4 +104,114 @@ extension ArchiveReader {
         _ = onServer
         return (job, ActionPlanSummary(messages: items.count, archiveOnly: items.count - onServer, perAccount: [:]))
     }
+
+    /// Skip reasons of a restore.
+    public static let restoreNoOrigin = String(localized: "kein Server-Ort bekannt – Ziel wählen")
+    public static let restoreStillOnServer = String(localized: "liegt noch auf dem Server")
+    public static let restoreAlreadyThere = String(localized: "liegt dort schon")
+    public static let restoreNotSynced = String(localized: "Ordner wird für dieses Konto nicht abgerufen")
+
+    /// Plans "restore to the server" (ADR-0006 §5): one item per message and target mailbox.
+    /// - `.original`: in each account the message was fetched from and is no longer in, back to
+    ///   the mailbox it was last seen in. A message the user moved on the server is still in
+    ///   that account: nothing to do (no duplicate).
+    /// - `.mailbox`: one chosen mailbox for all — the way back for imported mail.
+    /// The bytes are the ones fetched from that location (else the first stored), with their
+    /// system flags, Gmail labels and — unless `keepDate` is off — the original arrival date.
+    /// Skipped with reason: no server origin, still or already there, account not set up here,
+    /// mailbox outside the account's sync selection (a restore never writes where MailKeeper
+    /// does not look, e.g. Proton beyond its test folder).
+    public func planRestore(_ filter: MessageFilter, title: String, accounts: [AccountConfig],
+                            options: RestoreOptions) throws -> (ActionJob, ActionPlanSummary) {
+        struct Loc {
+            var account: String, mailbox: String, uid: Int64?, onServer: Bool
+            var flags: [String], labels: [String], internalDate: Date?, sha: String?, size: Int?
+        }
+        struct Msg {
+            var sha: String, messageID: String?, size: Int, date: Date?, identity: String?
+            var locations: [Loc] = []
+        }
+        let (whereClause, params) = try Self.whereClause(filter)
+        var messages: [Int64: Msg] = [:]
+        var order: [Int64] = []
+        try db.forEach("""
+            SELECT m.id, m.primary_blob, m.message_id, coalesce(pb.size, m.size), m.date, m.identity,
+                   l.account_id, l.mailbox, l.uid, l.on_server, l.flags, l.labels, l.internal_date, l.sha256, b.size
+            FROM messages m
+            LEFT JOIN blobs pb ON pb.sha256 = m.primary_blob
+            LEFT JOIN locations l ON l.message_id = m.id
+            LEFT JOIN blobs b ON b.sha256 = l.sha256
+            WHERE m.id IN (SELECT m.id FROM messages m\(whereClause))
+            ORDER BY m.date, m.id, l.last_seen DESC, l.id DESC
+            """, params) { row in
+            let id = row.int(0)
+            if messages[id] == nil {
+                order.append(id)
+                messages[id] = Msg(sha: row.text(1) ?? "", messageID: row.text(2), size: Int(row.int(3)),
+                                   date: row.optionalDouble(4).map(Date.init(timeIntervalSince1970:)), identity: row.text(5))
+            }
+            guard let account = row.text(6) else { return }
+            messages[id]!.locations.append(Loc(
+                account: account, mailbox: row.text(7) ?? "", uid: row.isNull(8) ? nil : row.int(8), onServer: row.bool(9),
+                flags: (row.text(10) ?? "").split(separator: " ").map(String.init),
+                labels: (row.text(11) ?? "").split(separator: "\u{1F}").map(String.init),
+                internalDate: row.optionalDouble(12).map(Date.init(timeIntervalSince1970:)),
+                sha: row.text(13), size: row.isNull(14) ? nil : Int(row.int(14))))
+        }
+        let configured = Dictionary(accounts.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var items: [ActionItem] = []
+        var archiveOnly = 0
+        for id in order {
+            let m = messages[id]!
+            let imap = m.locations.filter { $0.uid != nil }
+            if !imap.contains(where: \.onServer) { archiveOnly += 1 }
+            func add(_ target: RestoreTarget?, sha: String, size: Int, skip reason: String? = nil) {
+                var item = ActionItem(id: items.count, sha256: sha, messageID: m.messageID, size: size, date: m.date,
+                                      location: nil, identity: m.identity, target: target)
+                var reason = reason
+                if reason == nil, let target {
+                    if let account = configured[target.account] {
+                        if let include = account.policy.include, !include.contains(target.mailbox) { reason = Self.restoreNotSynced }
+                        if account.kind != .gmail { item.target?.labels = [] }
+                    } else {
+                        reason = String(localized: "Konto ist hier nicht eingerichtet")
+                    }
+                }
+                if let reason {
+                    item.state = .skipped
+                    item.reason = reason
+                }
+                items.append(item)
+            }
+            switch options.destination {
+            case .original:
+                guard !imap.isEmpty else { add(nil, sha: m.sha, size: m.size, skip: Self.restoreNoOrigin); continue }
+                let present = Set(imap.filter(\.onServer).map(\.account))
+                var gone: [String: Loc] = [:]  // rows come newest first: the first per account wins
+                for l in imap where !l.onServer && !present.contains(l.account) && gone[l.account] == nil { gone[l.account] = l }
+                guard !gone.isEmpty else { add(nil, sha: m.sha, size: m.size, skip: Self.restoreStillOnServer); continue }
+                for (account, l) in gone.sorted(by: { $0.key < $1.key }) {
+                    let target = RestoreTarget(account: account, mailbox: l.mailbox, flags: RestoreTarget.restorableFlags(l.flags),
+                                               labels: RestoreTarget.restorableLabels(l.labels),
+                                               internalDate: options.keepDate ? (l.internalDate ?? m.date) : nil)
+                    add(target, sha: l.sha ?? m.sha, size: l.size ?? m.size)
+                }
+            case .mailbox(let account, let mailbox):
+                let newest = m.locations.first
+                let sameAccount = m.locations.first { $0.account == account }
+                let target = RestoreTarget(account: account, mailbox: mailbox,
+                                           flags: RestoreTarget.restorableFlags(newest?.flags ?? []),
+                                           labels: RestoreTarget.restorableLabels(sameAccount?.labels ?? []),
+                                           internalDate: options.keepDate ? (newest?.internalDate ?? m.date) : nil)
+                let there = imap.contains { $0.onServer && $0.account == account && $0.mailbox == mailbox }
+                add(target, sha: m.sha, size: m.size, skip: there ? Self.restoreAlreadyThere : nil)
+            }
+        }
+        var perTarget: [String: Int] = [:]
+        for item in items where item.state == .planned {
+            if let t = item.target { perTarget["\(t.account) › \(t.mailbox)", default: 0] += 1 }
+        }
+        let job = ActionJob(kind: .restore, title: title, query: filter.text, graceDays: nil, restore: options, items: items)
+        return (job, ActionPlanSummary(messages: order.count, archiveOnly: archiveOnly, perAccount: perTarget))
+    }
 }

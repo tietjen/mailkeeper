@@ -25,6 +25,11 @@ usage: mkctl [--archive <dir>] <command>
   plan server-delete <query…> [--grace <d>]  dry run: what deleting on the server would do (nothing changes)
   server-delete <query…> [--grace <d>] [--yes]
                                               move to the server's Trash (archive keeps them; asks first)
+  plan restore <query…> [--to <account>:<mailbox>] [--now]
+                                              dry run: what restoring to the server would do
+  restore <query…> [--to <account>:<mailbox>] [--now] [--yes]
+                                              upload from the archive back to where it was (or --to);
+                                              --now: arrival date today instead of the original
   show <id>                                   one message: headers, locations, text
   account add gmail <address> --id <id>       add a Gmail account (app password, All Mail + labels)
   account add proton <address> --id <id> [--port 1143] [--trust <fingerprint>]
@@ -90,6 +95,25 @@ func clean(_ s: String?) -> String {
     _ = buffer.withUnsafeMutableBytes { memset_s($0.baseAddress, $0.count, 0, $0.count) }
     guard !password.isEmpty else { throw CLIError(description: "empty password") }
     return password
+}
+
+/// `--to account:mailbox` (the mailbox may contain colons) and `--now`.
+@MainActor func restoreOptions() throws -> RestoreOptions {
+    let now = args.contains("--now")
+    args.removeAll { $0 == "--now" }
+    guard let to = option("--to") else { return RestoreOptions(destination: .original, keepDate: !now) }
+    guard let colon = to.firstIndex(of: ":"), colon != to.startIndex, to.index(after: colon) != to.endIndex else {
+        throw CLIError(description: "--to <account>:<mailbox>")
+    }
+    return RestoreOptions(destination: .mailbox(account: String(to[..<colon]), mailbox: String(to[to.index(after: colon)...])),
+                          keepDate: !now)
+}
+
+@MainActor func printRestorePlan(_ job: ActionJob, _ summary: ActionPlanSummary) {
+    print("\(summary.messages) messages · \(summary.archiveOnly) on no server")
+    print("would upload: \(job.count(.planned)) (\(bytes(job.openBytes)))"
+          + (summary.perAccount.isEmpty ? "" : " — " + summary.perAccount.sorted { $0.key < $1.key }.map { "\(clean($0.key)) \($0.value)" }.joined(separator: ", ")))
+    for (reason, count) in job.reasons { print("skipped \(count): \(reason)") }
 }
 
 @MainActor func confirm(_ question: String) -> Bool {
@@ -220,7 +244,18 @@ func summarize(_ p: ImportProgress, start: Date) {
 
     case "plan":
         // Dry run only (ADR-0006: plan → execute → verify); nothing is stored or executed.
-        guard args.first == "server-delete" else { throw CLIError(description: "plan server-delete <query…> [--grace <days>]") }
+        if args.first == "restore" {
+            args.removeFirst()
+            let options = try restoreOptions()
+            let query = args.joined(separator: " ")
+            let layout = try ArchiveLayout.open(at: root, create: false)
+            let (job, summary) = try ArchiveReader(layout: layout).planRestore(MessageFilter(text: query.isEmpty ? nil : query + " "), title: query,
+                                                                               accounts: try AccountStore(layout: layout).load(), options: options)
+            printRestorePlan(job, summary)
+            print("dry run — nothing changed")
+            break
+        }
+        guard args.first == "server-delete" else { throw CLIError(description: "plan server-delete|restore <query…>") }
         args.removeFirst()
         let grace = Int(option("--grace") ?? "30") ?? 30
         let query = args.joined(separator: " ")
@@ -256,6 +291,31 @@ func summarize(_ p: ImportProgress, start: Date) {
         let writer = try ArchiveWriter(layout: layout)
         let done = try await SyncCoordinator.deleteOnServer(job.id, writer: writer, accounts: accounts) { p in
             print("\r\(p.account ?? "") done \(p.done) · failed \(p.failed) · skipped \(p.skipped) of \(p.total)", terminator: "")
+            fflush(stdout)
+        }
+        print("")
+        print("done \(done.count(.done)) · failed \(done.count(.failed)) · skipped \(done.count(.skipped)) — job \(done.id.uuidString)")
+        for (reason, count) in done.reasons { print("  \(count): \(reason)") }
+
+    case "restore":
+        // ADR-0006 §5: plan, show, confirm, execute (APPEND, verify). Without --yes (or a "j") nothing changes.
+        let options = try restoreOptions()
+        let yes = args.contains("--yes")
+        args.removeAll { $0 == "--yes" }
+        let query = args.joined(separator: " ")
+        guard !query.isEmpty else { throw CLIError(description: "restore <query…> [--to <account>:<mailbox>] [--now] [--yes]") }
+        let layout = try ArchiveLayout.open(at: root, create: false)
+        let accounts = try AccountStore(layout: layout).load()
+        let (job, summary) = try ArchiveReader(layout: layout).planRestore(MessageFilter(text: query + " "), title: query,
+                                                                           accounts: accounts, options: options)
+        printRestorePlan(job, summary)
+        guard job.count(.planned) > 0 else { print("nothing to do"); break }
+        guard yes || confirm("Zurückspielen?") else { print("not executed"); break }
+        let store = ActionStore(layout: layout)
+        try store.create(job)
+        let writer = try ArchiveWriter(layout: layout)
+        let done = try await SyncCoordinator.restoreOnServer(job.id, writer: writer, accounts: accounts) { p in
+            print("\r\(p.account ?? "") done \(p.done) · failed \(p.failed) of \(p.total)", terminator: "")
             fflush(stdout)
         }
         print("")

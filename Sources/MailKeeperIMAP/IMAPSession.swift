@@ -60,12 +60,16 @@ public enum IMAPAccess: Sendable, Equatable {
     /// exactly those UIDs. Never a bare EXPUNGE or CLOSE (they would purge every \Deleted
     /// message in the mailbox, including other clients'), never another destination.
     case moveToTrash
+    /// Phase 4 restore (ADR-0006 §5): additionally SELECT, APPEND into an existing mailbox that is
+    /// neither Trash nor Junk (never CREATE), and — on Gmail — adding labels to a message
+    /// appended on this connection. Nothing that removes, moves or changes flags.
+    case restore
 }
 
 /// One IMAP connection, read-only unless opened with `access: .moveToTrash`: mailboxes are opened
 /// with EXAMINE, bodies fetched with BODY.PEEK, and every command passes an allowlist.
 /// Commands are serialised; the session is not meant for concurrent use.
-public actor IMAPSession: MailboxSource, ServerTrashActions {
+public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreActions {
     public let endpoint: IMAPEndpoint
     public let access: IMAPAccess
     public private(set) var serverCapabilities: [String] = []
@@ -82,6 +86,12 @@ public actor IMAPSession: MailboxSource, ServerTrashActions {
     private var condstore = false
     /// The SPECIAL-USE \Trash mailbox, once looked up: the only destination a move may name.
     private var trash: MailboxName?
+    /// Special-use roles by display name, from the last LIST (restore never writes into Trash/Junk).
+    private var mailboxUses: [String: Set<SpecialUse>] = [:]
+    /// The mailbox opened with SELECT, and the UIDs this connection appended per mailbox: the
+    /// only messages a restore may label.
+    private var selectedMailbox: String?
+    private var appendedUIDs: [String: Set<UInt32>] = [:]
 
     private init(endpoint: IMAPEndpoint, access: IMAPAccess, channel: Channel, responses: AsyncThrowingStream<Response, Error>) {
         self.endpoint = endpoint
@@ -217,6 +227,7 @@ public actor IMAPSession: MailboxSource, ServerTrashActions {
         let result = try await run(.list(nil, reference: MailboxName(ByteBuffer(string: "")), .mailbox(ByteBuffer(string: "*")), []))
         var out: [RemoteMailbox] = []
         mailboxNames = [:]
+        mailboxUses = [:]
         for payload in result.untagged {
             guard case .mailboxData(.list(let info)) = payload else { continue }
             let attributes = Set(info.attributes.map { String($0).lowercased() })
@@ -226,6 +237,7 @@ public actor IMAPSession: MailboxSource, ServerTrashActions {
             for use in SpecialUse.allCases where attributes.contains("\\\(use.rawValue)") { special.insert(use) }
             let selectable = !attributes.contains("\\noselect") && !attributes.contains("\\nonexistent")
             mailboxNames[display] = info.path.name
+            mailboxUses[display] = special
             out.append(RemoteMailbox(name: display, specialUse: special, selectable: selectable))
         }
         return out
@@ -324,10 +336,13 @@ public actor IMAPSession: MailboxSource, ServerTrashActions {
     }
 
     public func selectForChange(_ mailbox: String) async throws -> UInt32 {
-        guard access == .moveToTrash else { throw IMAPError.readOnlyViolation("SELECT") }
+        guard access != .readOnly else { throw IMAPError.readOnlyViolation("SELECT") }
         if mailboxNames[mailbox] == nil { _ = try await mailboxes() }
         guard let name = mailboxNames[mailbox] else { throw IMAPError.protocolError("unbekanntes Postfach \(mailbox)") }
-        return try status(of: try await run(.select(name, [])), mailbox: mailbox).uidValidity
+        selectedMailbox = nil
+        let validity = try status(of: try await run(.select(name, [])), mailbox: mailbox).uidValidity
+        selectedMailbox = mailbox
+        return validity
     }
 
     public func identities(_ uids: [UInt32]) async throws -> [UInt32: RemoteIdentity] {
@@ -364,6 +379,67 @@ public actor IMAPSession: MailboxSource, ServerTrashActions {
     public func present(_ uids: [UInt32]) async throws -> Set<UInt32> {
         guard !uids.isEmpty else { return [] }
         return Set(try await run(.uidFetch(Self.uidSet(uids), [.uid], [])).fetches.compactMap(\.uid))
+    }
+
+    // MARK: Restore (Phase 4, access .restore)
+
+    public func search(messageID: String) async throws -> [UInt32] {
+        let result = try await run(.uidSearch(key: .header("Message-ID", ByteBuffer(string: messageID))))
+        return result.untagged.flatMap { payload -> [UInt32] in
+            if case .mailboxData(.search(let ids, _)) = payload { return ids.map { UInt32($0.rawValue) } }
+            return []
+        }
+    }
+
+    public func append(_ data: Data, to mailbox: String, flags: [String], internalDate: Date?) async throws -> AppendedMessage? {
+        guard access == .restore else { throw IMAPError.readOnlyViolation("APPEND") }
+        if mailboxNames[mailbox] == nil { _ = try await mailboxes() }
+        guard let name = mailboxNames[mailbox] else { throw IMAPError.protocolError("unbekanntes Postfach \(mailbox)") }
+        guard (mailboxUses[mailbox] ?? []).isDisjoint(with: [.trash, .junk]) else { throw IMAPError.readOnlyViolation("APPEND \(mailbox)") }
+        guard data.count <= Self.maxMessageBytes else { throw ServerRefusal("Nachricht zu groß") }
+        let options = AppendOptions(flagList: RestoreTarget.restorableFlags(flags).map { Flag($0) },
+                                    internalDate: internalDate.flatMap(Self.serverDate), extensions: [:])
+        let result: Result
+        do {
+            result = try await perform(name: "APPEND") { tag in [
+                .append(.start(tag: tag, appendingTo: name)),
+                .append(.beginMessage(message: AppendMessage(options: options, data: AppendData(byteCount: data.count)))),
+                .append(.messageBytes(ByteBuffer(bytes: data))),
+                .append(.endMessage),
+                .append(.finish),
+            ] }
+        } catch IMAPError.command(_, let message) {
+            throw ServerRefusal(message)
+        }
+        guard case .uidAppend(let code)? = result.code, let uid = code.uids.set.first else { return nil }
+        let appended = AppendedMessage(uidValidity: UInt32(code.uidValidity), uid: UInt32(uid.rawValue))
+        appendedUIDs[mailbox, default: []].insert(appended.uid)
+        return appended
+    }
+
+    public func addLabels(_ labels: [String], uid: UInt32) async throws {
+        guard access == .restore, gmail else { throw IMAPError.readOnlyViolation("STORE X-GM-LABELS") }
+        guard let mailbox = selectedMailbox, appendedUIDs[mailbox]?.contains(uid) == true else {
+            throw IMAPError.readOnlyViolation("STORE X-GM-LABELS auf eine fremde Mail")
+        }
+        let encoded = try RestoreTarget.restorableLabels(labels).map { label in
+            label.hasPrefix("\\") ? GmailLabel(ByteBuffer(string: label))
+                                  : GmailLabel(mailboxName: try MailboxPath.makeRootMailbox(displayName: label).name)
+        }
+        guard !encoded.isEmpty else { return }
+        try await run(.uidStore(Self.uidSet([uid]), [], .gmailLabels(.add(silent: true, gmailLabels: encoded))))
+    }
+
+    /// APPEND's date argument, in UTC.
+    static func serverDate(_ date: Date) -> ServerMessageDate? {
+        var t = time_t(date.timeIntervalSince1970.rounded(.down))
+        var tm = tm()
+        guard gmtime_r(&t, &tm) != nil,
+              let c = ServerMessageDate.Components(year: Int(tm.tm_year) + 1900, month: Int(tm.tm_mon) + 1, day: Int(tm.tm_mday),
+                                                   hour: Int(tm.tm_hour), minute: Int(tm.tm_min), second: Int(tm.tm_sec),
+                                                   timeZoneMinutes: 0)
+        else { return nil }
+        return ServerMessageDate(c)
     }
 
     // MARK: Command plumbing
@@ -404,18 +480,20 @@ public actor IMAPSession: MailboxSource, ServerTrashActions {
         }
     }
 
-    /// Phase 4: the few changes a `.moveToTrash` connection may make, and only toward \Trash.
+    /// Phase 4: the few changes a `.moveToTrash` connection may make (only toward \Trash), and
+    /// those of a `.restore` connection (SELECT, adding Gmail labels; APPEND has its own checks).
     static func isAllowedChange(_ command: Command, access: IMAPAccess, trash: MailboxName?) -> Bool {
-        guard access == .moveToTrash else { return false }
-        switch command {
-        case .select(_, let params):
+        switch (access, command) {
+        case (.moveToTrash, .select(_, let params)), (.restore, .select(_, let params)):
             return params.allSatisfy { if case .basic(let kv) = $0 { kv.key.uppercased() == "CONDSTORE" } else { false } }
-        case .uidMove(_, let destination), .uidCopy(_, let destination):
+        case (.moveToTrash, .uidMove(_, let destination)), (.moveToTrash, .uidCopy(_, let destination)):
             return trash != nil && destination == trash
-        case .uidStore(_, let modifiers, .flags(let store)):
+        case (.moveToTrash, .uidStore(_, let modifiers, .flags(let store))):
             return modifiers.isEmpty && store.operation == .add && store.flags == [.deleted]
-        case .uidExpunge:
+        case (.moveToTrash, .uidExpunge):
             return true  // explicit UIDs only (UIDPLUS); bare EXPUNGE and CLOSE stay refused
+        case (.restore, .uidStore(_, let modifiers, .gmailLabels(let store))):
+            return modifiers.isEmpty && store.operation == .add
         default:
             return false
         }
@@ -426,16 +504,30 @@ public actor IMAPSession: MailboxSource, ServerTrashActions {
         guard Self.isReadOnly(command) || Self.isAllowedChange(command, access: access, trash: trash) else {
             throw IMAPError.readOnlyViolation(Self.name(of: command))
         }
+        return try await perform(name: Self.name(of: command), isLogin: { if case .login = command { true } else { false } }(),
+                                 failure: failure) { tag in [.tagged(TaggedCommand(tag: tag, command: command))] }
+    }
+
+    /// Sends the parts of one tagged command (a plain command, or APPEND's stream) and collects
+    /// the responses up to its tagged reply. Writes complete once the server has asked for a
+    /// literal, so they are awaited after the reply.
+    private func perform(name: String, isLogin: Bool = false, failure: (String) -> IMAPError = { _ in IMAPError.closed },
+                         _ parts: (String) -> [CommandStreamPart]) async throws -> Result {
         guard !busy else { throw IMAPError.protocolError("gleichzeitige Befehle auf einer Verbindung") }
         busy = true
         defer { busy = false }
         tag += 1
         let t = "M\(tag)"
-        do {
-            try await channel.writeAndFlush(IMAPClientHandler.Message.part(.tagged(TaggedCommand(tag: t, command: command))))
-        } catch {
-            throw Self.mapped(error)
+        let writes = parts(t).map { channel.write(IMAPClientHandler.Message.part($0)) }
+        channel.flush()
+        let result = try await collect(tag: t, name: name, isLogin: isLogin, failure: failure)
+        for w in writes {
+            do { try await w.get() } catch { throw Self.mapped(error) }
         }
+        return result
+    }
+
+    private func collect(tag t: String, name: String, isLogin: Bool, failure: (String) -> IMAPError) async throws -> Result {
         var result = Result()
         var current: Fetched?
         var it = responses
@@ -478,8 +570,8 @@ public actor IMAPSession: MailboxSource, ServerTrashActions {
                     return result
                 case .no(let text), .bad(let text):
                     let message = Self.clean(text.text)
-                    if case .login = command { throw failure(message) }
-                    throw IMAPError.command(Self.name(of: command), message)
+                    if isLogin { throw failure(message) }
+                    throw IMAPError.command(name, message)
                 }
             case .fatal(let text):
                 throw IMAPError.connection(Self.clean(text.text))

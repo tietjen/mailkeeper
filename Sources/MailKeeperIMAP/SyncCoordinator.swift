@@ -55,6 +55,23 @@ public enum SyncCoordinator {
         }, progress: progress)
     }
 
+    /// Runs a planned restore job (ADR-0006 §5): one connection per account with the narrow
+    /// `.restore` access (APPEND into existing mailboxes, Gmail labels on what it appended). A long
+    /// read timeout: Proton's bridge encrypts and uploads each message (~1.5 s, more for large ones).
+    public static func restoreOnServer(_ jobID: UUID, writer: ArchiveWriter, accounts: [AccountConfig],
+                                       credentials: CredentialStore = CredentialStore(), audit: AuditLog = AuditLog(),
+                                       progress: @escaping @Sendable (ServerDeleteProgress) -> Void = { _ in }) async throws -> ActionJob {
+        let executor = RestoreExecutor(writer: writer, store: ActionStore(layout: writer.layout), audit: audit)
+        return try await executor.run(jobID, connect: { id in
+            guard let account = accounts.first(where: { $0.id == id }) else { throw SyncError.unknownAccount(id) }
+            if case .startTLSPinned(nil) = account.security { throw SyncError.unconfirmedCertificate(id) }
+            guard let password = try credentials.password(for: account) else { throw SyncError.noPassword(id) }
+            return try await IMAPSession.connect(IMAPEndpoint(account), username: account.username,
+                                                 password: account.normalizedPassword(password), access: .restore,
+                                                 readTimeout: .seconds(300))
+        }, progress: progress)
+    }
+
     /// Connects with an explicit password (setup) and reports mailboxes and, for a bridge in
     /// learn mode, the certificate fingerprint to confirm.
     public static func check(_ account: AccountConfig, password: String) async throws -> ConnectionCheck {

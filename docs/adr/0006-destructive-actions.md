@@ -34,6 +34,17 @@ APPEND, Proton rebuilds messages and ignores the APPEND date, Dovecot is textboo
    ignores the date and uses `Date:`); Message-ID pre-check in the target; Gmail labels via
    `STORE +X-GM-LABELS`; Proton in batches of 100–500 with long timeouts (~1.5 s/message).
    Verified per provider (bytes for Dovecot/Gmail, Message-ID + decoded text for Proton).
+   *As built (4.4, 2026-10-11):* default target = where the message was last seen, in each
+   account it is no longer in (moved on the server = still there, no duplicate); otherwise one
+   chosen mailbox, only among those the account syncs. Own connection access `.restore`:
+   SELECT, APPEND into an existing mailbox that is neither Trash nor Junk (never CREATE),
+   `+X-GM-LABELS` only on UIDs appended on that connection — nothing that removes, moves or
+   changes flags. Only the system flags `\Seen \Answered \Flagged \Draft` go back (`\Deleted`
+   never); Gmail system labels only Inbox/Important/Starred. After the APPEND the message is
+   fetched back (APPENDUID, else by Message-ID), compared (bytes, or Message-ID where the
+   provider rewrites) and recorded as a location exactly like a sync. A claimed item is looked
+   up again on resume; without a Message-ID its outcome cannot be checked and it fails with a
+   hint rather than risk a duplicate.
 6. **Models never act:** LLM output can propose a queue entry; only the user executes it.
    Rules may run unattended only for non-destructive actions (tags, labels in the archive).
 

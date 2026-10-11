@@ -63,6 +63,32 @@ struct ReadOnlyGuardTests {
         #expect(!IMAPSession.isAllowedChange(.uidMove(one, trash), access: .moveToTrash, trash: nil))
     }
 
+    @Test("Phase 4: a restore connection may select and add Gmail labels, nothing else") func restoreAllowlist() {
+        let trash = MailboxName(ByteBuffer(string: "Trash"))
+        let label = GmailLabel(ByteBuffer(string: "Work"))
+        let allowed: [Command] = [.select(inbox, []), .uidStore(one, [], .gmailLabels(.add(silent: true, gmailLabels: [label])))]
+        for c in allowed {
+            #expect(IMAPSession.isAllowedChange(c, access: .restore, trash: nil), "\(c)")
+            #expect(!IMAPSession.isAllowedChange(c, access: .readOnly, trash: nil), "\(c)")
+        }
+        let refused: [Command] = [
+            .uidStore(one, [], .gmailLabels(.remove(silent: true, gmailLabels: [label]))),  // never takes labels away
+            .uidStore(one, [], .gmailLabels(.replace(silent: true, gmailLabels: [label]))),
+            .uidStore(one, [], .flags(.add(silent: true, list: [.deleted]))),
+            .uidStore(one, [], .flags(.add(silent: true, list: [.seen]))),
+            .uidMove(one, trash), .uidCopy(one, trash), .uidExpunge(one), .expunge, .close,
+            .create(inbox, []), .delete(inbox), .rename(from: inbox, to: trash, parameters: [:]),
+        ]
+        for c in refused { #expect(!IMAPSession.isAllowedChange(c, access: .restore, trash: trash), "\(c)") }
+        // and a delete connection cannot label
+        #expect(!IMAPSession.isAllowedChange(allowed[1], access: .moveToTrash, trash: trash))
+    }
+
+    @Test("APPEND dates go out in UTC") func appendDate() throws {
+        let date = try #require(IMAPSession.serverDate(Date(timeIntervalSince1970: 1_552_554_000)))  // 14.3.2019 09:00 UTC
+        #expect(IMAPSession.date(date) == Date(timeIntervalSince1970: 1_552_554_000))
+    }
+
     @Test("I5: stream errors keep their cause") func errorsKeepCause() {
         struct PayloadTooLarge: Error {}
         #expect(IMAPSession.mapped(PayloadTooLarge()) == .protocolError("PayloadTooLarge()"))
@@ -227,6 +253,63 @@ struct IntegrationTests {
         await check.close()
         // the archive kept them, now archive-only
         #expect(try reader.count(MessageFilter(text: "folder:\(folder) only:archive ")) == done.count(.done))
+    }
+
+    /// Phase 4.4 (ADR-0006 §5), mailcow TEST account only: three fresh messages (two with flags)
+    /// are synced, deleted to Trash, then restored to where they were through the narrow
+    /// `.restore` access. A separate read-only connection checks bytes, arrival date and flags;
+    /// the archive sees them on the server again and a second plan has nothing left to do.
+    @Test func mailcowDeleteThenRestore() async throws {
+        let a = try account("mailcow")
+        let folder = "MailKeeper-RestoreTest"
+        try seed("--restore-test")
+        defer { try? seed("--cleanup-restore") }
+        let endpoint = IMAPEndpoint(host: a.host, port: a.port, security: .tls)
+        let (layout, first, _) = try await run("mailcow", endpoint: endpoint, policy: SyncPolicy(mode: .standard, include: [folder]))
+        #expect(first.failures.isEmpty, "\(first.failures)")
+        let reader = try ArchiveReader(layout: layout)
+        let config = AccountConfig.imap(id: "mailcow", username: a.username, host: a.host, port: a.port)
+        let filter = MessageFilter(text: "folder:\(folder) ")
+        let ids = try reader.messageIDs(filter)
+        let before = try ids.compactMap { try reader.detail($0) }.compactMap { d in d.locations.first.map { (d.messageID, $0) } }
+        let store = ActionStore(layout: layout)
+        let audit = AuditLog(url: tempDir().appending(path: "audit.jsonl"))
+        let writer = try ArchiveWriter(layout: layout)
+        let pw = try password(a)
+        // 1. delete (server Trash)
+        let (deletion, _) = try reader.planServerDelete(filter, title: "test", accounts: [config])
+        try store.create(deletion)
+        let deleted = try await ServerDeleteExecutor(writer: writer, store: store, audit: audit).run(deletion.id) { _ in
+            try await IMAPSession.connect(endpoint, username: a.username, password: pw, access: .moveToTrash)
+        }
+        #expect(deleted.count(.done) == ids.count && ids.count >= 3, "\(deleted.reasons)")
+        #expect(try reader.count(MessageFilter(text: "folder:\(folder) on:server ")) == 0)
+        // 2. restore to where they were
+        let (restore, summary) = try reader.planRestore(MessageFilter(ids: ids), title: "test", accounts: [config], options: RestoreOptions())
+        #expect(summary.perAccount == ["mailcow › \(folder)": ids.count], "\(restore.reasons)")
+        try store.create(restore)
+        let restored = try await RestoreExecutor(writer: writer, store: store, audit: audit).run(restore.id) { _ in
+            try await IMAPSession.connect(endpoint, username: a.username, password: pw, access: .restore)
+        }
+        #expect(restored.count(.done) == ids.count, "\(restored.reasons)")
+        // 3. the server, through a separate read-only connection: same bytes, date and flags
+        let check = try await IMAPSession.connect(endpoint, username: a.username, password: pw)
+        let boxes = try await check.mailboxes()
+        _ = try await check.examine(try #require(boxes.first { $0.name == folder }))
+        let back = try await check.fetch(try await check.allUIDs())
+        await check.close()
+        for (messageID, old) in before {
+            let now = try #require(back.first { MIMEParser.parse($0.data).messageID == messageID }, "\(messageID ?? "-")")
+            let item = try #require(restored.items.first { $0.messageID == messageID })
+            #expect(sha256Hex(now.data) == item.sha256)
+            #expect(now.internalDate == old.internalDate)
+            let clientFlags = { (f: [String]) in Set(f.filter { $0 != "\\Recent" }) }  // \Recent belongs to the session
+            #expect(clientFlags(now.flags) == clientFlags(old.flags), "\(now.flags) vs \(old.flags)")
+        }
+        // 4. the archive sees them on the server again; nothing left to restore
+        #expect(try reader.count(MessageFilter(text: "folder:\(folder) on:server ")) == ids.count)
+        let (again, _) = try reader.planRestore(MessageFilter(ids: ids), title: "again", accounts: [config], options: RestoreOptions())
+        #expect(again.count(.planned) == 0)
     }
 
     @Test func protonWrongPinIsRefused() async throws {
