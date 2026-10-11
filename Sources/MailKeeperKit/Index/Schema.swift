@@ -156,6 +156,14 @@ enum Schema {
         );
         CREATE INDEX classifications_category ON classifications(category);
         """,
+        // v8: the roles servers give their mailboxes (RFC 6154: junk, sent, trash …), refreshed at
+        // every sync — derived, a rebuild has them back after the next one; names cover the rest.
+        """
+        CREATE TABLE mailbox_roles(
+            account_id TEXT NOT NULL, mailbox TEXT NOT NULL, roles TEXT NOT NULL,
+            PRIMARY KEY(account_id, mailbox)
+        ) WITHOUT ROWID;
+        """,
     ]
 
     static var currentVersion: Int { migrations.count }

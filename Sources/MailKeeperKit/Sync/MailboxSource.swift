@@ -8,6 +8,12 @@ public enum SpecialUse: String, Sendable, Codable, CaseIterable {
 public struct RemoteMailbox: Sendable, Hashable {
     /// Without SPECIAL-USE roles on the server: a name veto against writing into a trash or junk
     /// folder (never used to *find* one — deleting goes only to a role-marked \Trash).
+    /// Without SPECIAL-USE roles: a spam folder by its usual name (rescue only moves out of it).
+    public static func looksLikeJunk(_ name: String) -> Bool {
+        let last = (name.split(whereSeparator: { $0 == "/" || $0 == "." }).last.map(String.init) ?? name).lowercased()
+        return ["junk", "spam", "junk e-mail", "junk-e-mail", "junk mail", "bulk mail"].contains(last)
+    }
+
     public static func looksLikeTrashOrJunk(_ name: String) -> Bool {
         let last = (name.split(whereSeparator: { $0 == "/" || $0 == "." }).last.map(String.init) ?? name).lowercased()
         return ["trash", "junk", "spam", "deleted items", "deleted messages", "papierkorb", "gelöschte elemente",

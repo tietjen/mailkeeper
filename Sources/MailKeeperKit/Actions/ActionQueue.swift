@@ -10,6 +10,8 @@ public enum ActionKind: String, Codable, Sendable, CaseIterable {
     case restore
     /// Write .eml/mbox files.
     case export
+    /// "Kein Spam": from the account's spam folder back to its INBOX (5.5).
+    case moveToInbox
 }
 
 /// A location MailKeeper fetched over IMAP: the only kind a server action may touch.

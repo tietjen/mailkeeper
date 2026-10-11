@@ -37,10 +37,11 @@ struct PlanSheet: View {
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 6) {
                 GridRow {
                     Text(job.kind == .serverDelete ? "In den Papierkorb des Servers"
-                         : job.kind == .restore ? "Auf den Server zurück" : "In den Papierkorb des Archivs")
+                         : job.kind == .restore ? "Auf den Server zurück"
+                         : job.kind == .moveToInbox ? "Aus dem Spam-Ordner in den Posteingang" : "In den Papierkorb des Archivs")
                     Text("\(runs.formatted()) Mails · \(job.openBytes.formatted(.byteCount(style: .file)))").fontWeight(.semibold)
                 }
-                if job.kind == .serverDelete {
+                if job.kind == .serverDelete || job.kind == .moveToInbox {
                     ForEach(plan.summary.perAccount.sorted { $0.key < $1.key }, id: \.key) { account, count in
                         GridRow {
                             Text("Konto \(account)").foregroundStyle(.secondary)
@@ -164,6 +165,8 @@ struct PlanSheet: View {
         case .restore:
             String(localized: "MailKeeper lädt die Mails aus dem Archiv wieder auf den Server – mit ihrem Status (gelesen, beantwortet, markiert), bei Gmail mit den Labels. Vorher sucht es jede im Zielordner: Was dort schon liegt, kommt nicht doppelt. Danach holt es sie zur Kontrolle zurück. Ordner legt MailKeeper nicht an.")
                 + (protonInvolved ? " " + String(localized: "Proton braucht etwa 1,5 Sekunden je Mail und nimmt das Datum aus der Mail.") : "")
+        case .moveToInbox:
+            String(localized: "Die Mails wandern auf dem Server aus dem Spam-Ordner in den Posteingang, das Archiv merkt sich den neuen Ort und deine Entscheidung „Kein Spam“. Vorher prüft MailKeeper jede einzelne: noch dieselbe Mail im Spam-Ordner.")
         case .export:
             ""
         }
@@ -257,6 +260,34 @@ struct ExportSheet: View {
         }
         .padding(20)
         .frame(width: 460)
+    }
+}
+
+/// Above the list in the spam review: what is unchecked, what the model doubts, and the actions.
+struct SpamReviewBar: View {
+    let model: AppModel
+
+    var body: some View {
+        let r = model.junkReview ?? ArchiveReader.JunkReview()
+        HStack(spacing: 10) {
+            Image(systemName: "checkmark.shield").foregroundStyle(.secondary)
+            Text("\(r.total) im Spam-Ordner · \(r.notSpam) laut KI kein Spam · \(r.spam) Spam · \(r.unchecked) ungeprüft")
+                .font(.callout).foregroundStyle(.secondary).lineLimit(1)
+            Spacer()
+            Button("Nur „kein Spam“") { model.appendFilter("-kategorie:spam") }
+                .help("Zeigt nur, was die KI (oder du) nicht für Spam hält")
+            Button("Kein Spam → Posteingang") { model.rescueSelection() }
+                .disabled(model.actionSelection.isEmpty || model.actionRunning)
+            Button("Ist Spam") { model.markSpamSelection() }
+                .disabled(model.actionSelection.isEmpty)
+            Button("Spam-Ordner prüfen") { model.checkJunk() }
+                .disabled(!model.aiConfig.enabled || r.unchecked == 0 || model.actionRunning)
+                .help(model.aiConfig.enabled ? "Die KI ordnet alle ungeprüften Mails im Spam-Ordner ein" : "KI einrichten: Einstellungen › KI")
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.bar)
     }
 }
 

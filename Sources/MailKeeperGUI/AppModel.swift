@@ -46,6 +46,8 @@ enum SidebarItem: Hashable {
     case saved(UUID)
     /// The archive trash (Phase 4.3).
     case trash
+    /// Mails in spam folders, with the model's verdict (5.5).
+    case spamReview
 }
 
 /// A planned job waiting for the user's go (plan sheet).
@@ -438,6 +440,7 @@ final class AppModel {
 
     func refresh() {
         guard let reader else { return }
+        junkReview = try? reader.junkReview()
         contentGeneration += 1
         reloadAccounts(reader.layout)
         accounts = (try? reader.accounts()) ?? []
@@ -454,6 +457,7 @@ final class AppModel {
         case .mailbox(let a, let m): MessageFilter(account: a, mailbox: m)
         case .saved(let id): MessageFilter(base: savedSearches.first { $0.id == id }?.query)
         case .trash: MessageFilter(trash: .only)
+        case .spamReview: MessageFilter(base: "is:junk")
         case .all, nil: MessageFilter()
         }
     }
@@ -593,6 +597,7 @@ final class AppModel {
         case .mailbox(_, let m): parts.append(m)
         case .saved(let id): if let name = savedSearches.first(where: { $0.id == id })?.name { parts.append(name) }
         case .trash: parts.append(String(localized: "Papierkorb"))
+        case .spamReview: parts.append(String(localized: "Spam-Prüfung"))
         case .all, nil: break
         }
         let search = e.searchText.trimmingCharacters(in: .whitespaces)
@@ -771,6 +776,7 @@ final class AppModel {
         case .account(let a): SavedSearchStore.query(account: a, text: text)
         case .mailbox(let a, let m): SavedSearchStore.query(account: a, mailbox: m, text: text)
         case .saved(let id): SavedSearchStore.query(base: savedSearches.first { $0.id == id }?.query, text: text)
+        case .spamReview: SavedSearchStore.query(base: "is:junk", text: text)
         case .all, .trash, nil: SavedSearchStore.query(text: text)
         }
         return SavedSearch(name: group.name ?? group.key, query: query)
@@ -798,6 +804,7 @@ final class AppModel {
         case .account(let a): SavedSearchStore.query(account: a, text: searchText)
         case .mailbox(let a, let m): SavedSearchStore.query(account: a, mailbox: m, text: searchText)
         case .saved(let id): SavedSearchStore.query(base: savedSearches.first { $0.id == id }?.query, text: searchText)
+        case .spamReview: SavedSearchStore.query(base: "is:junk", text: searchText)
         case .all, .trash, nil: SavedSearchStore.query(text: searchText)
         }
     }
@@ -966,6 +973,7 @@ final class AppModel {
             case .serverDelete: planned = try reader.planServerDelete(filter, title: title, accounts: accountConfigs, graceDays: graceDays)
             case .archiveDelete: planned = try reader.planArchiveDelete(filter, title: title)
             case .restore: planned = try reader.planRestore(filter, title: title, accounts: accountConfigs, options: restore)
+            case .moveToInbox: planned = try reader.planRescue(filter, title: title, accounts: accountConfigs)
             case .export: return
             }
             let examples = try reader.summaries(Array(try reader.messageIDs(filter).prefix(5)))
@@ -1151,6 +1159,9 @@ final class AppModel {
         case .restore:
             return try await SyncCoordinator.restoreOnServer(id, writer: writer, accounts: accounts, credentials: credentials,
                                                              audit: audit) { p in progress(p.done + p.failed + p.skipped, p.total, p.failed) }
+        case .moveToInbox:
+            return try await SyncCoordinator.rescueToInbox(id, writer: writer, accounts: accounts, credentials: credentials,
+                                                           audit: audit) { p in progress(p.done + p.failed + p.skipped, p.total, p.failed) }
         case .export:
             return try ActionStore(layout: layout).load(id)
         }
@@ -1212,6 +1223,7 @@ final class AppModel {
         case .archiveDelete: String(localized: "Aus dem Archiv löschen")
         case .restore: String(localized: "Auf den Server zurückspielen")
         case .export: String(localized: "Exportieren")
+        case .moveToInbox: String(localized: "Kein Spam → Posteingang")
         }
     }
 
@@ -1393,13 +1405,13 @@ final class AppModel {
 
     static let maxClassify = 500
 
-    private func runClassification(_ ids: [Int64]) {
+    private func runClassification(_ ids: [Int64], title: String = String(localized: "Einordnen")) {
         guard let root = archiveRoot, let router = aiRouter(), !actionRunning, !syncRunning, !importRunning else {
             if !aiConfig.enabled { actionError = String(localized: "Die KI ist nicht eingerichtet (Einstellungen › KI).") }
             return
         }
         actionRunning = true
-        actionProgress = ActionRunProgress(title: String(localized: "Einordnen"), done: 0, total: ids.count, failed: 0, resumable: false)
+        actionProgress = ActionRunProgress(title: title, done: 0, total: ids.count, failed: 0, resumable: false)
         let indexing = pauseTextIndexing()
         actionTask = Task.detached { [weak self] in
             await indexing?.value
@@ -1442,6 +1454,66 @@ final class AppModel {
                 self.startTextIndexing()
             }
         }
+    }
+
+    // MARK: Spam review (5.5)
+
+    private(set) var junkReview: ArchiveReader.JunkReview?
+    var spamAccountsEnabled: Bool { accountConfigs.contains { $0.policy.includeJunk } }
+
+    func isInJunk(_ id: Int64) -> Bool {
+        ((try? reader?.count(MessageFilter(text: "is:junk ", ids: [id]))) ?? 0) > 0
+    }
+
+    /// Settings › Konten: read (and check) the account's spam folder too.
+    func setSpamCheck(_ id: String, _ on: Bool) {
+        guard let layout = reader?.layout else { return }
+        var all = accountConfigs
+        guard let i = all.firstIndex(where: { $0.id == id }) else { return }
+        all[i].policy.includeJunk = on
+        do { try AccountStore(layout: layout).save(all) } catch { actionError = "\(error)" }
+        reloadAccounts(layout)
+    }
+
+    /// The model judges every mail in the spam folders that nobody has judged yet.
+    func checkJunk() {
+        guard let ids = try? reader?.junkToCheck(limit: Self.maxClassify), !ids.isEmpty else {
+            actionError = String(localized: "Im Spam-Ordner ist nichts Ungeprüftes.")
+            return
+        }
+        runClassification(ids, title: String(localized: "Spam prüfen"))
+    }
+
+    /// "Kein Spam → Posteingang": one mail at once (checked, queued, logged); several through the plan.
+    func rescueSelection() {
+        guard let reader else { return }
+        let ids = actionSelection
+        guard !ids.isEmpty else { return }
+        do {
+            let title = ids.count == 1 ? String(localized: "1 Mail aus dem Spam-Ordner") : String(localized: "\(ids.count) Mails aus dem Spam-Ordner")
+            let (job, summary) = try reader.planRescue(MessageFilter(ids: ids), title: title, accounts: accountConfigs)
+            let plan = PlannedAction(job: job, summary: summary, filter: MessageFilter(ids: ids),
+                                     examples: try reader.summaries(Array(ids.prefix(5))))
+            if job.items.count == 1, job.count(.planned) == 1 {
+                execute(plan)  // TJ: one click — the checks, the queue and the audit run all the same
+            } else if job.count(.planned) == 0 {
+                actionError = job.reasons.first.map { "\($0.reason)" }
+                    ?? String(localized: "Für diese Mail kennt MailKeeper keinen Spam-Ordner auf einem Server (importiert?).")
+            } else {
+                pendingPlan = plan
+            }
+        } catch {
+            actionError = "\(error)"
+        }
+    }
+
+    /// "Ist Spam": the user's decision (journalled).
+    func markSpamSelection() {
+        guard let reader, let identities = try? reader.identities(of: actionSelection), !identities.isEmpty else { return }
+        withWriter { writer in
+            for identity in identities { try await writer.setUserClassification(identity: identity, category: .spam) }
+        }
+        contentGeneration += 1
     }
 
     // MARK: Search in everyday language (5.3)
@@ -1574,7 +1646,13 @@ final class AppModel {
                 self?.syncProgress = nil
                 self?.syncMessage = text
                 self?.refresh()
-                self?.startTextIndexing()
+                // new mail in checked spam folders: the model looks at it (5.5)
+                if let self, self.aiConfig.enabled, self.spamAccountsEnabled,
+                   let ids = try? self.reader?.junkToCheck(limit: 100), !ids.isEmpty {
+                    self.runClassification(ids, title: String(localized: "Spam prüfen"))
+                } else {
+                    self?.startTextIndexing()
+                }
             }
         }
     }

@@ -193,6 +193,11 @@ struct MessageTable: NSViewRepresentable {
                 menu.addItem(.separator())
                 add(menu, String(localized: "Auf den Server zurückspielen …"), #selector(restoreToServer))
                 add(menu, String(localized: "Exportieren …"), #selector(export))
+                if model.sidebarSelection == .spamReview || model.actionSelection.prefix(20).contains(where: model.isInJunk) {
+                    menu.addItem(.separator())
+                    add(menu, String(localized: "Kein Spam → Posteingang"), #selector(rescue))
+                    add(menu, String(localized: "Ist Spam"), #selector(markSpam))
+                }
                 if model.aiConfig.enabled {
                     menu.addItem(.separator())
                     add(menu, count == 1 ? String(localized: "Mit KI einordnen") : String(localized: "\(min(count, AppModel.maxClassify)) Mails mit KI einordnen"),
@@ -212,6 +217,8 @@ struct MessageTable: NSViewRepresentable {
         @objc private func restoreToServer() { model.planSelection(.restore) }
         @objc private func export() { model.exportSelection() }
         @objc private func classify() { model.classifySelection() }
+        @objc private func rescue() { model.rescueSelection() }
+        @objc private func markSpam() { model.markSpamSelection() }
         @objc private func restore() { model.restoreSelection() }
         @objc private func purge() { Task { await model.purgeSelection() } }
 

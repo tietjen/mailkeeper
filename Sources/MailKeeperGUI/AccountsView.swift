@@ -22,6 +22,11 @@ struct AccountsSettings: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
+                    Toggle("Spam prüfen", isOn: Binding(get: { account.policy.includeJunk }, set: { model.setSpamCheck(account.id, $0) }))
+                        .toggleStyle(.checkbox).font(.caption)
+                        .help(account.policy.include == nil
+                              ? "Den Spam-Ordner mitlesen (nur lesend) und von der KI prüfen lassen"
+                              : "Den Spam-Ordner mitlesen – bei diesem Konto nur, wenn er in der Ordnerauswahl steht")
                     if !model.hasPassword(account) {
                         Label("Kein Passwort", systemImage: "key.slash").font(.caption).foregroundStyle(.orange)
                     }

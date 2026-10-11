@@ -120,6 +120,8 @@ struct QuerySQL {
             return "(m.list_id IS NOT NULL OR m.list_unsubscribe = 1)"
         case .isSent:
             return location(Self.sentLocation)
+        case .inJunk:
+            return location(Self.junkLocation)
         case .category(let category?):
             params.append(.text(category.rawValue))
             return "m.id IN (SELECT c.message_id FROM classifications c WHERE c.category = ?)"
@@ -157,14 +159,23 @@ struct QuerySQL {
     static let sentNames = ["sent", "sent items", "sent messages", "sent mail", "gesendet",
                             "gesendete objekte", "gesendete elemente", "gesendete nachrichten"]
 
-    /// Fixed strings only (no user value): the mailbox's last component in `sentNames`, or the label.
+    /// Fixed strings only (no user value): the mailbox's role from the server, its last component
+    /// in `sentNames`, or Gmail's label.
     static let sentLocation: String = {
-        let boxes = sentNames.flatMap { n in
-            ["mk_lower(l.mailbox) = '\(n)'", "mk_lower(l.mailbox) LIKE '%/\(n)'", "mk_lower(l.mailbox) LIKE '%.\(n)'"]
-        }
         let label = "instr(char(31) || mk_lower(l.labels) || char(31), char(31) || '\\sent' || char(31)) > 0"
-        return "(" + (boxes + [label]).joined(separator: " OR ") + ")"
+        return "(" + ([role("sent")] + names(sentNames) + [label]).joined(separator: " OR ") + ")"
     }()
+
+    static let junkNames = ["junk", "spam", "junk e-mail", "junk-e-mail", "junk mail", "bulk mail"]
+    static let junkLocation: String = "(" + ([role("junk")] + names(junkNames)).joined(separator: " OR ") + ")"
+
+    private static func names(_ list: [String]) -> [String] {
+        list.flatMap { n in ["mk_lower(l.mailbox) = '\(n)'", "mk_lower(l.mailbox) LIKE '%/\(n)'", "mk_lower(l.mailbox) LIKE '%.\(n)'"] }
+    }
+
+    private static func role(_ name: String) -> String {
+        "(l.account_id || char(31) || l.mailbox) IN (SELECT account_id || char(31) || mailbox FROM mailbox_roles WHERE instr(roles, ' \(name) ') > 0)"
+    }
 
     /// Uncorrelated `IN` subqueries, evaluated once per query: a correlated EXISTS can make
     /// SQLite scan a big mailbox once per message (see ArchiveReader.whereClause).

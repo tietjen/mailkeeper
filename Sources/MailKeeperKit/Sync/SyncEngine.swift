@@ -17,12 +17,27 @@ public struct SyncPolicy: Sendable, Codable, Equatable {
     public var include: [String]?
     public var exclude: [String]
     public var includeJunkAndTrash: Bool
+    /// The spam/junk folder too (5.5 Spam-Prüfung), not the trash. With an `include` list the
+    /// folder must be on it as well — Proton stays inside its test folder.
+    public var includeJunk: Bool
 
-    public init(mode: Mode, include: [String]? = nil, exclude: [String] = [], includeJunkAndTrash: Bool = false) {
+    public init(mode: Mode, include: [String]? = nil, exclude: [String] = [], includeJunkAndTrash: Bool = false, includeJunk: Bool = false) {
         self.mode = mode
         self.include = include
         self.exclude = exclude
         self.includeJunkAndTrash = includeJunkAndTrash
+        self.includeJunk = includeJunk
+    }
+
+    enum CodingKeys: String, CodingKey { case mode, include, exclude, includeJunkAndTrash, includeJunk }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        mode = try c.decode(Mode.self, forKey: .mode)
+        include = try c.decodeIfPresent([String].self, forKey: .include)
+        exclude = try c.decodeIfPresent([String].self, forKey: .exclude) ?? []
+        includeJunkAndTrash = try c.decodeIfPresent(Bool.self, forKey: .includeJunkAndTrash) ?? false
+        includeJunk = try c.decodeIfPresent(Bool.self, forKey: .includeJunk) ?? false  // accounts.json before 5.5
     }
 
     /// What can be told by name alone (include and exclude lists) — the planner's check; the
@@ -34,16 +49,19 @@ public struct SyncPolicy: Sendable, Codable, Equatable {
     public func select(_ boxes: [RemoteMailbox]) -> [RemoteMailbox] {
         var chosen = boxes.filter(\.selectable)
         if let include { chosen = chosen.filter { include.contains($0.name) } }
-        let junkOrTrash = { (b: RemoteMailbox) in !b.specialUse.isDisjoint(with: [.junk, .trash]) }
+        let wanted = { (b: RemoteMailbox) -> Bool in
+            if b.specialUse.contains(.trash) { return includeJunkAndTrash }
+            if b.specialUse.contains(.junk) { return includeJunkAndTrash || includeJunk }
+            return true
+        }
         switch mode {
         case .gmail:
-            chosen = chosen.filter { $0.specialUse.contains(.all) || (includeJunkAndTrash && junkOrTrash($0)) }
+            let extra = { (b: RemoteMailbox) in !b.specialUse.isDisjoint(with: [.junk, .trash]) && wanted(b) }
+            chosen = chosen.filter { $0.specialUse.contains(.all) || extra($0) }
         case .protonBridge:
-            chosen = chosen.filter { !$0.specialUse.contains(.all) && !$0.name.hasPrefix("Labels/") }
-            if !includeJunkAndTrash { chosen = chosen.filter { !junkOrTrash($0) } }
+            chosen = chosen.filter { !$0.specialUse.contains(.all) && !$0.name.hasPrefix("Labels/") && wanted($0) }
         case .standard:
-            chosen = chosen.filter { !$0.specialUse.contains(.all) }
-            if !includeJunkAndTrash { chosen = chosen.filter { !junkOrTrash($0) } }
+            chosen = chosen.filter { !$0.specialUse.contains(.all) && wanted($0) }
         }
         return chosen.filter { !exclude.contains($0.name) }
     }
@@ -116,6 +134,7 @@ public struct SyncEngine: Sendable {
         progress(p)
         let listed = try await source.mailboxes()
         let plan = policy.select(listed)
+        try await writer.setMailboxRoles(account: account.id, listed)  // \Junk, \Sent … for is:junk / is:sent
         let caps = await source.capabilities()
         var report = SyncReport()
         // Mailboxes that vanished from the server (renamed or deleted folder, Gmail language

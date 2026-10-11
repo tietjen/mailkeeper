@@ -84,6 +84,7 @@ struct ContentView: View {
                     .safeAreaInset(edge: .top, spacing: 0) {
                         VStack(spacing: 0) {
                             if model.sidebarSelection == .trash { TrashBar(model: model) }
+                            if model.sidebarSelection == .spamReview { SpamReviewBar(model: model) }
                             TranslationNoteBar(model: model)
                             QueryBar(model: model)
                         }
@@ -205,6 +206,12 @@ struct Sidebar: View {
                 Label("Papierkorb", systemImage: "trash")
                     .badge(model.stats?.trashed ?? 0)
                     .tag(SidebarItem.trash)
+                if (model.junkReview?.total ?? 0) > 0 || model.spamAccountsEnabled {
+                    Label("Spam-Prüfung", systemImage: "checkmark.shield")
+                        .badge(model.junkReview?.notSpam ?? 0)
+                        .tag(SidebarItem.spamReview)
+                        .help("Mails in den Spam-Ordnern; die Zahl: was die KI nicht für Spam hält")
+                }
             }
             ForEach(model.accounts, id: \.id) { account in
                 Section(account.name) {
@@ -238,6 +245,7 @@ struct ReaderView: View {
     let messageID: Int64
     @State private var loaded: (id: Int64, detail: MessageDetail, message: ParsedMessage, thread: [MessageSummary])?
     @State private var category: Classification?
+    @State private var inJunk = false
     @State private var failed = false
 
     var body: some View {
@@ -263,6 +271,7 @@ struct ReaderView: View {
             if !Task.isCancelled {
                 loaded = (messageID, detail, message, thread)
                 category = model.classification(of: messageID)
+                inJunk = model.isInJunk(messageID)
             }
         }
     }
@@ -350,9 +359,17 @@ struct ReaderView: View {
             } else {
                 Text(category == nil ? "noch nicht eingeordnet" : "offen – keine Regel passt").foregroundStyle(.secondary)
             }
-            if model.aiConfig.enabled {
+            if model.aiConfig.enabled, category?.source != .user {
                 Button(category?.category == nil ? "Mit KI einordnen" : "Neu einordnen") { model.classifySelection() }
                     .controlSize(.small).disabled(model.actionRunning)
+            }
+            if inJunk {
+                Button("Kein Spam → Posteingang") { model.rescueSelection() }
+                    .controlSize(.small).disabled(model.actionRunning)
+                    .help("Auf dem Server aus dem Spam-Ordner in den Posteingang verschieben; das Archiv merkt es sich")
+                if category?.source != .user || category?.category != .spam {
+                    Button("Ist Spam") { model.markSpamSelection() }.controlSize(.small)
+                }
             }
         }
         .font(.callout)
@@ -364,6 +381,7 @@ struct ReaderView: View {
         case .heuristic: return String(localized: "Regel: \(c.rule ?? "—")")
         case .endpoint: return "\(c.model ?? "KI"): \(c.reason ?? "")"
         case .onDevice: return String(localized: "Modell auf diesem Mac: \(c.reason ?? "")")
+        case .user: return String(localized: "deine Entscheidung")
         }
     }
 

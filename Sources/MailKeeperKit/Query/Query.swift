@@ -39,6 +39,8 @@ public enum QueryPredicate: Sendable, Equatable {
     case category(MailCategory?)
     /// Sent mail: a location in a sent mailbox, or Gmail's \Sent label.
     case isSent
+    /// A location in a spam/junk mailbox (by the server's role or its usual name).
+    case inJunk
     case flag(Flag)
     case onServer
     case archiveOnly
@@ -377,7 +379,8 @@ public enum QueryParser {
                 case "answered", "replied", "beantwortet": return (.predicate(.flag(.answered)), "beantwortet")
                 case "list", "newsletter", "liste": return (.predicate(.isList), "Newsletter/Liste")
                 case "sent", "gesendet", "versendet": return (.predicate(.isSent), "gesendet")
-                default: throw QueryError("„is:\(value)“ kenne ich nicht — unread, read, flagged, answered, list oder sent.")
+                case "junk", "spamordner", "spam-ordner", "im-spam": return (.predicate(.inJunk), "im Spam-Ordner")
+                default: throw QueryError("„is:\(value)“ kenne ich nicht — unread, read, flagged, answered, list, sent oder junk.")
                 }
             case .category:
                 let word = try required().lowercased()

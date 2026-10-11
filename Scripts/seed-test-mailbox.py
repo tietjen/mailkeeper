@@ -6,6 +6,8 @@
   --cleanup-trash  remove the delete test's messages (Message-ID mk-del-*) from Trash
   --restore-test   "MailKeeper-RestoreTest": add 3 fresh messages (delete → restore test)
   --cleanup-restore remove the restore test's messages (mk-rst-*) from its folder and Trash
+  --junk-test      "Junk": add 2 fresh messages (spam review: one legitimate, one spam)
+  --cleanup-junk   remove the spam test's messages (mk-junk-*) from Junk and INBOX
 
 Credentials come from ~/.config/mailkeeper/test-accounts.json and the login keychain via
 /usr/bin/security; nothing secret is printed. Never point this at a real mailbox — it writes.
@@ -40,6 +42,34 @@ if "--restore-test" in sys.argv:
                f"Date: Thu, 14 Mar 2019 10:00:00 +0100\r\nMessage-ID: <mk-rst-{stamp}-{n}@mailkeeper.test>\r\n\r\nBring me back {n}.\r\n")
         m.append(folder, flags, imaplib.Time2Internaldate(time.time() - 400 * 86400 + n * 3600), msg.encode())
     print(f"{folder}: 3 messages added (mk-rst-{stamp}-*)")
+    m.logout()
+    sys.exit(0)
+
+if "--junk-test" in sys.argv:
+    stamp = int(time.time())
+    mails = [("billing@stadtwerke.example", "Ihre Jahresabrechnung 2025", "Anbei Ihre Jahresabrechnung. Der Betrag wird am 15. abgebucht."),
+             ("win@lotto-gewinn.example", "Sie haben gewonnen!!!", "Senden Sie uns Ihre Bankdaten, um 1.000.000 EUR zu erhalten.")]
+    for n, (sender, subject, text) in enumerate(mails, 1):
+        msg = (f"From: {sender}\r\nTo: inbox@mailkeeper.test\r\nSubject: {subject}\r\n"
+               f"Date: Thu, 14 Mar 2019 10:00:00 +0100\r\nMessage-ID: <mk-junk-{stamp}-{n}@mailkeeper.test>\r\n\r\n{text}\r\n")
+        m.append("Junk", None, imaplib.Time2Internaldate(time.time()), msg.encode())
+    print(f"Junk: 2 messages added (mk-junk-{stamp}-*)")
+    m.logout()
+    sys.exit(0)
+
+if "--cleanup-junk" in sys.argv:
+    total = 0
+    for folder in ["Junk", "INBOX"]:
+        typ, data = m.select(folder)
+        if typ != "OK":
+            continue
+        typ, found = m.uid("SEARCH", None, "HEADER", "Message-ID", "mk-junk-")
+        uids = found[0].split()
+        if uids:
+            m.uid("STORE", b",".join(uids), "+FLAGS.SILENT", r"(\Deleted)")
+            m.uid("EXPUNGE", b",".join(uids))  # UIDPLUS: only these
+        total += len(uids)
+    print(f"spam test: {total} messages removed")
     m.logout()
     sys.exit(0)
 

@@ -72,6 +72,17 @@ APPEND, Proton rebuilds messages and ignores the APPEND date, Dovecot is textboo
    are reported, not written. A stopped mbox export removes the half file. Files are 0600.
    Replacing an mbox (confirmed in the save panel) builds it beside the old one and swaps it in
    only when complete; a new file is `O_EXCL | O_NOFOLLOW`, so a stop removes only its own file.
+8. **"Kein Spam → Posteingang" (5.5):** a mail in a spam folder that the user calls not spam moves
+   on the server from that folder to INBOX — through the queue and the audit like every server
+   action, with one click for a single mail (TJ) and the plan sheet for several. Own access
+   `.rescueFromJunk`: SELECT, UID MOVE (or COPY + STORE +\Deleted + UID EXPUNGE on exactly the
+   copied UIDs) only from the selected mailbox if it is the server's \Junk (by name only on a
+   server without roles) and only into INBOX; `$` never stands for UIDs. Before acting:
+   UIDVALIDITY and "still the same message" as for a delete; afterwards: gone from the spam folder,
+   found in INBOX (Message-ID, bytes or sender/subject) and recorded like a sync; the user's
+   decision ("Kein Spam" / "Ist Spam") is journalled and no model overrides it. Spam folders are
+   read only when the account says so (`includeJunk`, never the trash; an include list still
+   rules — Proton stays in its test folder).
 
 ## Consequences
 

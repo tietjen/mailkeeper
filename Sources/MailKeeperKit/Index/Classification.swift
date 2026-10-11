@@ -78,6 +78,8 @@ public enum ClassificationSource: String, Codable, Sendable {
     case endpoint
     /// Apple's model on this Mac.
     case onDevice = "on-device"
+    /// The user decided ("Ist Spam" / "Kein Spam") — journalled, never overwritten.
+    case user
 }
 
 public struct Classification: Sendable, Equatable {
@@ -196,6 +198,47 @@ extension ArchiveReader {
             WHERE c.category IS NULL AND m.id IN (SELECT m.id FROM messages m\(whereClause))
             ORDER BY m.date DESC LIMIT ?
             """, params + [.int(Int64(limit))]) { $0.int(0) }
+    }
+
+    /// Mails in a spam folder that no model and no user has judged yet, newest first.
+    public func junkToCheck(limit: Int) throws -> [Int64] {
+        let (whereClause, params) = try Self.whereClause(MessageFilter(text: "is:junk "))
+        return try db.query("""
+            SELECT m.id FROM messages m LEFT JOIN classifications c ON c.message_id = m.id
+            WHERE (c.message_id IS NULL OR c.source = 'heuristic') AND m.id IN (SELECT m.id FROM messages m\(whereClause))
+            ORDER BY m.date DESC LIMIT ?
+            """, params + [.int(Int64(limit))]) { $0.int(0) }
+    }
+
+    public struct JunkReview: Sendable, Equatable {
+        public var total = 0
+        /// Not yet judged by a model or the user.
+        public var unchecked = 0
+        /// A model says: not spam — worth a look.
+        public var notSpam = 0
+        public var spam = 0
+        /// The user decided.
+        public var decided = 0
+
+        public init() {}
+    }
+
+    public func junkReview() throws -> JunkReview {
+        let (whereClause, params) = try Self.whereClause(MessageFilter(text: "is:junk "))
+        var r = JunkReview()
+        try db.forEach("""
+            SELECT c.source, c.category FROM messages m LEFT JOIN classifications c ON c.message_id = m.id
+            WHERE m.id IN (SELECT m.id FROM messages m\(whereClause))
+            """, params) { row in
+            r.total += 1
+            switch (row.text(0), row.text(1)) {
+            case (nil, _), ("heuristic", _): r.unchecked += 1
+            case ("user", _): r.decided += 1
+            case (_, "spam"): r.spam += 1
+            default: r.notSpam += 1
+            }
+        }
+        return r
     }
 
     /// Messages per category (nil = open), outside the trash.

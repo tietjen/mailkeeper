@@ -353,7 +353,7 @@ public actor ArchiveWriter {
                     }
                 case .gone:
                     try markGoneRow(event)
-                case .trashed, .untrashed, .purged:
+                case .trashed, .untrashed, .purged, .classified:
                     archiveEvents.append(event)
                 }
             }
@@ -365,6 +365,8 @@ public actor ArchiveWriter {
                     try applyPurge(identity: identity, shas: event.shas ?? [], locations: event.locations ?? [], who: event.who,
                                    time: event.time)
                     missing.subtract(event.shas ?? [])  // deleted on purpose, not lost
+                } else if event.kind == .classified {
+                    try applyUserClassification(identity: identity, category: event.category, time: event.time)
                 } else {
                     try applyTrash(event.kind, identity: identity, time: event.time)
                 }
@@ -651,6 +653,17 @@ public actor ArchiveWriter {
         }
     }
 
+    /// What LIST said about the account's mailboxes (only those with a role are kept).
+    public func setMailboxRoles(account: String, _ boxes: [RemoteMailbox]) throws {
+        try db.transaction {
+            try db.run("DELETE FROM mailbox_roles WHERE account_id = ?", [.text(account)])
+            for box in boxes where !box.specialUse.isEmpty {
+                try db.run("INSERT OR REPLACE INTO mailbox_roles(account_id, mailbox, roles) VALUES (?, ?, ?)",
+                           [.text(account), .text(box.name), .text(" " + box.specialUse.map(\.rawValue).sorted().joined(separator: " ") + " ")])
+            }
+        }
+    }
+
     // MARK: Categories (Phase 5.4)
 
     /// Runs the rules over messages that have no category row yet (or one from older rules), one
@@ -683,12 +696,39 @@ public actor ArchiveWriter {
     }
 
     /// A model's answer for one message (reason already display-safe and bounded by the caller).
+    /// Never over a decision of the user.
     public func setClassification(messageID: Int64, category: MailCategory, source: ClassificationSource, model: String?, reason: String?) throws {
         try db.run("""
             INSERT OR REPLACE INTO classifications(message_id, category, source, rule, model, reason, version, created)
-            SELECT id, ?, ?, NULL, ?, ?, 0, ? FROM messages WHERE id = ?
+            SELECT id, ?, ?, NULL, ?, ?, 0, ? FROM messages
+            WHERE id = ? AND id NOT IN (SELECT message_id FROM classifications WHERE source = 'user')
             """, [.text(category.rawValue), .text(source.rawValue), .optional(model), .optional(reason),
                   .double(Date().timeIntervalSince1970), .int(messageID)])
+    }
+
+    /// The user's decision ("Ist Spam": `.spam`; "Kein Spam": the model's category if it was not
+    /// spam, else open) — journalled: it survives a rebuild, unlike rule and model results.
+    public func setUserClassification(identity: String, category: MailCategory?) throws {
+        let time = Date().timeIntervalSince1970
+        try journal.append(.classified(identity: identity, category: category?.rawValue, time: time))
+        try journal.sync()
+        try applyUserClassification(identity: identity, category: category?.rawValue, time: time)
+    }
+
+    /// "Kein Spam": keeps a non-spam category, clears a spam one.
+    public func confirmNotSpam(identity: String) throws {
+        let current = try db.queryOne("""
+            SELECT c.category FROM classifications c JOIN messages m ON m.id = c.message_id WHERE m.identity = ?
+            """, [.text(identity)]) { $0.text(0) } ?? nil
+        let keep = current.flatMap(MailCategory.init(rawValue:)).flatMap { $0 == .spam ? nil : $0 }
+        try setUserClassification(identity: identity, category: keep)
+    }
+
+    private func applyUserClassification(identity: String, category: String?, time: Double) throws {
+        try db.run("""
+            INSERT OR REPLACE INTO classifications(message_id, category, source, rule, model, reason, version, created)
+            SELECT id, ?, 'user', NULL, NULL, NULL, 0, ? FROM messages WHERE identity = ?
+            """, [.optional(category), .double(time), .text(identity)])
     }
 
     /// Locations marked gone that the server lists again (a mailbox missing from one LIST, a
