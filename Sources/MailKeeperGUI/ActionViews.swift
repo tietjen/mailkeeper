@@ -287,9 +287,18 @@ struct SpamReviewBar: View {
                 .help("Liegt die Mail im Spam-Ordner eines abgerufenen Kontos, wandert sie dort in den Posteingang; bei importierten Mails wird nur dein Urteil vermerkt")
             Button("Ist Spam") { model.markSpamSelection() }
                 .disabled(model.actionSelection.isEmpty)
-            Button("Spam-Ordner prüfen") { model.checkJunk() }
-                .disabled(!model.aiConfig.enabled || r.unchecked == 0 || model.actionRunning)
-                .help(model.aiConfig.enabled ? "Die KI ordnet alle ungeprüften Mails im Spam-Ordner ein" : "KI einrichten: Einstellungen › KI")
+            // TJ: everything had been judged by the Mac's model before the endpoint was set up —
+            // re-checking must be possible, not only the unchecked.
+            Menu(r.unchecked > 0 ? "Spam-Ordner prüfen (\(r.unchecked))" : "Neu prüfen") {
+                Button("Ungeprüfte prüfen (\(r.unchecked))") { model.checkJunk(.unchecked) }.disabled(r.unchecked == 0)
+                Button("Vom Mac-Modell geprüfte neu prüfen (\(r.byMac))") { model.checkJunk(.onDevice) }.disabled(r.byMac == 0)
+                Button("Alle neu prüfen (\(r.total - r.decided))") { model.checkJunk(.all) }.disabled(r.total - r.decided == 0)
+            } primaryAction: {
+                model.checkJunk(r.unchecked > 0 ? .unchecked : (r.byMac > 0 ? .onDevice : .all))
+            }
+            .fixedSize()
+            .disabled(!model.aiConfig.enabled || model.actionRunning || r.total - r.decided == 0)
+            .help(model.aiConfig.enabled ? "Die KI prüft Mails im Spam-Ordner – deine eigenen Entscheidungen bleiben" : "KI einrichten: Einstellungen › KI")
         }
         .controlSize(.small)
         .padding(.horizontal, 10)

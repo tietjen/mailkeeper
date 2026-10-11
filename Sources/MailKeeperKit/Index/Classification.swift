@@ -222,12 +222,27 @@ extension ArchiveReader {
             """, params + [.int(Int64(limit))]) { $0.int(0) }
     }
 
-    /// Mails in a spam folder that no model and no user has judged yet, newest first.
-    public func junkToCheck(limit: Int) throws -> [Int64] {
+    /// Which spam-folder mails to (re)check.
+    public enum JunkCheck: Sendable {
+        /// Not judged by a model yet.
+        case unchecked
+        /// Judged by the model on this Mac (TJ: re-check with the endpoint once it is set up).
+        case onDevice
+        /// Everything a model judged — never what the user decided.
+        case all
+    }
+
+    /// Spam-folder mails to check, newest first; never one the user has decided.
+    public func junkToCheck(limit: Int, _ which: JunkCheck = .unchecked) throws -> [Int64] {
         let (whereClause, params) = try Self.whereClause(MessageFilter(text: "is:junk "))
+        let condition = switch which {
+        case .unchecked: "(c.message_id IS NULL OR c.source = 'heuristic')"
+        case .onDevice: "c.source = 'on-device'"
+        case .all: "(c.message_id IS NULL OR c.source != 'user')"
+        }
         return try db.query("""
             SELECT m.id FROM messages m LEFT JOIN classifications c ON c.message_id = m.id
-            WHERE (c.message_id IS NULL OR c.source = 'heuristic') AND c.verdict IS NULL AND m.id IN (SELECT m.id FROM messages m\(whereClause))
+            WHERE \(condition) AND c.verdict IS NULL AND m.id IN (SELECT m.id FROM messages m\(whereClause))
             ORDER BY m.date DESC LIMIT ?
             """, params + [.int(Int64(limit))]) { $0.int(0) }
     }
@@ -243,6 +258,8 @@ extension ArchiveReader {
         public var decided = 0
         /// A model sees phishing (suspicion or likely) — counted apart from spam (TJ, 5.6).
         public var phishing = 0
+        /// Judged by the model on this Mac (worth a re-check with the endpoint).
+        public var byMac = 0
 
         public init() {}
     }
@@ -257,6 +274,7 @@ extension ArchiveReader {
             r.total += 1
             if ["verdacht", "ja"].contains(row.text(3) ?? "") { r.phishing += 1 }
             if row.text(2) != nil || row.text(0) == "user" { r.decided += 1; return }
+            if row.text(0) == "on-device" { r.byMac += 1 }
             switch (row.text(0), row.text(1)) {
             case (nil, _), ("heuristic", _): r.unchecked += 1
             case (_, "spam"): r.spam += 1

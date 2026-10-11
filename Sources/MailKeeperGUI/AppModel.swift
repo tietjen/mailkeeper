@@ -1497,10 +1497,11 @@ final class AppModel {
         reloadAccounts(layout)
     }
 
-    /// The model judges every mail in the spam folders that nobody has judged yet.
-    func checkJunk() {
-        guard let ids = try? reader?.junkToCheck(limit: Self.maxClassify), !ids.isEmpty else {
-            actionError = String(localized: "Im Spam-Ordner ist nichts Ungeprüftes.")
+    /// The model judges spam-folder mails: the unchecked ones, those the Mac's model judged, or
+    /// all a model judged — never what the user decided.
+    func checkJunk(_ which: ArchiveReader.JunkCheck = .unchecked) {
+        guard let ids = try? reader?.junkToCheck(limit: Self.maxClassify, which), !ids.isEmpty else {
+            actionError = String(localized: "Dafür ist im Spam-Ordner nichts zu prüfen.")
             return
         }
         runClassification(ids, title: String(localized: "Spam prüfen"))
