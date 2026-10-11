@@ -79,13 +79,36 @@ struct ArchiveTrashTests {
         let (layout, writer, r) = try await Self.archive()
         let (job, summary) = try r.planArchiveDelete(MessageFilter(text: "subject:A OR subject:C "), title: "A und C")
         #expect(job.items.count == 2 && job.items.allSatisfy { $0.identity != nil })
-        #expect(summary.messages == 2 && summary.archiveOnly == 1)  // A is still on the IMAP server
+        #expect(summary.messages == 2 && summary.archiveOnly == 1)
+        // A is still on the IMAP server: in the trash means on no server (TJ) — skipped, with the way out
+        let a = try #require(job.items.first { $0.state == .skipped })
+        #expect(a.reason == ArchiveReader.stillOnServer && job.count(.planned) == 1)
         let store = ActionStore(layout: layout)
         try store.create(job)
         let audit = AuditLog(url: tempDir().appending(path: "audit.jsonl"))
         let done = try await ArchiveDeleteExecutor(writer: writer, store: store, audit: audit).run(job.id)
-        #expect(done.count(.done) == 2 && audit.entries().count == 2)
-        #expect(try Self.subjects(r) == ["B"] && Self.subjects(r, MessageFilter(trash: .only)) == ["A", "C"])
+        #expect(done.count(.done) == 1 && audit.entries().count == 1)
+        #expect(try Self.subjects(r) == ["A", "B"] && Self.subjects(r, MessageFilter(trash: .only)) == ["C"])
         #expect(try store.load(job.id).isFinished)
+    }
+
+    @Test("Exactly one place: server and archive, archive only, or trash")
+    func placeIsShownAndKeptConsistent() async throws {
+        let (_, writer, r) = try await Self.archive()
+        let id = { (s: String) in try #require(try r.messageIDs(MessageFilter(text: "subject:\(s) ", trash: .exclude)).first) }
+        #expect(try r.detail(try id("A"))?.place == .serverAndArchive)
+        #expect(try r.detail(try id("C"))?.place == .archiveOnly)
+        let c = try id("C")
+        let trashedAt = Date().addingTimeInterval(-2 * 86_400)
+        try await writer.trash([try Self.identity(r, "C")], time: trashedAt.timeIntervalSince1970)
+        let detail = try #require(try r.detail(c))
+        #expect(detail.place == .trash)
+        #expect(abs(detail.purgeDate()!.timeIntervalSince(trashedAt) - 30 * 86_400) < 1)
+        // back on a server (moved there by the user): out of the trash, also after a rebuild
+        _ = try await writer.ingest(sampleMessage(id: "<c@t.test>", subject: "C"),
+                                    at: LocationInfo(account: "imap", mailbox: "INBOX", uidValidity: 9, uid: 50))
+        #expect(try r.detail(c)?.place == .serverAndArchive)
+        _ = try await writer.rebuildIndex()
+        #expect(try Self.subjects(r, MessageFilter(trash: .only)).isEmpty && Self.subjects(r).contains("C"))
     }
 }

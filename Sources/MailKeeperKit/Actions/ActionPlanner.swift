@@ -17,6 +17,9 @@ public struct ActionPlanSummary: Sendable, Equatable {
 }
 
 extension ArchiveReader {
+    /// Skip reason of an archive delete for a message still on a server.
+    public static let stillOnServer = String(localized: "liegt noch auf einem Server – erst dort löschen")
+
     /// Plans "delete on the server" for the messages of `filter` (ADR-0006 §2): one item per
     /// server location (fetched over IMAP, still present at the last fetch). Items whose
     /// preconditions fail are planned as skipped, with the reason:
@@ -70,8 +73,8 @@ extension ArchiveReader {
     }
 
     /// Plans "delete from the archive" (ADR-0006 4): one item per message, to the archive trash
-    /// for 30 days. Messages still on a server stay there; once purged, sync will not fetch them
-    /// again (tombstones). `summary.archiveOnly` counts those that are on no server.
+    /// for 30 days. In the trash means on no server (TJ): a message still on a server is skipped
+    /// ("delete it there first"). `summary.archiveOnly` counts those that can go.
     public func planArchiveDelete(_ filter: MessageFilter, title: String) throws -> (ActionJob, ActionPlanSummary) {
         let (whereClause, params) = try Self.whereClause(filter)
         var items: [ActionItem] = []
@@ -81,12 +84,15 @@ extension ArchiveReader {
                    EXISTS (SELECT 1 FROM locations l WHERE l.message_id = m.id AND \(QuerySQL.serverLocation))
             FROM messages m\(whereClause) ORDER BY m.date, m.id
             """, params) { row in
-            if row.bool(5) { onServer += 1 }
+            let stillOnServer = row.bool(5)
+            if stillOnServer { onServer += 1 }
             items.append(ActionItem(id: items.count, sha256: row.text(1) ?? "", messageID: row.text(2), size: Int(row.int(3)),
                                     date: row.optionalDouble(4).map(Date.init(timeIntervalSince1970:)), location: nil,
-                                    identity: row.text(0)))
+                                    identity: row.text(0), state: stillOnServer ? .skipped : .planned,
+                                    reason: stillOnServer ? Self.stillOnServer : nil))
         }
         let job = ActionJob(kind: .archiveDelete, title: title, query: filter.text, graceDays: nil, items: items)
+        _ = onServer
         return (job, ActionPlanSummary(messages: items.count, archiveOnly: items.count - onServer, perAccount: [:]))
     }
 }

@@ -9,14 +9,19 @@ struct AttributeMenu: View {
     let text: String
     let options: [FilterOption]
     var copy: String?
+    /// e.g. server or archive for a folder.
+    var systemImage: String?
 
     var body: some View {
         Menu {
             AttributeMenuItems(model: model, options: options, copy: copy)
         } label: {
-            Text(DisplayText.safe(text))
-                .underline(true, pattern: .dot, color: .secondary)
-                .lineLimit(1)
+            HStack(spacing: 3) {
+                if let systemImage { Image(systemName: systemImage).foregroundStyle(.secondary).font(.caption) }
+                Text(DisplayText.safe(text))
+                    .underline(true, pattern: .dot, color: .secondary)
+                    .lineLimit(1)
+            }
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)

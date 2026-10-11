@@ -38,6 +38,19 @@ public struct MessageLocation: Sendable, Hashable {
     public var internalDate: Date?
     public var onServer: Bool
     public var sha256: String
+
+    /// Fetched over IMAP and present at the last fetch (imports have no server location).
+    public var isOnServer: Bool { uid != nil && onServer }
+}
+
+/// Where a message is, as the user sees it (TJ): exactly one of three.
+public enum MessagePlace: Sendable, Equatable {
+    /// On at least one mail server, and in the archive.
+    case serverAndArchive
+    /// Only in the archive (imported, or deleted on the server).
+    case archiveOnly
+    /// In the archive trash — on no server any more; purged after 30 days.
+    case trash
 }
 
 public struct MessageDetail: Sendable {
@@ -46,6 +59,16 @@ public struct MessageDetail: Sendable {
     public var listID: String?
     public var primaryBlob: String
     public var locations: [MessageLocation]
+    /// When it went to the archive trash.
+    public var trashed: Date?
+
+    public var place: MessagePlace {
+        if trashed != nil { return .trash }
+        return locations.contains(where: \.isOnServer) ? .serverAndArchive : .archiveOnly
+    }
+
+    /// When the trash purges it (ADR-0006: 30 days).
+    public func purgeDate(days: Int = 30) -> Date? { trashed?.addingTimeInterval(Double(days) * 86_400) }
 }
 
 public struct ArchiveStats: Sendable, Equatable {
@@ -334,11 +357,12 @@ public final class ArchiveReader {
 
     public func detail(_ id: Int64) throws -> MessageDetail? {
         let db = try self.db
-        guard let (summary, mid, list, blob) = try db.queryOne("""
+        guard let (summary, mid, list, blob, trashed) = try db.queryOne("""
             SELECT id, date, from_name, from_addr, subject, size, attachment_count, snippet,
-                   (SELECT count(*) FROM messages t WHERE t.thread_id = m.thread_id AND t.trashed IS NULL), message_id, list_id, primary_blob
+                   (SELECT count(*) FROM messages t WHERE t.thread_id = m.thread_id AND t.trashed IS NULL), message_id, list_id, primary_blob,
+                   trashed
             FROM messages m WHERE id = ?
-            """, [.int(id)], { row in (Self.summary(row), row.text(9), row.text(10), row.text(11) ?? "") }) else { return nil }
+            """, [.int(id)], { row in (Self.summary(row), row.text(9), row.text(10), row.text(11) ?? "", row.optionalDouble(12)) }) else { return nil }
         let locations = try db.query("""
             SELECT account_id, mailbox, uid, flags, labels, internal_date, on_server, sha256
             FROM locations WHERE message_id = ? ORDER BY account_id, mailbox
@@ -350,7 +374,8 @@ public final class ArchiveReader {
                             internalDate: row.optionalDouble(5).map(Date.init(timeIntervalSince1970:)),
                             onServer: row.bool(6), sha256: row.text(7) ?? "")
         }
-        return MessageDetail(summary: summary, messageID: mid, listID: list, primaryBlob: blob, locations: locations)
+        return MessageDetail(summary: summary, messageID: mid, listID: list, primaryBlob: blob, locations: locations,
+                             trashed: trashed.map(Date.init(timeIntervalSince1970:)))
     }
 
     /// Parses the stored message for the reader.

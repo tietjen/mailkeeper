@@ -257,14 +257,18 @@ struct ReaderView: View {
                 .textSelection(.enabled)
                 .contextMenu { AttributeMenuItems(model: model, options: MessageFilters.subject(m.subject ?? ""), copy: m.subject) }
             // TJ: click an attribute to filter by it; the filter lands in the bar, editable there.
-            filterRow("Von", m.from.map { ($0.display, MessageFilters.sender($0), $0.address) })
-            if !m.to.isEmpty { filterRow("An", m.to.map { ($0.display, MessageFilters.recipient($0), $0.address) }) }
-            if !m.cc.isEmpty { filterRow("Kopie", m.cc.map { ($0.display, MessageFilters.recipient($0), $0.address) }) }
+            filterRow("Von", m.from.map { ($0.display, MessageFilters.sender($0), $0.address, nil) })
+            if !m.to.isEmpty { filterRow("An", m.to.map { ($0.display, MessageFilters.recipient($0), $0.address, nil) }) }
+            if !m.cc.isEmpty { filterRow("Kopie", m.cc.map { ($0.display, MessageFilters.recipient($0), $0.address, nil) }) }
             if let date = m.date {
-                filterRow("Datum", [(date.formatted(date: .long, time: .shortened), MessageFilters.date(date), nil)])
+                filterRow("Datum", [(date.formatted(date: .long, time: .shortened), MessageFilters.date(date), nil, nil)])
             }
-            filterRow("Ablage", d.locations.map { ("\($0.account) › \($0.mailbox)", MessageFilters.place(account: $0.account, mailbox: $0.mailbox), nil) })
-            if let list = d.listID { filterRow("Liste", [(list, MessageFilters.list(list), list)]) }
+            placeRow(d)
+            filterRow("Ablage", d.locations.map {
+                ("\($0.account) › \($0.mailbox)", MessageFilters.place(account: $0.account, mailbox: $0.mailbox), nil,
+                 $0.isOnServer ? "server.rack" : "archivebox")
+            })
+            if let list = d.listID { filterRow("Liste", [(list, MessageFilters.list(list), list, nil)]) }
             if thread.count > 1 {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text("Verlauf").foregroundStyle(.secondary).frame(width: 64, alignment: .trailing).font(.callout)
@@ -287,13 +291,43 @@ struct ReaderView: View {
         }
     }
 
+    /// Where the message is (TJ): server and archive, archive only, or trash — exactly one.
+    private func placeRow(_ d: MessageDetail) -> some View {
+        let (icon, title, tint): (String, String, Color) = switch d.place {
+        case .serverAndArchive: ("server.rack", String(localized: "Server und Archiv"), .blue)
+        case .archiveOnly: ("archivebox", String(localized: "Nur im Archiv"), .secondary)
+        case .trash: ("trash", String(localized: "Im Papierkorb"), .orange)
+        }
+        let detail: String = switch d.place {
+        case .serverAndArchive:
+            String(localized: "auf dem Server: ") + d.locations.filter(\.isOnServer).map { "\($0.account) › \($0.mailbox)" }.joined(separator: ", ")
+        case .archiveOnly:
+            d.locations.contains { $0.uid != nil } ? String(localized: "auf dem Server gelöscht") : String(localized: "importiert, auf keinem Server")
+        case .trash:
+            d.purgeDate().map { String(localized: "wird am \($0.formatted(date: .long, time: .omitted)) endgültig gelöscht") } ?? ""
+        }
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("Ort").foregroundStyle(.secondary).frame(width: 64, alignment: .trailing)
+            Label(title, systemImage: icon)
+                .foregroundStyle(tint)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 1)
+                .background(Capsule().fill(tint.opacity(0.12)))
+            Text(DisplayText.safe(detail)).foregroundStyle(.secondary).lineLimit(2)
+            if d.place == .trash {
+                Button("Wiederherstellen") { model.restoreSelection() }.controlSize(.small).disabled(model.actionRunning)
+            }
+        }
+        .font(.callout)
+    }
+
     /// A header row whose values open filter menus.
-    private func filterRow(_ label: LocalizedStringKey, _ values: [(text: String, options: [FilterOption], copy: String?)]) -> some View {
+    private func filterRow(_ label: LocalizedStringKey, _ values: [(text: String, options: [FilterOption], copy: String?, icon: String?)]) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(label).foregroundStyle(.secondary).frame(width: 64, alignment: .trailing)
             WrapLayout(spacing: 10) {
                 ForEach(Array(values.prefix(12).enumerated()), id: \.offset) { _, v in
-                    AttributeMenu(model: model, text: v.text, options: v.options, copy: v.copy)
+                    AttributeMenu(model: model, text: v.text, options: v.options, copy: v.copy, systemImage: v.icon)
                 }
                 if values.count > 12 { Text("+\(values.count - 12)").foregroundStyle(.secondary) }
             }

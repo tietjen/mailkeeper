@@ -171,6 +171,13 @@ public actor ArchiveWriter {
             """, [.int(msgID), .text(sha), .text(loc.account), .text(loc.mailbox),
                   .optional(loc.uidValidity.map(Int64.init)), .optional(loc.uid.map(Int64.init)), .optional(loc.providerID),
                   .optional(loc.internalDate?.timeIntervalSince1970), .text(flags), .text(labels), .double(time), .double(time)])
+        // In the trash means on no server (TJ). A trashed message showing up on a server again
+        // (moved back there by the user) is live again: out of the trash, journalled.
+        if case .live = mode, loc.uid != nil,
+           let identity = try db.queryOne("SELECT identity FROM messages WHERE id = ? AND trashed IS NOT NULL", [.int(msgID)], { $0.text(0) }) ?? nil {
+            try journal.append(.trash(.untrashed, identity: identity, time: time))
+            try applyTrash(.untrashed, identity: identity, time: time)
+        }
         return isNewMessage ? .newMessage(msgID) : .newLocation(msgID)
     }
 

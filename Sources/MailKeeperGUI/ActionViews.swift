@@ -87,6 +87,13 @@ struct PlanSheet: View {
                     Button("Verwerfen") { model.discard(job); dismiss() }
                         .help("Den unterbrochenen Auftrag nicht fortsetzen")
                 }
+                if job.kind == .archiveDelete, !plan.stored, plan.filter.ids != [],
+                   job.reasons.contains(where: { $0.reason == ArchiveReader.stillOnServer }) {
+                    Button("Zuerst auf dem Server löschen …") {
+                        model.plan(.serverDelete, filter: plan.filter, title: job.title)
+                    }
+                    .help("Im Papierkorb liegt nur, was auf keinem Server mehr ist")
+                }
                 Spacer()
                 Button("Abbrechen") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button(runs == 0 ? "Nichts zu tun" : "Ausführen", role: .destructive) { model.execute(plan) }
