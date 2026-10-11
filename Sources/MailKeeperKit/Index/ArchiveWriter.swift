@@ -204,17 +204,30 @@ public actor ArchiveWriter {
     /// Otherwise a reused or forged Message-ID would hide a different mail behind the first one.
     private func resolveIdentity(_ p: ParsedMessage, sha: String) throws -> String {
         let base = Self.identity(p, sha: sha)
-        guard base.hasPrefix("mid:"),
-              let (from, subject) = try db.queryOne("SELECT from_addr, subject FROM messages WHERE identity = ?",
-                                                    [.text(base)], { ($0.text(0), $0.text(1)) })
-        else { return base }
-        if Self.sameMessage(from: from, subject: subject, as: p) { return base }
-        return base + "|" + Self.fallbackIdentity(p, sha: sha)
+        guard base.hasPrefix("mid:") else { return base }
+        if let (from, subject) = try db.queryOne("SELECT from_addr, subject FROM messages WHERE identity = ?",
+                                                 [.text(base)], { ($0.text(0), $0.text(1)) }) {
+            if Self.sameMessage(from: from, subject: subject, as: p) { return base }
+            return base + "|" + Self.fallbackIdentity(p, sha: sha)
+        }
+        // Purged before: the tombstone remembers who sent it and decides as the row would have —
+        // a different message reusing the Message-ID is not swallowed by it.
+        if let who = try db.queryOne("SELECT who FROM tombstones WHERE key = ?", [.text("id:" + base)], { $0.text(0) }) ?? nil,
+           who != Self.senderSubjectKey(from: p.from.first?.address, subject: p.subject) {
+            return base + "|" + Self.fallbackIdentity(p, sha: sha)
+        }
+        return base
     }
 
     static func sameMessage(from: String?, subject: String?, as p: ParsedMessage) -> Bool {
         let norm = { (s: String?) in collapseWhitespace((s ?? "").lowercased()) }
         return norm(from) == norm(p.from.first?.address) && norm(subject) == norm(p.subject)
+    }
+
+    /// What `sameMessage` compares, as a hash: kept in a tombstone instead of sender and subject.
+    static func senderSubjectKey(from: String?, subject: String?) -> String {
+        let norm = { (s: String?) in collapseWhitespace((s ?? "").lowercased()) }
+        return sha256Hex(Data((norm(from) + "\u{1F}" + norm(subject)).utf8))
     }
 
     private func insertMessage(_ p: ParsedMessage, identity: String, sha: String, size: Int, time: Double) throws -> Int64 {
@@ -344,10 +357,13 @@ public actor ArchiveWriter {
                     archiveEvents.append(event)
                 }
             }
-            for event in archiveEvents.sorted(by: { $0.time < $1.time }) {
+            // by time; equal times keep their journal order
+            let ordered = archiveEvents.enumerated().sorted { ($0.element.time, $0.offset) < ($1.element.time, $1.offset) }.map(\.element)
+            for event in ordered {
                 guard let identity = event.identity else { report.skippedEvents += 1; continue }
                 if event.kind == .purged {
-                    try applyPurge(identity: identity, shas: event.shas ?? [], locations: event.locations ?? [], time: event.time)
+                    try applyPurge(identity: identity, shas: event.shas ?? [], locations: event.locations ?? [], who: event.who,
+                                   time: event.time)
                     missing.subtract(event.shas ?? [])  // deleted on purpose, not lost
                 } else {
                     try applyTrash(event.kind, identity: identity, time: event.time)
@@ -431,31 +447,61 @@ public actor ArchiveWriter {
     }
 
     /// Moves messages to the archive trash (hidden from every view, purged after the grace time).
+    /// In the trash means on no server: a message with a live server location stays (checked
+    /// here, at the moment it happens — a plan may be older than the last sync).
     @discardableResult
     public func trash(_ identities: [String], time: Double = Date().timeIntervalSince1970) throws -> Int {
-        try setTrashed(identities, time: time, kind: .trashed)
+        try trashDetailed(identities, time: time).newlyTrashed
+    }
+
+    public struct TrashOutcome: Sendable, Equatable {
+        public var trashed: Set<String> = []
+        /// Still on a server: left alone.
+        public var onServer: Set<String> = []
+        /// No such message (any more) in this archive.
+        public var missing: Set<String> = []
+        /// Of `trashed`, those that were not in the trash before.
+        public var newlyTrashed = 0
+    }
+
+    public func trashDetailed(_ identities: [String], time: Double = Date().timeIntervalSince1970) throws -> TrashOutcome {
+        var outcome = TrashOutcome()
+        var changing: [String] = []
+        for identity in identities {
+            let state = try db.queryOne("""
+                SELECT trashed IS NOT NULL,
+                       EXISTS (SELECT 1 FROM locations l WHERE l.message_id = m.id AND l.on_server = 1 AND l.uid IS NOT NULL)
+                FROM messages m WHERE identity = ?
+                """, [.text(identity)]) { ($0.bool(0), $0.bool(1)) }
+            switch state {
+            case nil: outcome.missing.insert(identity)
+            case (_, true)?: outcome.onServer.insert(identity)
+            case (true, false)?: outcome.trashed.insert(identity)  // already there: idempotent
+            case (false, false)?: changing.append(identity); outcome.trashed.insert(identity)
+            }
+        }
+        try setTrashed(changing, time: time, kind: .trashed)
+        outcome.newlyTrashed = changing.count
+        return outcome
     }
 
     @discardableResult
     public func untrash(_ identities: [String]) throws -> Int {
-        try setTrashed(identities, time: Date().timeIntervalSince1970, kind: .untrashed)
+        let live = try identities.filter {
+            try db.queryOne("SELECT 1 FROM messages WHERE identity = ? AND trashed IS NOT NULL", [.text($0)], { _ in true }) != nil
+        }
+        try setTrashed(live, time: Date().timeIntervalSince1970, kind: .untrashed)
+        return live.count
     }
 
     /// Journal first (synced), then the index - like ingest.
-    private func setTrashed(_ identities: [String], time: Double, kind: JournalEvent.Kind) throws -> Int {
-        let live = kind == .trashed ? "trashed IS NULL" : "trashed IS NOT NULL"
-        var changing: [String] = []
-        for identity in identities
-        where try db.queryOne("SELECT 1 FROM messages WHERE identity = ? AND \(live)", [.text(identity)], { _ in true }) != nil {
-            changing.append(identity)
-        }
-        guard !changing.isEmpty else { return 0 }
+    private func setTrashed(_ changing: [String], time: Double, kind: JournalEvent.Kind) throws {
+        guard !changing.isEmpty else { return }
         for identity in changing { try journal.append(.trash(kind, identity: identity, time: time)) }
         try journal.sync()
         try db.transaction {
             for identity in changing { try applyTrash(kind, identity: identity, time: time) }
         }
-        return changing.count
     }
 
     private func applyTrash(_ kind: JournalEvent.Kind, identity: String, time: Double) throws {
@@ -467,16 +513,26 @@ public actor ArchiveWriter {
         public var messages = 0
         public var blobs = 0
         public var bytes: Int64 = 0
+        /// In the trash but back on a server: taken out of the trash instead of purged.
+        public var backOnServer = 0
     }
 
     /// Deletes messages from the archive for good: rows, search text, blobs no longer referenced.
     /// Tombstones (identity, bytes, IMAP locations) keep sync and import from bringing them back.
+    /// Only what is in the archive trash — whatever the caller passes (review 4.7: a stale list
+    /// must not purge live mail); a trashed message that is on a server again leaves the trash.
     public func purge(_ identities: [String], time: Double = Date().timeIntervalSince1970) throws -> PurgeReport {
         var report = PurgeReport()
         var candidates: Set<String> = []
-        var plans: [(identity: String, shas: [String], tombs: [JournalEvent.Tombstone])] = []
+        var plans: [(identity: String, shas: [String], tombs: [JournalEvent.Tombstone], who: String?)] = []
+        var backOnServer: [String] = []
         for identity in identities {
-            guard let id = try db.queryOne("SELECT id FROM messages WHERE identity = ?", [.text(identity)], { $0.int(0) }) else { continue }
+            guard let (id, live, from, subject) = try db.queryOne("""
+                SELECT id, EXISTS (SELECT 1 FROM locations l WHERE l.message_id = m.id AND l.on_server = 1 AND l.uid IS NOT NULL),
+                       from_addr, subject
+                FROM messages m WHERE identity = ? AND trashed IS NOT NULL
+                """, [.text(identity)], { ($0.int(0), $0.bool(1), $0.text(2), $0.text(3)) }) else { continue }
+            if live { backOnServer.append(identity); continue }
             let shas = try db.query("SELECT sha256 FROM message_blobs WHERE message_id = ? UNION SELECT sha256 FROM locations WHERE message_id = ?",
                                     [.int(id), .int(id)]) { $0.text(0) ?? "" }
             let tombs = try db.query("""
@@ -486,14 +542,18 @@ public actor ArchiveWriter {
                 JournalEvent.Tombstone(account: $0.text(0) ?? "", mailbox: $0.text(1) ?? "",
                                        uidValidity: UInt32(truncatingIfNeeded: $0.int(2)), uid: UInt32(truncatingIfNeeded: $0.int(3)))
             }
-            plans.append((identity, shas, tombs))
+            plans.append((identity, shas, tombs, identity.hasPrefix("mid:") ? Self.senderSubjectKey(from: from, subject: subject) : nil))
+        }
+        if !backOnServer.isEmpty {
+            try setTrashed(backOnServer, time: time, kind: .untrashed)
+            report.backOnServer = backOnServer.count
         }
         guard !plans.isEmpty else { return report }
-        for p in plans { try journal.append(.purged(identity: p.identity, shas: p.shas, locations: p.tombs, time: time)) }
+        for p in plans { try journal.append(.purged(identity: p.identity, shas: p.shas, locations: p.tombs, who: p.who, time: time)) }
         try journal.sync()
         try db.transaction {
             for p in plans {
-                try applyPurge(identity: p.identity, shas: p.shas, locations: p.tombs, time: time)
+                try applyPurge(identity: p.identity, shas: p.shas, locations: p.tombs, who: p.who, time: time)
                 candidates.formUnion(p.shas)
                 report.messages += 1
             }
@@ -513,13 +573,13 @@ public actor ArchiveWriter {
         return report
     }
 
-    private func applyPurge(identity: String, shas: [String], locations: [JournalEvent.Tombstone], time: Double) throws {
+    private func applyPurge(identity: String, shas: [String], locations: [JournalEvent.Tombstone], who: String?, time: Double) throws {
         if let id = try db.queryOne("SELECT id FROM messages WHERE identity = ?", [.text(identity)], { $0.int(0) }) {
             try db.run("DELETE FROM messages_fts WHERE rowid = ?", [.int(id)])
             try db.run("DELETE FROM attachment_text_fts WHERE rowid = ?", [.int(id)])
             try db.run("DELETE FROM messages WHERE id = ?", [.int(id)])  // cascades locations, attachments, refs, text
         }
-        try db.run("INSERT OR REPLACE INTO tombstones(key, purged) VALUES (?, ?)", [.text("id:" + identity), .double(time)])
+        try db.run("INSERT OR REPLACE INTO tombstones(key, purged, who) VALUES (?, ?, ?)", [.text("id:" + identity), .double(time), .optional(who)])
         for sha in shas { try db.run("INSERT OR REPLACE INTO tombstones(key, purged) VALUES (?, ?)", [.text("sha:" + sha), .double(time)]) }
         for t in locations {
             try db.run("INSERT OR IGNORE INTO tombstone_locations(account_id, mailbox, uid_validity, uid) VALUES (?, ?, ?, ?)",
@@ -589,6 +649,39 @@ public actor ArchiveWriter {
             try journal.sync()
             return targets.count
         }
+    }
+
+    /// Locations marked gone that the server lists again (a mailbox missing from one LIST, a
+    /// language switch back on Gmail): on the server again, journalled as `seen` with what was
+    /// known — and out of the archive trash, which means "on no server".
+    public func markPresent(account: String, mailbox: String, uidValidity: UInt32, uids: Set<UInt32>) throws -> Int {
+        guard !uids.isEmpty else { return 0 }
+        let now = Date().timeIntervalSince1970
+        let rows = try db.query("""
+            SELECT l.id, l.uid, l.sha256, l.provider_id, l.internal_date, l.flags, l.labels, m.identity, m.trashed IS NOT NULL
+            FROM locations l JOIN messages m ON m.id = l.message_id
+            WHERE l.account_id = ? AND l.mailbox = ? AND l.uid_validity = ? AND l.uid IS NOT NULL AND l.on_server = 0
+            """, [.text(account), .text(mailbox), .int(Int64(uidValidity))]) { r in
+            (id: r.int(0), uid: UInt32(truncatingIfNeeded: r.int(1)), sha: r.text(2) ?? "", pid: r.text(3),
+             date: r.optionalDouble(4), flags: r.text(5) ?? "", labels: r.text(6) ?? "", identity: r.text(7) ?? "", trashed: r.bool(8))
+        }.filter { uids.contains($0.uid) }
+        guard !rows.isEmpty else { return 0 }
+        try db.transaction {
+            for r in rows {
+                let loc = LocationInfo(account: account, mailbox: mailbox, uidValidity: uidValidity, uid: r.uid, providerID: r.pid,
+                                       internalDate: r.date.map(Date.init(timeIntervalSince1970:)),
+                                       flags: r.flags.split(separator: " ").map(String.init),
+                                       labels: r.labels.split(separator: "\u{1F}").map(String.init))
+                try journal.append(.seen(loc, sha256: r.sha, time: now))
+                try db.run("UPDATE locations SET on_server = 1, last_seen = ? WHERE id = ?", [.double(now), .int(r.id)])
+                if r.trashed {
+                    try journal.append(.trash(.untrashed, identity: r.identity, time: now))
+                    try applyTrash(.untrashed, identity: r.identity, time: now)
+                }
+            }
+            try journal.sync()
+        }
+        return rows.count
     }
 
     public func setSyncState(account: String, mailbox: String, uidValidity: UInt32, highestModSeq: UInt64?) throws {

@@ -141,7 +141,7 @@ struct MessageTable: NSViewRepresentable {
             default: text = ""
             }
             cell.textField?.stringValue = DisplayText.safe(text)
-            cell.toolTip = column.identifier.rawValue == "subject" ? m.snippet : nil
+            cell.toolTip = column.identifier.rawValue == "subject" ? m.snippet.map(DisplayText.safe) : nil
             return cell
         }
 

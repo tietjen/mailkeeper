@@ -59,6 +59,11 @@ struct ReadOnlyGuardTests {
             .uidStore(one, [], .flags(.add(silent: true, list: [.deleted, .seen]))),
         ]
         for c in refused { #expect(!IMAPSession.isAllowedChange(c, access: .moveToTrash, trash: trash), "\(c)") }
+        // `$` (the last search's hits) never stands in for explicit UIDs
+        for c: Command in [.uidMove(.lastCommand, trash), .uidCopy(.lastCommand, trash), .uidExpunge(.lastCommand),
+                           .uidStore(.lastCommand, [], .flags(.add(silent: true, list: [.deleted])))] {
+            #expect(!IMAPSession.isAllowedChange(c, access: .moveToTrash, trash: trash), "\(c)")
+        }
         // no destination at all before the \Trash mailbox has been looked up
         #expect(!IMAPSession.isAllowedChange(.uidMove(one, trash), access: .moveToTrash, trash: nil))
     }
@@ -89,6 +94,13 @@ struct ReadOnlyGuardTests {
         for c in refused { #expect(!IMAPSession.isAllowedChange(c, access: .restore, trash: trash), "\(c)") }
         // and a delete connection cannot label
         #expect(!IMAPSession.isAllowedChange(allowed[1], access: .moveToTrash, trash: trash))
+    }
+
+    @Test func uidZeroAndStarNeverReachTheServer() throws {
+        #expect(throws: IMAPError.self) { _ = try IMAPSession.uidSet([0]) }
+        #expect(throws: IMAPError.self) { _ = try IMAPSession.uidSet([UInt32.max]) }
+        guard case .set(let set) = try IMAPSession.uidSet([0, 5, .max]) else { Issue.record("no set"); return }
+        #expect(set.set.map { UInt32($0.rawValue) } == [5])
     }
 
     @Test func appendLimitAndTrashNameVeto() {

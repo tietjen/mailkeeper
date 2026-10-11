@@ -372,7 +372,15 @@ final class AppModel {
 
     @discardableResult
     func open(_ url: URL, create: Bool) -> Bool {
-        if url != archiveRoot { history.clear() }  // stations of another archive mean nothing here
+        if url != archiveRoot {
+            history.clear()  // stations of another archive mean nothing here
+            // nothing planned in one archive may run in another (review 4.7)
+            pendingPlan = nil
+            pendingExport = nil
+            actionResult = nil
+            exportResult = nil
+            lastFilter = nil
+        }
         textIndexTask?.cancel()  // belongs to the previous archive
         textIndexTask = nil
         textIndexToken = nil
@@ -459,8 +467,12 @@ final class AppModel {
             query = if let text { try QueryParser.parse(text) } else { nil }
             queryError = nil
         } catch {
-            // "from:" while typing the value: keep the current list, no error yet.
-            if searchText.hasSuffix(":") { return }
+            // "from:" while typing the value: keep the current list, no error yet — but only while
+            // it is the list of this scope (review 4.7: the trash bar must never sit on another list).
+            if searchText.hasSuffix(":"), var last = lastFilter {
+                last.text = nil
+                if last == filter { return }
+            }
             // Otherwise fail closed: no list (and no groups) rather than a wider one.
             query = nil
             queryError = error.message
@@ -1139,7 +1151,11 @@ final class AppModel {
     /// Jobs a crash or quit interrupted (planned or claimed items left).
     func reloadUnfinishedJobs() {
         guard let layout = reader?.layout else { unfinishedJobs = []; return }
-        unfinishedJobs = ActionStore(layout: layout).load().jobs.filter { !$0.isFinished }
+        let (jobs, broken) = ActionStore(layout: layout).load()
+        unfinishedJobs = jobs.filter { !$0.isFinished }
+        if !broken.isEmpty {
+            actionError = String(localized: "\(broken.count) Auftragsdateien waren nicht lesbar und liegen jetzt unter queue/broken im Archiv (nichts wurde ausgeführt).")
+        }
     }
 
     func resume(_ job: ActionJob) {
@@ -1172,7 +1188,9 @@ final class AppModel {
 
     /// Deleting for good asks for Touch ID or the password first (ADR-0006).
     func purgeSelection() async {
-        guard let reader, let identities = try? reader.identities(of: actionSelection), !identities.isEmpty else { return }
+        // only what is in the trash, whatever the list shows (the writer checks again)
+        guard let reader, let trashed = try? Set(reader.trashedIdentities()),
+              let identities = try? reader.identities(of: actionSelection).filter(trashed.contains), !identities.isEmpty else { return }
         guard await authenticate(String(localized: "\(identities.count) Mails endgültig aus dem Archiv löschen")) else { return }
         withWriter { _ = try await $0.purge(identities) }
     }
@@ -1230,7 +1248,8 @@ final class AppModel {
         textIndexTask = Task.detached(priority: .utility) { [weak self] in
             do {
                 let writer = try ArchiveWriter(layout: try ArchiveLayout.open(at: root, create: false))
-                _ = try await writer.purgeExpired(days: 30)  // archive trash: 30 days, then for good (ADR-0006)
+                let purged = try await writer.purgeExpired(days: 30)  // archive trash: 30 days, then for good (ADR-0006)
+                if purged.messages > 0 || purged.backOnServer > 0 { await MainActor.run { self?.refresh() } }
                 _ = try await AttachmentIndexer(writer: writer, extractor: extractor).run { p in
                     Task { @MainActor in if self?.textIndexToken == token { self?.textIndexProgress = p } }
                 }
@@ -1311,7 +1330,10 @@ final class AppModel {
                         let r = try await SyncCoordinator.sync(account, writer: writer, credentials: credentials) { p in
                             Task { @MainActor in self?.syncProgress = p }
                         }
-                        summary.append("\(account.displayName): \(r.newMessages) neu" + (r.failures.isEmpty ? "" : " · \(r.failures.count) Fehler: \(r.failures.joined(separator: "; "))"))
+                        summary.append("\(account.displayName): \(r.newMessages) neu"
+                                       + (r.back > 0 ? " · \(r.back) wieder auf dem Server" : "")
+                                       + (r.deletedBefore > 0 ? " · \(r.deletedBefore) endgültig gelöschte nicht wieder geholt" : "")
+                                       + (r.failures.isEmpty ? "" : " · \(r.failures.count) Fehler: \(r.failures.joined(separator: "; "))"))
                     } catch {
                         summary.append("\(account.displayName): \(error)")
                     }

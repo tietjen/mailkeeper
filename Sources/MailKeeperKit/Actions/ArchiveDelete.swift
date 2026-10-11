@@ -23,10 +23,15 @@ public struct ArchiveDeleteExecutor: Sendable {
             try Task.checkCancellation()
             let batch = Array(open[start..<min(start + batchSize, open.count)])
             for item in batch { try store.record(job: job.id, item: item.id, state: .claimed) }
-            _ = try await writer.trash(batch.compactMap(\.identity))  // idempotent: already trashed stays
+            // checked when it happens: a message back on a server since planning stays (review 4.7)
+            let outcome = try await writer.trashDetailed(batch.compactMap(\.identity))  // idempotent: already trashed stays
             for item in batch {
-                let state: ActionItem.State = item.identity == nil ? .failed : .done
-                let reason = item.identity == nil ? String(localized: "keine Archiv-Identität") : nil
+                let (state, reason): (ActionItem.State, String?) = switch item.identity {
+                case nil: (.failed, String(localized: "keine Archiv-Identität"))
+                case let id? where outcome.onServer.contains(id): (.skipped, ArchiveReader.stillOnServer)
+                case let id? where outcome.missing.contains(id): (.failed, String(localized: "nicht (mehr) im Archiv"))
+                default: (.done, nil)
+                }
                 try store.record(job: job.id, item: item.id, state: state, reason: reason)
                 job.items[item.id].state = state
                 job.items[item.id].reason = reason

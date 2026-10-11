@@ -126,7 +126,14 @@ public struct RestoreExecutor: Sendable {
                 progress(p)
                 continue
             }
-            var validity = try await server.selectForChange(mailbox)
+            var validity: UInt32
+            do {
+                validity = try await server.selectForChange(mailbox)
+            } catch let refusal as ServerRefusal {
+                for item in items { try finish(&job, item.id, .failed, String(localized: "vom Server abgelehnt: \(refusal.message)"), &p) }
+                progress(p)
+                continue
+            }
             for item in items {
                 try Task.checkCancellation()
                 if refusedInARow >= Self.maxRefusalsInARow {  // a full mailbox refuses everything: no login storm

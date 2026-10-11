@@ -97,6 +97,8 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
     /// only messages a restore may label.
     private var selectedMailbox: String?
     private var appendedUIDs: [String: Set<UInt32>] = [:]
+    /// What a delete connection copied to \Trash per mailbox: the only UIDs it may flag and expunge.
+    private var copiedUIDs: [String: Set<UInt32>] = [:]
 
     private init(endpoint: IMAPEndpoint, access: IMAPAccess, channel: Channel, responses: AsyncThrowingStream<Response, Error>) {
         self.endpoint = endpoint
@@ -323,7 +325,7 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         guard !uids.isEmpty else { return [] }
         var attributes: [FetchAttribute] = [.uid, .flags, .internalDate, .rfc822Size, .bodySection(peek: true, .complete, nil)]
         if gmail { attributes += [.gmailMessageID, .gmailLabels] }
-        let result = try await run(.uidFetch(Self.uidSet(uids), attributes, []))
+        let result = try await run(.uidFetch(try Self.uidSet(uids), attributes, []))
         return result.fetches.compactMap { f in
             guard let uid = f.uid, let body = f.body else { return nil }
             return RemoteMessage(uid: uid, flags: f.flags, labels: f.labels, internalDate: f.internalDate,
@@ -345,7 +347,12 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         if mailboxNames[mailbox] == nil { _ = try await mailboxes() }
         guard let name = mailboxNames[mailbox] else { throw IMAPError.protocolError("unbekanntes Postfach \(mailbox)") }
         selectedMailbox = nil
-        let validity = try status(of: try await run(.select(name, [])), mailbox: mailbox).uidValidity
+        let validity: UInt32
+        do {
+            validity = try status(of: try await run(.select(name, [])), mailbox: mailbox).uidValidity
+        } catch IMAPError.command(_, let message) {
+            throw ServerRefusal(message)  // e.g. no rights: that mailbox's messages fail, the job goes on
+        }
         selectedMailbox = mailbox
         return validity
     }
@@ -353,7 +360,7 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
     public func identities(_ uids: [UInt32]) async throws -> [UInt32: RemoteIdentity] {
         guard !uids.isEmpty else { return [:] }
         let header = FetchAttribute.bodySection(peek: true, SectionSpecifier(kind: .headerFields(["Message-ID"])), nil)
-        let result = try await run(.uidFetch(Self.uidSet(uids), [.uid, .flags, .rfc822Size, header], []))
+        let result = try await run(.uidFetch(try Self.uidSet(uids), [.uid, .flags, .rfc822Size, header], []))
         var out: [UInt32: RemoteIdentity] = [:]
         for f in result.fetches {
             guard let uid = f.uid else { continue }
@@ -366,24 +373,31 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         Dictionary(try await fetch(uids).map { ($0.uid, $0.data) }, uniquingKeysWith: { a, _ in a })
     }
 
+    /// A NO from the server is a `ServerRefusal` (the executor fails those messages and goes on).
     public func moveToTrash(_ uids: [UInt32]) async throws {
         guard !uids.isEmpty else { return }
         guard let trash else { throw IMAPError.protocolError("kein Papierkorb (\\Trash) bestimmt") }
-        let set = Self.uidSet(uids)
-        if serverCapabilities.contains("MOVE") {
-            try await run(.uidMove(set, trash))
-        } else if serverCapabilities.contains("UIDPLUS") {
-            try await run(.uidCopy(set, trash))
-            try await run(.uidStore(set, [], .flags(.add(silent: true, list: [.deleted]))))
-            try await run(.uidExpunge(set))
-        } else {
-            throw IMAPError.command("MOVE", "der Server kann weder MOVE noch UIDPLUS – gezieltes Löschen nicht möglich")
+        let set = try Self.uidSet(uids)
+        do {
+            if serverCapabilities.contains("MOVE") {
+                try await run(.uidMove(set, trash))
+            } else if serverCapabilities.contains("UIDPLUS") {
+                try await run(.uidCopy(set, trash))
+                // \Deleted and EXPUNGE only on exactly what was just copied (checked in perform)
+                if let mailbox = selectedMailbox { copiedUIDs[mailbox, default: []].formUnion(uids) }
+                try await run(.uidStore(set, [], .flags(.add(silent: true, list: [.deleted]))))
+                try await run(.uidExpunge(set))
+            } else {
+                throw ServerRefusal("der Server kann weder MOVE noch UIDPLUS – gezieltes Löschen nicht möglich")
+            }
+        } catch IMAPError.command(_, let message) {
+            throw ServerRefusal(message)
         }
     }
 
     public func present(_ uids: [UInt32]) async throws -> Set<UInt32> {
         guard !uids.isEmpty else { return [] }
-        return Set(try await run(.uidFetch(Self.uidSet(uids), [.uid], [])).fetches.compactMap(\.uid))
+        return Set(try await run(.uidFetch(try Self.uidSet(uids), [.uid], [])).fetches.compactMap(\.uid))
     }
 
     // MARK: Restore (Phase 4, access .restore)
@@ -462,8 +476,8 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         try requireOwn(uid, "STORE FLAGS")
         let add = RestoreTarget.restorableFlags(add).map { Flag($0) }, remove = RestoreTarget.restorableFlags(remove).map { Flag($0) }
         do {
-            if !add.isEmpty { try await run(.uidStore(Self.uidSet([uid]), [], .flags(.add(silent: true, list: add)))) }
-            if !remove.isEmpty { try await run(.uidStore(Self.uidSet([uid]), [], .flags(.remove(silent: true, list: remove)))) }
+            if !add.isEmpty { try await run(.uidStore(try Self.uidSet([uid]), [], .flags(.add(silent: true, list: add)))) }
+            if !remove.isEmpty { try await run(.uidStore(try Self.uidSet([uid]), [], .flags(.remove(silent: true, list: remove)))) }
         } catch IMAPError.command(_, let message) {
             throw ServerRefusal(message)
         }
@@ -478,7 +492,7 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         }
         guard !encoded.isEmpty else { return }
         do {
-            try await run(.uidStore(Self.uidSet([uid]), [], .gmailLabels(.add(silent: true, gmailLabels: encoded))))
+            try await run(.uidStore(try Self.uidSet([uid]), [], .gmailLabels(.add(silent: true, gmailLabels: encoded))))
         } catch IMAPError.command(_, let message) {
             throw ServerRefusal(message)
         }
@@ -542,11 +556,12 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         switch (access, command) {
         case (.moveToTrash, .select(_, let params)), (.restore, .select(_, let params)):
             return params.allSatisfy { if case .basic(let kv) = $0 { kv.key.uppercased() == "CONDSTORE" } else { false } }
-        case (.moveToTrash, .uidMove(_, let destination)), (.moveToTrash, .uidCopy(_, let destination)):
+        // explicit UID sets only: `$` (SEARCHRES, the last search's hits) never names the messages
+        case (.moveToTrash, .uidMove(.set, let destination)), (.moveToTrash, .uidCopy(.set, let destination)):
             return trash != nil && destination == trash
-        case (.moveToTrash, .uidStore(_, let modifiers, .flags(let store))):
+        case (.moveToTrash, .uidStore(.set, let modifiers, .flags(let store))):
             return modifiers.isEmpty && store.operation == .add && store.flags == [.deleted]
-        case (.moveToTrash, .uidExpunge):
+        case (.moveToTrash, .uidExpunge(.set)):
             return true  // explicit UIDs only (UIDPLUS); bare EXPUNGE and CLOSE stay refused
         case (.restore, .uidStore(_, let modifiers, .gmailLabels(let store))):
             return modifiers.isEmpty && store.operation == .add
@@ -594,6 +609,19 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
                 } else if access == .restore, case .uidStore = tagged.command {
                     throw IMAPError.readOnlyViolation("STORE ohne UID-Liste")
                 }
+                // a delete connection flags and expunges only what it has just copied to \Trash
+                if access == .moveToTrash {
+                    let uids: MessageIdentifierSetNonEmpty<UID>? = switch tagged.command {
+                    case .uidStore(.set(let set), _, _), .uidExpunge(.set(let set)): set
+                    default: nil
+                    }
+                    if let uids {
+                        let copied = selectedMailbox.flatMap { copiedUIDs[$0] } ?? []
+                        guard uids.set.allSatisfy({ copied.contains(UInt32($0.rawValue)) }) else {
+                            throw IMAPError.readOnlyViolation("STORE/EXPUNGE auf nicht kopierte Mails")
+                        }
+                    }
+                }
             case .append:
                 guard access == .restore else { throw IMAPError.readOnlyViolation("APPEND") }
             default:
@@ -616,7 +644,12 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         defer { responses = it }
         while true {
             let next: Response?
-            do { next = try await it.next(isolation: self) } catch { throw Self.mapped(error) }
+            do { next = try await it.next(isolation: self) } catch {
+                if Task.isCancelled { throw CancellationError() }
+                throw Self.mapped(error)
+            }
+            // a cancelled task ends the stream: that is "stopped", not a lost connection
+            if next == nil, Task.isCancelled { throw CancellationError() }
             guard let response = next else { throw IMAPError.closed }
             switch response {
             case .untagged(let payload):
@@ -712,10 +745,13 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         return caps
     }
 
-    static func uidSet(_ uids: [UInt32]) -> LastCommandSet<UID> {
+    /// UIDs are 1…2³²−2 here: 0 is invalid (swift-nio-imap would trap) and 2³²−1 encodes as `*`
+    /// ("the last message") — a damaged queue or index row must not turn into either.
+    static func uidSet(_ uids: [UInt32]) throws -> LastCommandSet<UID> {
         var set = MessageIdentifierSet<UID>()
-        for u in uids { set.formUnion(MessageIdentifierSet<UID>(UID(rawValue: u))) }
-        return .set(MessageIdentifierSetNonEmpty(set: set)!)
+        for u in uids where u >= 1 && u < .max { set.formUnion(MessageIdentifierSet<UID>(UID(rawValue: u))) }
+        guard let nonEmpty = MessageIdentifierSetNonEmpty(set: set) else { throw IMAPError.protocolError("keine gültige UID") }
+        return .set(nonEmpty)
     }
 
     static func name(of command: Command) -> String {

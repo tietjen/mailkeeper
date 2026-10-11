@@ -5,6 +5,8 @@ public struct ImportProgress: Sendable, Equatable {
     public var newMessages = 0
     public var newLocations = 0
     public var unchanged = 0
+    /// Deleted from the archive for good earlier: not imported again.
+    public var deletedBefore = 0
     public var failed = 0
     public var bytes: Int64 = 0
     public var lastError: String?
@@ -16,7 +18,8 @@ public struct ImportProgress: Sendable, Equatable {
             switch r {
             case .newMessage: newMessages += 1
             case .newLocation: newLocations += 1
-            case .unchanged, .tombstoned: unchanged += 1
+            case .unchanged: unchanged += 1
+            case .tombstoned: deletedBefore += 1
             }
         }
     }

@@ -342,11 +342,27 @@ public struct AuditLog: Sendable {
         var data = try encoder.encode(entry)
         data.append(0x0A)
         try makePrivateDirectory(url.deletingLastPathComponent())
-        let fd = open(url.path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0o600)
+        let fd = open(url.path, O_RDWR | O_APPEND | O_CREAT | O_CLOEXEC, 0o600)  // read: the last byte
         guard fd >= 0 else { throw ArchiveError.io("open: \(String(cString: strerror(errno)))", path: url.path) }
         defer { close(fd) }
-        let written = data.withUnsafeBytes { write(fd, $0.baseAddress!, $0.count) }
-        guard written == data.count else { throw ArchiveError.io("audit write", path: url.path) }
+        // a torn last line (crash mid-write) is terminated first, or this entry would be glued to it
+        let end = lseek(fd, 0, SEEK_END)
+        if end > 0 {
+            var last: UInt8 = 0
+            if pread(fd, &last, 1, end - 1) == 1, last != 0x0A { _ = write(fd, [UInt8(0x0A)], 1) }
+        }
+        try data.withUnsafeBytes { buf in
+            var offset = 0
+            while offset < buf.count {
+                let n = write(fd, buf.baseAddress! + offset, buf.count - offset)
+                if n < 0 {
+                    if errno == EINTR { continue }
+                    throw ArchiveError.io("audit write", path: url.path)
+                }
+                offset += n
+            }
+        }
+        _ = fsync(fd)
     }
 
     public func entries() -> [Entry] {

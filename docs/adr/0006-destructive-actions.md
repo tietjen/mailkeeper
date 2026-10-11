@@ -29,7 +29,13 @@ APPEND, Proton rebuilds messages and ignores the APPEND date, Dovecot is textboo
    choice and asks for Touch ID / password. Gmail: removing from a label is not deletion;
    restoring a still-trashed message untrashes it (same X-GM-MSGID).
 4. **Archive delete:** to the archive trash (30 days), then purge; a blob is removed only when
-   no message references it.
+   no message references it. *As built (review 4.7):* the writer enforces "in the trash means on
+   no server" itself — `trash` leaves a message with a live server location alone (checked when
+   it happens, not only when planned), `purge` takes only what is in the trash (a stale list in
+   the GUI cannot purge live mail) and takes a trashed message that is back on a server out of
+   the trash instead. A location marked gone that the server lists again is present again (sync,
+   journalled), and leaves the trash. A purged `mid:` identity's tombstone keeps a hash of sender
+   and subject (no text): a different message reusing the Message-ID is not swallowed by it.
 5. **Restore:** `APPEND` of the stored bytes with original flags and INTERNALDATE (Proton
    ignores the date and uses `Date:`); Message-ID pre-check in the target; Gmail labels via
    `STORE +X-GM-LABELS`; Proton in batches of 100–500 with long timeouts (~1.5 s/message).

@@ -36,6 +36,8 @@ public struct JournalEvent: Codable, Sendable, Equatable {
     public var identity: String?
     public var shas: [String]?
     public var locations: [Tombstone]?
+    /// Purged `mid:` identity: hash of sender and subject (never the text itself).
+    public var who: String?
 
     /// An IMAP location of a purged message: sync must not fetch it again.
     public struct Tombstone: Codable, Sendable, Equatable, Hashable {
@@ -50,16 +52,16 @@ public struct JournalEvent: Codable, Sendable, Equatable {
     enum CodingKeys: String, CodingKey {
         case kind = "k", time = "t", account = "a", accountKind = "ak", accountName = "an"
         case mailbox = "mb", uidValidity = "uv", uid = "u", providerID = "pid", sha256 = "sha"
-        case internalDate = "id", flags = "f", labels = "l", identity = "idn", shas = "shas", locations = "locs"
+        case internalDate = "id", flags = "f", labels = "l", identity = "idn", shas = "shas", locations = "locs", who = "who"
     }
 
     public static func trash(_ kind: Kind, identity: String, time: Double = Date().timeIntervalSince1970) -> JournalEvent {
         JournalEvent(kind: kind, time: time, account: archiveAccount, identity: identity)
     }
 
-    public static func purged(identity: String, shas: [String], locations: [Tombstone],
+    public static func purged(identity: String, shas: [String], locations: [Tombstone], who: String? = nil,
                               time: Double = Date().timeIntervalSince1970) -> JournalEvent {
-        JournalEvent(kind: .purged, time: time, account: archiveAccount, identity: identity, shas: shas, locations: locations)
+        JournalEvent(kind: .purged, time: time, account: archiveAccount, identity: identity, shas: shas, locations: locations, who: who)
     }
 
     public static func account(_ id: String, kind: String, name: String, time: Double = Date().timeIntervalSince1970) -> JournalEvent {

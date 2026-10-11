@@ -75,7 +75,7 @@ struct PlanSheet: View {
             }
             .font(.callout)
 
-            if job.kind == .serverDelete, !plan.stored {
+            if job.kind == .serverDelete, replannable {
                 VStack(alignment: .leading, spacing: 4) {
                     Stepper(value: $graceDays, in: 0...3650) {
                         Text(graceDays == 1 ? "Schonfrist: 1 Tag ab Eingang auf dem Server"
@@ -83,6 +83,11 @@ struct PlanSheet: View {
                     }
                     .onChange(of: graceDays) { model.replan(plan, graceDays: graceDays) }
                     .help("Schützt neue Mails und andere Programme, die das Postfach lesen (z. B. Paperless).")
+                    if graceDays < 7 {
+                        Label("Auch ganz neue Mails – Paperless und andere Programme haben sie vielleicht noch nicht abgeholt.",
+                              systemImage: "exclamationmark.triangle")
+                            .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                    }
                     if job.reasons.contains(where: { $0.reason == ArchiveReader.graceReason(job.graceDays ?? graceDays) }) {
                         Text("Gezählt wird ab dem Eingang auf dem Server, nicht ab dem Datum der Mail. Eine alte Mail, die erst kürzlich hochgeladen wurde (Umzug, Import), ist dort neu.")
                             .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -202,7 +207,7 @@ struct ResultSheet: View {
                     }
                 }
             }
-            Text("Jede Aktion steht im Prüfprotokoll (~/Library/Logs/MailKeeper/audit.jsonl).")
+            Text("Jede Aktion steht im Prüfprotokoll (\((AuditLog.defaultURL.path as NSString).abbreviatingWithTildeInPath)).")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Spacer()

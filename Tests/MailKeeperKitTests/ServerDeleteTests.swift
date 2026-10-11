@@ -10,6 +10,8 @@ actor FakeTrashServer: ServerTrashActions {
     var selected: String?
     var moves = 0
     var moveDoesNothing = false
+    var refuseMoveIn: String?
+    var refuseSelectOf: String?
 
     init(mailboxes: [String: (validity: UInt32, messages: [UInt32: Message])], trash: String? = "Trash") {
         self.mailboxes = mailboxes
@@ -22,10 +24,13 @@ actor FakeTrashServer: ServerTrashActions {
     func remove(uid: UInt32, in box: String) { mailboxes[box]?.messages[uid] = nil }
     func setValidity(_ v: UInt32, of box: String) { mailboxes[box]?.validity = v }
     func setMoveDoesNothing() { moveDoesNothing = true }
+    func setRefuseMove(in box: String) { refuseMoveIn = box }
+    func setRefuseSelect(of box: String) { refuseSelectOf = box }
     func uids(in box: String) -> Set<UInt32> { Set(mailboxes[box]?.messages.keys ?? [:].keys) }
 
     func trashMailbox() async throws -> String? { trash }
     func selectForChange(_ mailbox: String) async throws -> UInt32 {
+        if mailbox == refuseSelectOf { throw ServerRefusal("[NOPERM] keine Rechte") }
         selected = mailbox
         return mailboxes[mailbox]?.validity ?? 0
     }
@@ -38,6 +43,7 @@ actor FakeTrashServer: ServerTrashActions {
         Dictionary(uniqueKeysWithValues: uids.compactMap { uid in mailboxes[selected!]?.messages[uid].map { (uid, $0.data) } })
     }
     func moveToTrash(_ uids: [UInt32]) async throws {
+        if selected == refuseMoveIn { throw ServerRefusal("[READ-ONLY] Postfach schreibgeschützt") }
         moves += 1
         guard !moveDoesNothing, let trash else { return }
         for uid in uids {
@@ -139,6 +145,23 @@ struct ServerDeleteTests {
         job = try await ServerDeleteExecutor(writer: s.writer, store: s.store, audit: s.audit).run(s.job.id) { [server] _ in server }
         #expect(job.count(.failed) == 6 && job.items.allSatisfy { $0.reason == "nach dem Verschieben noch auf dem Server" })
         #expect(try ArchiveReader(layout: s.layout).count(MessageFilter(text: "only:archive ")) == 0)
+    }
+
+    /// Review 4.7: a server that says no (read-only mailbox, no rights) fails those messages with
+    /// its reason; the job does not die with them.
+    @Test func serverRefusalsFailTheirMessagesNotTheJob() async throws {
+        var s = try await Self.setup()
+        await s.server.setRefuseMove(in: "INBOX")
+        var server = s.server
+        var job = try await ServerDeleteExecutor(writer: s.writer, store: s.store, audit: s.audit).run(s.job.id) { [server] _ in server }
+        #expect(job.isFinished && job.items.allSatisfy { $0.state == .failed && $0.reason == "vom Server abgelehnt: [READ-ONLY] Postfach schreibgeschützt" })
+        #expect(try ArchiveReader(layout: s.layout).count(MessageFilter(text: "only:archive ")) == 0)  // nothing marked gone
+
+        s = try await Self.setup()
+        await s.server.setRefuseSelect(of: "INBOX")
+        server = s.server
+        job = try await ServerDeleteExecutor(writer: s.writer, store: s.store, audit: s.audit).run(s.job.id) { [server] _ in server }
+        #expect(job.items.allSatisfy { $0.state == .failed && $0.reason == "vom Server abgelehnt: [NOPERM] keine Rechte" })
     }
 
     @Test("A crash after claiming: resume checks again instead of acting twice")

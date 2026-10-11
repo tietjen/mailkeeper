@@ -93,7 +93,14 @@ public struct ServerDeleteExecutor: Sendable {
             let byMailbox = Dictionary(grouping: accountItems, by: { $0.location!.mailbox })
             for mailbox in byMailbox.keys.sorted() {
                 let items = byMailbox[mailbox]!
-                let validity = try await server.selectForChange(mailbox)
+                let validity: UInt32
+                do {
+                    validity = try await server.selectForChange(mailbox)
+                } catch let refusal as ServerRefusal {
+                    for item in items { try finish(&job, item.id, .failed, String(localized: "vom Server abgelehnt: \(refusal.message)"), &p) }
+                    progress(p)
+                    continue
+                }
                 let (current, stale) = items.partitioned { $0.location!.uidValidity == validity }
                 for item in stale {
                     try finish(&job, item.id, .failed, String(localized: "Ordner wurde auf dem Server neu nummeriert (UIDVALIDITY) – erst neu abrufen"), &p)
@@ -145,7 +152,11 @@ public struct ServerDeleteExecutor: Sendable {
         }
         // 3. claim, act, verify
         for item in go { try store.record(job: job.id, item: item.id, state: .claimed) }
-        if !go.isEmpty { try await server.moveToTrash(go.map { $0.location!.uid }) }
+        var refusal: String?
+        if !go.isEmpty {
+            do { try await server.moveToTrash(go.map { $0.location!.uid }) } catch let r as ServerRefusal { refusal = r.message }
+        }
+        // what is gone is done, whatever the server said; what is still there failed
         let stillThere = go.isEmpty ? [] : try await server.present(go.map { $0.location!.uid })
         var gone: Set<UInt32> = []
         for item in alreadyGone {
@@ -154,7 +165,8 @@ public struct ServerDeleteExecutor: Sendable {
         }
         for item in go {
             if stillThere.contains(item.location!.uid) {
-                try finish(&job, item.id, .failed, String(localized: "nach dem Verschieben noch auf dem Server"), &p)
+                try finish(&job, item.id, .failed, refusal.map { String(localized: "vom Server abgelehnt: \($0)") }
+                           ?? String(localized: "nach dem Verschieben noch auf dem Server"), &p)
             } else {
                 gone.insert(item.location!.uid)
                 try finish(&job, item.id, .done, nil, &p)

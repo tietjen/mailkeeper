@@ -136,6 +136,11 @@ enum Schema {
             PRIMARY KEY(account_id, mailbox, uid_validity, uid)
         ) WITHOUT ROWID;
         """,
+        // v6: an identity tombstone remembers who sent it (a hash of sender and subject, no
+        // content), so a different message reusing the Message-ID is not swallowed (review 4.7).
+        """
+        ALTER TABLE tombstones ADD COLUMN who TEXT;
+        """,
     ]
 
     static var currentVersion: Int { migrations.count }

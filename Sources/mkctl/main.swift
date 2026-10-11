@@ -449,6 +449,8 @@ func summarize(_ p: ImportProgress, start: Date) {
                 FileHandle.standardError.write(Data("\n".utf8))
                 print(String(format: "[%@] %d Postfächer · %d neu (%@) · %d weitere Ablageorte · %d Flag-Änderungen · %d nicht mehr auf dem Server · %.1fs",
                              account.id, r.mailboxes, r.newMessages, bytes(r.bytes), r.newLocations, r.flagChanges, r.gone, Date().timeIntervalSince(start)))
+                if r.back > 0 { print("  \(r.back) wieder auf dem Server (zuvor als gelöscht vermerkt)") }
+                if r.deletedBefore > 0 { print("  \(r.deletedBefore) endgültig aus dem Archiv gelöschte nicht wieder geholt") }
                 for f in r.failures { print("  Fehler: \(clean(f))"); failed = true }
             } catch {
                 FileHandle.standardError.write(Data("\n".utf8))

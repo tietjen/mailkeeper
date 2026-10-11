@@ -60,6 +60,11 @@ actor FakeSource: MailboxSource {
         boxes[new] = box
     }
 
+    var hidden: [String: Box] = [:]
+    /// The mailbox is missing from LIST for a while (Bridge mid-sync, a language switch).
+    func hide(_ name: String) { hidden[name] = boxes.removeValue(forKey: name) }
+    func unhide(_ name: String) { boxes[name] = hidden.removeValue(forKey: name) }
+
     func setFailFetchAfter(_ n: Int?) { failFetchAfter = n }
     func setEmptyUIDList(_ on: Bool) { emptyUIDList = on }
     func resetCounters() { fetchedUIDs = []; fetchCalls = 0 }
@@ -237,6 +242,28 @@ struct SyncEngineTests {
         let locations = try reader.detail(id)!.locations
         #expect(locations.first { $0.mailbox == "Projekte" }?.onServer == false)
         #expect(locations.first { $0.mailbox == "Projekte 2026" }?.onServer == true)
+    }
+
+    /// Review 4.7 S3: a location marked gone that the server lists again is on the server again —
+    /// and out of the archive trash (in the trash means on no server). Journalled: survives a rebuild.
+    @Test func aMailboxBackInTheListIsOnTheServerAgain() async throws {
+        let (layout, writer) = try archive("back")
+        let source = FakeSource([inbox, RemoteMailbox(name: "Projekte")])
+        await source.add("Projekte", mail(1))
+        let engine = SyncEngine(writer: writer, account: account, policy: SyncPolicy(mode: .standard))
+        _ = try await engine.run(source: source)
+        await source.hide("Projekte")
+        #expect(try await engine.run(source: source).gone == 1)
+        let reader = try ArchiveReader(layout: layout)
+        let identity = try #require(try reader.identities(of: try reader.messageIDs(MessageFilter())).first)
+        #expect(try await writer.trash([identity]) == 1)  // on no server now: may go to the trash
+        await source.unhide("Projekte")
+        let report = try await engine.run(source: source)
+        #expect(report.back == 1 && report.fetched == 0)
+        let onServer = { try reader.count(MessageFilter(text: "on:server ")) }
+        #expect(try onServer() == 1 && reader.stats().trashed == 0)
+        _ = try await writer.rebuildIndex()
+        #expect(try onServer() == 1 && reader.stats().trashed == 0)
     }
 
     @Test func condstoreOnlyAsksForChanges() async throws {

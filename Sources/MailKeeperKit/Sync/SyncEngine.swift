@@ -81,6 +81,10 @@ public struct SyncReport: Sendable, Equatable {
     public var bytes: Int64 = 0
     public var flagChanges = 0
     public var gone = 0
+    /// Locations gone earlier that the server lists again.
+    public var back = 0
+    /// Messages deleted from the archive for good earlier: not fetched into it again.
+    public var deletedBefore = 0
     /// Mailboxes that failed, with the error; the others were synced.
     public var failures: [String] = []
 
@@ -192,7 +196,8 @@ public struct SyncEngine: Sendable {
                 switch r {
                 case .newMessage: report.newMessages += 1; p.newMessages += 1
                 case .newLocation: report.newLocations += 1; p.newLocations += 1
-                case .unchanged, .tombstoned: break
+                case .unchanged: break
+                case .tombstoned: report.deletedBefore += 1
                 }
             }
             let bytes = Int64(messages.reduce(0) { $0 + $1.data.count })
@@ -239,6 +244,9 @@ public struct SyncEngine: Sendable {
                 report.gone += n
                 p.gone += n
             }
+            // ... and known messages marked gone that are listed again (review 4.7)
+            report.back += try await writer.markPresent(account: id, mailbox: box.name, uidValidity: validity,
+                                                        uids: present.intersection(known).subtracting(onServer))
         }
         if let m = status.highestModSeq {
             try await writer.setSyncState(account: id, mailbox: box.name, uidValidity: validity, highestModSeq: m)
