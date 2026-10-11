@@ -56,6 +56,13 @@ a OR b   ( … )                      alternatives and grouping; AND binds tight
   fetch; imported mail (Maildir, mbox, .eml) is `only:archive` — MailKeeper knows no server
   location for it, and Phase 4 may only act on locations it knows (found with TJ's import).
 
+*As built (5.3, 2026-10-11):* `QueryTranslator` gives the model this table, today's date and the
+archive's account and folder names, and asks for `{query, explanation}` (strict schema). The
+query must pass `QueryParser`; otherwise one retry with the parser's message, then an error —
+an invalid query never runs. The app puts the query into the search field (editable), shows
+the request, the explanation, the model and the time above the chips, with a way back. The
+user's words are the user's own; mail content never enters this prompt.
+
 ## Consequences
 
 - One parser to test exhaustively; the UI shows the parsed terms as chips and errors inline.

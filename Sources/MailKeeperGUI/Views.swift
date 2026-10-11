@@ -68,6 +68,7 @@ struct ContentView: View {
                     .safeAreaInset(edge: .top, spacing: 0) {
                         VStack(spacing: 0) {
                             if model.sidebarSelection == .trash { TrashBar(model: model) }
+                            TranslationNoteBar(model: model)
                             QueryBar(model: model)
                         }
                     }
@@ -117,6 +118,9 @@ struct ContentView: View {
             }
             ToolbarItem {
                 FilterMenu(model: model)
+            }
+            ToolbarItem {
+                TranslateButton(model: model)
             }
             ToolbarItem {
                 Button { model.syncAll() } label: {

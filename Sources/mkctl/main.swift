@@ -44,6 +44,7 @@ usage: mkctl [--archive <dir>] <command>
   account list | test <id> | remove <id> [--keep-password]
                                               manage accounts (remove keeps the archived mail)
   sync [<id>…]                                fetch new mail from all (or the given) accounts, read-only
+  ask <everyday language…>                    KI: translate into the search language (shown, then counted)
   ai status | test                            KI settings of the archive; connection test (endpoint, on-device)
   ai config [--on|--off] [--endpoint <url>] [--model <task>=<alias>]… [--on-device on|off]
                                               tasks: search classify summarize embed
@@ -352,6 +353,21 @@ func summarize(_ p: ImportProgress, start: Date) {
         print("")
         print("exported \(report.exported) (\(bytes(report.bytes))) to \(destination.path)")
         for (reason, count) in report.problems.sorted(by: { $0.key < $1.key }) { print("left out \(count): \(reason)") }
+
+    case "ask":
+        let text = args.joined(separator: " ")
+        guard !text.isEmpty else { throw CLIError(description: "ask <everyday language…>") }
+        let layout = try ArchiveLayout.open(at: root, create: false)
+        let config = AIConfigStore(layout: layout).load()
+        guard config.enabled else { throw CLIError(description: "KI ist aus: mkctl ai config --on --endpoint <url>") }
+        let key = config.secretKey.flatMap { try? CredentialStore().secret(key: $0) }
+        let reader = try ArchiveReader(layout: layout)
+        let accounts = try reader.accounts()
+        let context = QueryContext(accounts: accounts.map(\.id), folders: Array(Set(accounts.flatMap { $0.mailboxes.map(\.name) })).sorted())
+        let t = try await QueryTranslator(router: AIRouter(config: config, apiKey: key)).translate(text, context: context)
+        print("\(t.query)")
+        print("  \(clean(t.explanation)) — \(t.path == .onDevice ? "Modell auf diesem Mac" : t.model), \(String(format: "%.1f", t.seconds)) s")
+        print("  \(try reader.count(MessageFilter(text: t.query + " "))) Treffer — mkctl search '\(t.query)'")
 
     case "ai":
         let layout = try ArchiveLayout.open(at: root, create: false)

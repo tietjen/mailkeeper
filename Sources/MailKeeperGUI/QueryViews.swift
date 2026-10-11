@@ -1,3 +1,4 @@
+import MailKeeperAI
 import MailKeeperKit
 import SwiftUI
 
@@ -275,6 +276,59 @@ struct ArchiveMenuItems: View {
                     Button("\(model.archiveName(archive.path)) — \(model.abbreviated(archive.path))") { model.forget(archive) }
                 }
             }
+        }
+    }
+}
+
+/// Toolbar: the search field's words → query text (5.3).
+struct TranslateButton: View {
+    let model: AppModel
+
+    var body: some View {
+        Button {
+            model.translatingSearch ? model.cancelTranslation() : model.translateSearch()
+        } label: {
+            if model.translatingSearch {
+                ProgressView().controlSize(.small)
+            } else {
+                Label("In Suchsprache übersetzen", systemImage: "sparkles")
+            }
+        }
+        .disabled(!model.translatingSearch && !model.canTranslateSearch)
+        .help(model.aiConfig.enabled
+              ? "Den Suchtext als Alltagssprache lesen und in die Suchsprache übersetzen (⌥⌘F), z. B. „Rechnungen von Amazon 2024 mit PDF“"
+              : "KI einrichten: Einstellungen › KI")
+    }
+}
+
+/// Above the query chips after a translation: what was asked, what it became, which model — and back.
+struct TranslationNoteBar: View {
+    let model: AppModel
+
+    var body: some View {
+        if let note = model.searchTranslation {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: note.failed ? "exclamationmark.triangle" : "sparkles")
+                    .foregroundStyle(note.failed ? .orange : .purple)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("„\(DisplayText.safe(note.original))“").lineLimit(1)
+                    Text(note.failed ? DisplayText.safe(note.explanation)
+                         : "\(DisplayText.safe(note.explanation)) · \(note.path == .onDevice ? String(localized: "Modell auf diesem Mac") : note.model), \(String(format: "%.1f", note.seconds)) s")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+                Spacer()
+                if !note.failed {
+                    Button("Zurück") { model.undoTranslation() }
+                        .controlSize(.small)
+                        .help("Den eingegebenen Text wiederherstellen")
+                }
+                Button { model.searchTranslation = nil } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
+            }
+            .font(.callout)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(.purple.opacity(0.06))
         }
     }
 }

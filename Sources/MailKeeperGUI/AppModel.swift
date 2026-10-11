@@ -123,6 +123,7 @@ final class AppModel {
     var searchText = "" {
         didSet {
             searchTyped = !settingSearch  // the search field's binding, not a drill-down
+            if !settingSearch, searchTranslation != nil { searchTranslation = nil }  // edited by hand: the note is stale
             if !batching { scheduleSearch() }
         }
     }
@@ -1323,6 +1324,63 @@ final class AppModel {
         let router = AIRouter(config: aiConfig, apiKey: key)
         aiRouterCache = router
         return router
+    }
+
+    // MARK: Search in everyday language (5.3)
+
+    struct SearchTranslationNote: Equatable {
+        var original: String
+        var query: String?
+        var explanation: String
+        var path: AIPath?
+        var model: String
+        var seconds: Double
+        var failed: Bool { query == nil }
+    }
+
+    private(set) var translatingSearch = false
+    var searchTranslation: SearchTranslationNote?
+    private var translationTask: Task<Void, Never>?
+
+    var canTranslateSearch: Bool {
+        aiConfig.enabled && !translatingSearch && !searchText.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// The search field's text, read as everyday language, becomes query text — shown, editable,
+    /// with a way back (the model never searches by itself; the parser checks what it wrote).
+    func translateSearch() {
+        guard canTranslateSearch, let router = aiRouter() else { return }
+        let original = searchText
+        let context = QueryContext(accounts: accounts.map(\.id),
+                                   folders: Array(Set(accounts.flatMap { $0.mailboxes.map(\.name) })).sorted())
+        translatingSearch = true
+        searchTranslation = nil
+        translationTask = Task { [weak self] in
+            do {
+                let t = try await QueryTranslator(router: router).translate(original, context: context)
+                guard let self, !Task.isCancelled else { return }
+                self.searchTranslation = SearchTranslationNote(original: original, query: t.query, explanation: t.explanation,
+                                                               path: t.path, model: t.model, seconds: t.seconds)
+                self.setSearch(t.query + " ")
+            } catch is CancellationError {
+            } catch {
+                self?.searchTranslation = SearchTranslationNote(original: original, query: nil, explanation: "\(error)",
+                                                                path: nil, model: "", seconds: 0)
+            }
+            self?.translatingSearch = false
+        }
+    }
+
+    func cancelTranslation() {
+        translationTask?.cancel()
+        translatingSearch = false
+    }
+
+    /// Back to the words as typed.
+    func undoTranslation() {
+        guard let note = searchTranslation else { return }
+        searchTranslation = nil
+        setSearch(note.original)
     }
 
     /// The connection test of the settings, for a config not yet saved.

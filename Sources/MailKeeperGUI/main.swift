@@ -50,6 +50,11 @@ struct MailKeeperApp: App {
                 Button("Auf den Server zurückspielen …") { model.planSelection(.restore) }
                     .disabled(model.actionSelection.isEmpty || model.sidebarSelection == .trash)
             }
+            CommandGroup(after: .textEditing) {
+                Button("Suchtext in Suchsprache übersetzen") { model.translateSearch() }
+                    .keyboardShortcut("f", modifiers: [.command, .option])
+                    .disabled(!model.canTranslateSearch)
+            }
             CommandGroup(after: .toolbar) {
                 Button("Aktualisieren") { model.refresh() }
                     .keyboardShortcut("r")
