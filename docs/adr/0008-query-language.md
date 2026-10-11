@@ -20,7 +20,7 @@ and later the model all use it; the model's output is shown as query text before
 ```
 rechnung "jahres abrechnung"        words and phrases, all of them (AND)
 from:amazon  to:  subject:  body:   words in that field (name and address for from/to)
-sender:billing@amazon.de            exact sender address
+sender:billing@amazon.de            exact sender address; sender:@amazon.de = the whole domain
 domain:amazon.de  listid:news.x.de  exact sender domain (no subdomains), exact List-Id
 filename:vertrag  has:attachment|pdf|image|calendar
 larger:5M  smaller:100K             size (K/M/G = 1024)

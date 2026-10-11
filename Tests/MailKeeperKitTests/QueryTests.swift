@@ -514,3 +514,58 @@ struct NavigationHistoryTests {
         #expect(h.current == nil && h.index == -1)
     }
 }
+
+@Suite("Filters from a mail's attributes")
+struct MessageFilterTests {
+    @Test func everyOfferedFilterMatchesItsMailAndExclusionDropsIt() async throws {
+        let layout = try ArchiveLayout.open(at: tempDir().appending(path: "mf"), create: true)
+        let writer = try ArchiveWriter(layout: layout)
+        try await writer.register(AccountInfo(id: "jan-tietjen", kind: "maildir", name: "Jan"))
+        let mail = eml("""
+        From: Finom <no-reply@finom.me>
+        To: Jan Tietjen <jan.tietjen@parasec.de>
+        Cc: "Buchhaltung (intern)" <buchhaltung@parasec.de>
+        Subject: AW: Zahlung an PMPG (Lastschrift) "gesendet"
+        Date: Sat, 10 Oct 2026 02:26:00 +0200
+        Message-ID: <f1@finom.me>
+        List-Id: Finom Updates <updates.finom.me>
+
+        Ihre Zahlung wurde gesendet.
+        """)
+        _ = try await writer.ingest([
+            (mail, LocationInfo(account: "jan-tietjen", mailbox: "Mein Ordner*", providerID: "1")),
+            (sampleMessage(id: "<f2@finom.me>", subject: "Andere", from: "Support <support@finom.me>"),
+             LocationInfo(account: "jan-tietjen", mailbox: "INBOX", providerID: "2")),
+        ])
+        let r = try ArchiveReader(layout: layout)
+        let ids = { (q: String) in try r.messageIDs(MessageFilter(text: q + " ")) }
+        let target = try #require(try ids("msgid:f1@finom.me").first)
+        let p = try #require(try r.parsedMessage(target))
+        var options = MessageFilters.sender(p.from[0]) + MessageFilters.date(p.date!)
+        options += (p.to + p.cc).flatMap(MessageFilters.recipient)
+        options += MessageFilters.place(account: "jan-tietjen", mailbox: "Mein Ordner*")
+        options += MessageFilters.list(p.listID!) + MessageFilters.subject(p.subject!)
+        #expect(options.count == 14)
+        for o in options {
+            #expect(try ids(o.query).contains(target), "\(o.query)")
+            #expect(try !ids(o.excluded).contains(target), "\(o.excluded)")
+        }
+        // the sender filter is exact, the domain filter is not
+        #expect(try ids(MessageFilters.sender(p.from[0])[0].query).count == 1)
+        #expect(try ids(MessageFilters.sender(p.from[0])[1].query).count == 2)
+        // TJ's edit: drop the local part of a sender chip → the whole domain
+        #expect(try ids("sender:@finom.me").count == 2)
+        #expect(try QueryParser.parse("sender:@finom.me").root == .predicate(.domain("finom.me")))
+        #expect(throws: QueryError.self) { _ = try QueryParser.parse("sender:@") }
+    }
+
+    @Test func quoting() {
+        #expect(QueryParser.quote("INBOX") == "INBOX")
+        #expect(QueryParser.quote("Mein Ordner") == "\"Mein Ordner\"")
+        #expect(QueryParser.quote("Archiv*") == "\"Archiv*\"")
+        #expect(QueryParser.quote("-Wichtig") == "\"-Wichtig\"")
+        #expect(QueryParser.quote("@x.de") == "\"@x.de\"")
+        #expect(QueryParser.quote("a\"b(c)") == "\"ab(c)\"")
+        #expect(MessageFilters.baseSubject("Re: AW: Fwd: [Liste] Thema") == "[Liste] Thema")
+    }
+}

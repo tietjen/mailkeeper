@@ -234,11 +234,16 @@ struct ReaderView: View {
             Text(m.subject?.isEmpty == false ? DisplayText.safe(m.subject!) : String(localized: "(kein Betreff)"))
                 .font(.title3.weight(.semibold))
                 .textSelection(.enabled)
-            row("Von", m.from.map(\.display).joined(separator: ", "))
-            if !m.to.isEmpty { row("An", m.to.map(\.display).joined(separator: ", ")) }
-            if !m.cc.isEmpty { row("Kopie", m.cc.map(\.display).joined(separator: ", ")) }
-            if let date = m.date { row("Datum", date.formatted(date: .long, time: .shortened)) }
-            row("Ablage", d.locations.map { "\($0.account) › \($0.mailbox)" }.joined(separator: " · "))
+                .contextMenu { AttributeMenuItems(model: model, options: MessageFilters.subject(m.subject ?? ""), copy: m.subject) }
+            // TJ: click an attribute to filter by it; the filter lands in the bar, editable there.
+            filterRow("Von", m.from.map { ($0.display, MessageFilters.sender($0), $0.address) })
+            if !m.to.isEmpty { filterRow("An", m.to.map { ($0.display, MessageFilters.recipient($0), $0.address) }) }
+            if !m.cc.isEmpty { filterRow("Kopie", m.cc.map { ($0.display, MessageFilters.recipient($0), $0.address) }) }
+            if let date = m.date {
+                filterRow("Datum", [(date.formatted(date: .long, time: .shortened), MessageFilters.date(date), nil)])
+            }
+            filterRow("Ablage", d.locations.map { ("\($0.account) › \($0.mailbox)", MessageFilters.place(account: $0.account, mailbox: $0.mailbox), nil) })
+            if let list = d.listID { filterRow("Liste", [(list, MessageFilters.list(list), list)]) }
             if thread.count > 1 {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text("Verlauf").foregroundStyle(.secondary).frame(width: 64, alignment: .trailing).font(.callout)
@@ -259,6 +264,20 @@ struct ReaderView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// A header row whose values open filter menus.
+    private func filterRow(_ label: LocalizedStringKey, _ values: [(text: String, options: [FilterOption], copy: String?)]) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(label).foregroundStyle(.secondary).frame(width: 64, alignment: .trailing)
+            WrapLayout(spacing: 10) {
+                ForEach(Array(values.prefix(12).enumerated()), id: \.offset) { _, v in
+                    AttributeMenu(model: model, text: v.text, options: v.options, copy: v.copy)
+                }
+                if values.count > 12 { Text("+\(values.count - 12)").foregroundStyle(.secondary) }
+            }
+        }
+        .font(.callout)
     }
 
     private func row(_ label: LocalizedStringKey, _ value: String) -> some View {

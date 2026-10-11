@@ -306,6 +306,13 @@ public enum QueryParser {
             case .pdf: return try text(.pdf, "im PDF")
             case .sender:
                 let v = try required().lowercased()
+                // "sender:@finom.me": the address without its local part = everyone at that
+                // domain (TJ: delete the prefix of a sender chip to widen it to the domain).
+                if !quoted, v.hasPrefix("@") {
+                    let domain = String(v.dropFirst())
+                    guard !domain.isEmpty else { throw QueryError("\(name) braucht eine Adresse oder @domain.") }
+                    return (.predicate(.domain(domain)), "Domain: \(domain)")
+                }
                 return (.predicate(.sender(v)), "Absender: \(v)")
             case .has:
                 switch try required().lowercased() {
@@ -343,7 +350,7 @@ public enum QueryParser {
             case .folder:
                 var v = try required()
                 let prefix = !quoted && v.hasSuffix("*")
-                while v.hasSuffix("*") { v.removeLast() }
+                while prefix, v.hasSuffix("*") { v.removeLast() }  // quoted: a literal "*" in the name
                 guard !v.isEmpty else { throw QueryError("\(name) braucht einen Ordnernamen.") }
                 return (.predicate(.folder(v, prefix: prefix)), "Ordner: \(value)")
             case .label:
@@ -382,6 +389,17 @@ public enum QueryParser {
                 return (.predicate(.thread(v)), "Konversation")
             }
         }
+    }
+
+    // MARK: Building queries
+
+    /// A value as the parser reads it back unchanged: quoted when it holds spaces, brackets,
+    /// quotes, or would otherwise be read as syntax (leading "-" or "@", trailing "*").
+    public static func quote(_ value: String) -> String {
+        let plain = value.replacingOccurrences(of: "\"", with: "")
+        let needsQuotes = plain.isEmpty || plain.hasPrefix("-") || plain.hasPrefix("@") || plain.hasSuffix("*")
+            || plain.contains(where: { $0.isWhitespace || $0 == "(" || $0 == ")" })
+        return needsQuotes ? "\"\(plain)\"" : plain
     }
 
     // MARK: Sizes and dates

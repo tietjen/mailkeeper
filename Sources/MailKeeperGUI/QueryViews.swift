@@ -5,15 +5,21 @@ import SwiftUI
 struct QueryBar: View {
     let model: AppModel
     @State private var saving: SavedSearch?
+    @State private var editing: Int?
 
     var body: some View {
         if let chips = model.query?.chips, !chips.isEmpty {
             HStack(spacing: 8) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
-                        ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
+                        ForEach(Array(chips.enumerated()), id: \.offset) { index, chip in
                             HStack(spacing: 4) {
-                                Text(DisplayText.safe(chip.label)).lineLimit(1)
+                                Button { editing = index } label: { Text(DisplayText.safe(chip.label)).lineLimit(1) }
+                                    .buttonStyle(.plain)
+                                    .help("Klicken zum Bearbeiten: \(chip.text)")
+                                    .popover(isPresented: Binding(get: { editing == index }, set: { if !$0 { editing = nil } })) {
+                                        ChipEditor(model: model, chip: chip)
+                                    }
                                 Button { model.removeChip(chip) } label: {
                                     Image(systemName: "xmark.circle.fill")
                                 }

@@ -418,17 +418,47 @@ final class AppModel {
         return QueryCompletion.suggestions(for: searchText, folders: folders, accounts: accounts.map(\.id), labels: labels)
     }
 
+    enum FilterUse { case show, add, exclude }
+
+    /// A filter from the reader: show all such mails (whole archive, by date; Back returns), or
+    /// add it to / exclude it from the current search.
+    func apply(_ option: FilterOption, _ use: FilterUse) {
+        switch use {
+        case .show:
+            searchTask?.cancel()
+            batching = true
+            viewMode = .messages
+            sidebarSelection = .all
+            setSearch(option.query + " ")
+            batching = false
+            reloadList()
+            if let current = selectedMessageID { reveal(current) }  // it matches: keep it in view
+        case .add:
+            appendFilter(option.query)
+        case .exclude:
+            appendFilter(option.excluded)
+        }
+    }
+
+    /// Replaces one top-level term (chip editor).
+    func replaceChip(_ chip: QueryChip, with newText: String) {
+        guard let range = currentRange(of: chip) else { return }
+        var text = searchText
+        text.replaceSubrange(range, with: newText.trimmingCharacters(in: .whitespaces))
+        let rest = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        setSearch(rest.isEmpty ? "" : rest + " ")
+    }
+
+    /// The chip's range in the current text: its own if it still covers the same term, else
+    /// found in a fresh parse (the text may have changed since the chips were made).
+    private func currentRange(of chip: QueryChip) -> Range<String.Index>? {
+        if chip.range.upperBound <= searchText.endIndex, String(searchText[chip.range]) == chip.text { return chip.range }
+        return (try? QueryParser.parse(searchText).chips.first(where: { $0.text == chip.text }))?.range
+    }
+
     /// Removes one top-level term from the search text.
     func removeChip(_ chip: QueryChip) {
-        // The chip comes from the last parse; the text may have changed since (debounce). Use
-        // its range only if it still covers the same term, else find the term in a fresh parse.
-        var range: Range<String.Index>?
-        if chip.range.upperBound <= searchText.endIndex, String(searchText[chip.range]) == chip.text {
-            range = chip.range
-        } else if let fresh = try? QueryParser.parse(searchText).chips.first(where: { $0.text == chip.text }) {
-            range = fresh.range
-        }
-        guard let range else { return }
+        guard let range = currentRange(of: chip) else { return }
         var text = searchText
         text.removeSubrange(range)
         let rest = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
