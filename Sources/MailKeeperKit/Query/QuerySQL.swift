@@ -122,6 +122,8 @@ struct QuerySQL {
             return location(Self.sentLocation)
         case .inJunk:
             return location(Self.junkLocation)
+        case .isPhishing:
+            return "m.id IN (SELECT c.message_id FROM classifications c WHERE c.phishing IN ('verdacht', 'ja'))"
         case .category(let category?):
             params.append(.text(category.rawValue))
             return "m.id IN (SELECT c.message_id FROM classifications c WHERE c.category = ?)"

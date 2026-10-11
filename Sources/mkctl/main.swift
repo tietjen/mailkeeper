@@ -376,8 +376,9 @@ func summarize(_ p: ImportProgress, start: Date) {
                 do {
                     let c = try await classifier.classify(MailSnapshot(parsed))
                     try await writer.setClassification(messageID: id, category: c.category, source: c.path == .onDevice ? .onDevice : .endpoint,
-                                                       model: c.model, reason: c.reason)
-                    print("\(c.category.label.padding(toLength: 20, withPad: " ", startingAt: 0)) \(clean(String((parsed.subject ?? "").prefix(60))))  — \(clean(c.reason))")
+                                                       model: c.model, reason: c.reason, phishing: c.phishing, phishingReason: c.phishingReason)
+                    let fish = c.phishing == .none ? "" : "  ⚠︎ \(c.phishing.label): \(clean(c.phishingReason ?? ""))"
+                    print("\(c.category.label.padding(toLength: 20, withPad: " ", startingAt: 0)) \(clean(String((parsed.subject ?? "").prefix(60))))  — \(clean(c.reason))\(fish)")
                 } catch {
                     print("✗ \(clean(String((parsed.subject ?? "").prefix(60)))): \(error)")
                 }

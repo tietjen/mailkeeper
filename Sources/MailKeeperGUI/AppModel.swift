@@ -1430,7 +1430,8 @@ final class AppModel {
                         guard let parsed = try reader.parsedMessage(id) else { continue }
                         let c = try await classifier.classify(MailSnapshot(parsed))
                         try await writer.setClassification(messageID: id, category: c.category,
-                                                           source: c.path == .onDevice ? .onDevice : .endpoint, model: c.model, reason: c.reason)
+                                                           source: c.path == .onDevice ? .onDevice : .endpoint, model: c.model, reason: c.reason,
+                                                           phishing: c.phishing, phishingReason: c.phishingReason)
                     } catch let error as AIError {
                         failed += 1
                         if case .notConfigured = error { throw error }

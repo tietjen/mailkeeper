@@ -13,3 +13,4 @@
 | [0009](0009-attachment-text-out-of-process.md) | PDF text extracted out of process, in a sandboxed XPC service | accepted |
 
 Evidence for 0001–0004 and 0007: [spike results](../spikes/README.md).
+- [ADR-0010](0010-spam-phishing-signals.md): Spam and phishing — separate signals, the user decides (proposed)

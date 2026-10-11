@@ -43,9 +43,18 @@ public struct MailSnapshot: Sendable, Equatable {
     public var autoSubmitted: String?
     public var attachments: [String]
     public var text: String
+    /// Links with MailKeeper's own findings (5.6): the model needs no HTML to see a lure.
+    public var links: [LinkCheck]
+    public var replyTo: String?
+    /// dkim/spf/dmarc from the topmost Authentication-Results header (added by the own server).
+    public var authentication: String?
 
     public init(from: String, fromName: String? = nil, to: [String] = [], subject: String, date: Date? = nil, listID: String? = nil,
-                listUnsubscribe: Bool = false, autoSubmitted: String? = nil, attachments: [String] = [], text: String) {
+                listUnsubscribe: Bool = false, autoSubmitted: String? = nil, attachments: [String] = [], text: String,
+                links: [LinkCheck] = [], replyTo: String? = nil, authentication: String? = nil) {
+        self.links = links
+        self.replyTo = replyTo
+        self.authentication = authentication
         self.from = from
         self.fromName = fromName
         self.to = to
@@ -61,7 +70,21 @@ public struct MailSnapshot: Sendable, Equatable {
     public init(_ p: ParsedMessage) {
         self.init(from: p.from.first?.address ?? "", fromName: p.from.first?.name, to: p.to.map(\.address), subject: p.subject ?? "",
                   date: p.date, listID: p.listID, listUnsubscribe: p.hasListUnsubscribe, autoSubmitted: p.autoSubmitted,
-                  attachments: p.attachments.filter { !$0.isInline }.compactMap(\.filename), text: p.text)
+                  attachments: p.attachments.filter { !$0.isInline }.compactMap(\.filename), text: p.text,
+                  links: LinkExtractor.links(html: p.html, text: p.text).map { LinkCheck(href: $0.href, text: $0.text) },
+                  replyTo: p.replyTo.first?.address, authentication: Self.authentication(p.headers.text("Authentication-Results")))
+    }
+
+    /// "dkim=pass spf=pass dmarc=fail" out of an Authentication-Results header.
+    static func authentication(_ header: String?) -> String? {
+        guard let header = header?.lowercased() else { return nil }
+        var parts: [String] = []
+        for method in ["dkim", "spf", "dmarc"] {
+            guard let r = header.range(of: method + "=") else { continue }
+            let value = header[r.upperBound...].prefix { $0.isLetter }
+            if !value.isEmpty { parts.append("\(method)=\(value)") }
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
     }
 
     /// Header lines and up to `maxText` characters of text, cleaned (no control or invisible
@@ -78,9 +101,23 @@ public struct MailSnapshot: Sendable, Equatable {
         if let listID { lines.append("List-Id: \(PromptText.line(listID, max: 120))") }
         lines.append("Abmeldelink (List-Unsubscribe): \(listUnsubscribe ? "vorhanden" : "fehlt")")
         if let autoSubmitted { lines.append("Auto-Submitted: \(PromptText.line(autoSubmitted, max: 40))") }
+        let fromDomain = from.split(separator: "@").last.map { LinkCheck.registrableDomain(String($0)) }
+        if let replyTo, let reply = replyTo.split(separator: "@").last.map({ LinkCheck.registrableDomain(String($0)) }), reply != fromDomain {
+            lines.append("Antwort an (Reply-To): \(PromptText.line(replyTo, max: 120)) – andere Domain als der Absender")
+        }
+        if let authentication { lines.append("Prüfung des eigenen Servers: \(authentication)") }
         if !attachments.isEmpty {
             lines.append("Anhänge: " + attachments.prefix(5).map { PromptText.line($0, max: 60) }.joined(separator: ", ")
                          + (attachments.count > 5 ? " (+\(attachments.count - 5))" : ""))
+        }
+        if !links.isEmpty {
+            let domains = Array(Set(links.compactMap(\.domain))).sorted()
+            lines.append("Links (von MailKeeper geprüft, \(links.count)): Zieldomains \(domains.prefix(8).map { PromptText.line($0, max: 60) }.joined(separator: ", "))"
+                         + (domains.count > 8 ? " (+\(domains.count - 8))" : ""))
+            for link in links.filter(\.isSuspicious).prefix(6) {
+                let shown = link.shownDomain.map { "Text zeigt \(PromptText.line($0, max: 60)), " } ?? ""
+                lines.append("  – \(shown)Ziel \(PromptText.line(link.host ?? link.target, max: 80)): \(link.findings.map(\.text).joined(separator: "; "))")
+            }
         }
         let body = PromptText.clean(text)
         lines.append("")

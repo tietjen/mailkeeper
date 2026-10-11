@@ -247,6 +247,7 @@ struct ReaderView: View {
     @State private var category: Classification?
     @State private var inJunk = false
     @State private var hovered: LinkCheck?
+    @State private var lures: [LinkCheck] = []
     @State private var failed = false
 
     var body: some View {
@@ -274,6 +275,7 @@ struct ReaderView: View {
                 loaded = (messageID, detail, message, thread)
                 category = model.classification(of: messageID)
                 inJunk = model.isInJunk(messageID)
+                lures = LinkExtractor.links(html: message.html, text: message.text).map { LinkCheck(href: $0.href, text: $0.text) }.filter(\.isSuspicious)
             }
         }
     }
@@ -315,6 +317,7 @@ struct ReaderView: View {
             }
             placeRow(d)
             categoryRow()
+            phishingRow(m)
             filterRow("Ablage", d.locations.map {
                 ("\($0.account) › \($0.mailbox)", MessageFilters.place(account: $0.account, mailbox: $0.mailbox), nil,
                  $0.isOnServer ? "server.rack" : "archivebox")
@@ -386,6 +389,35 @@ struct ReaderView: View {
         case .endpoint: return "\(c.model ?? "KI"): \(c.reason ?? "")"
         case .onDevice: return String(localized: "Modell auf diesem Mac: \(c.reason ?? "")")
         case .user: return String(localized: "deine Entscheidung")
+        }
+    }
+
+    /// Phishing apart from the category (TJ, 5.6): the model's view and the links MailKeeper
+    /// itself finds suspicious (shown even without a model — but never a verdict on their own:
+    /// newsletters route clicks through tracking domains).
+    @ViewBuilder
+    private func phishingRow(_ m: ParsedMessage) -> some View {
+        let level = category?.phishing
+        if level == .suspicious || level == .likely || !lures.isEmpty {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("Prüfung").foregroundStyle(.secondary).frame(width: 64, alignment: .trailing)
+                VStack(alignment: .leading, spacing: 2) {
+                    if let level, level != .none {
+                        Label(level.label, systemImage: level == .likely ? "exclamationmark.shield.fill" : "exclamationmark.shield")
+                            .foregroundStyle(level == .likely ? .red : .orange).fontWeight(.semibold)
+                        if let why = category?.phishingReason { Text(DisplayText.safe(why)).foregroundStyle(.secondary) }
+                    }
+                    if !lures.isEmpty {
+                        Text(lures.count == 1 ? "1 auffälliger Link" : "\(lures.count) auffällige Links").foregroundStyle(.orange)
+                        ForEach(Array(lures.prefix(3).enumerated()), id: \.offset) { _, link in
+                            Text(link.shownDomain.flatMap { shown in link.domain.map { "„\(shown)“ → \($0)" } }.map(DisplayText.safe)
+                                 ?? "\(DisplayText.safe(link.host ?? link.target)): \(link.findings.first?.text ?? "")")
+                                .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                        }
+                    }
+                }
+            }
+            .font(.callout)
         }
     }
 

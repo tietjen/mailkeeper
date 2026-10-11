@@ -70,6 +70,8 @@ struct FilterMenu: View {
                 }
                 Divider()
                 Button("Offen (keine Regel, noch keine KI)") { model.appendFilter("kategorie:offen") }
+                Divider()
+                Button { model.appendFilter("is:phishing") } label: { Label("Phishing (laut KI)", systemImage: "exclamationmark.shield") }
             }
             Section("Zur Suche hinzufügen") {
                 ForEach(filters, id: \.1) { title, term in

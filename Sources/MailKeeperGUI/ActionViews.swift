@@ -273,9 +273,15 @@ struct SpamReviewBar: View {
             Image(systemName: "checkmark.shield").foregroundStyle(.secondary)
             Text("\(r.total) im Spam-Ordner · \(r.notSpam) laut KI kein Spam · \(r.spam) Spam · \(r.unchecked) ungeprüft")
                 .font(.callout).foregroundStyle(.secondary).lineLimit(1)
+            if r.phishing > 0 {
+                Button { model.appendFilter("is:phishing") } label: {
+                    Label("\(r.phishing) Phishing", systemImage: "exclamationmark.shield.fill").foregroundStyle(.red)
+                }
+                .help("Mails, in denen die KI Phishing sieht oder vermutet")
+            }
             Spacer()
-            Button("Nur „kein Spam“") { model.appendFilter("-kategorie:spam") }
-                .help("Zeigt nur, was die KI (oder du) nicht für Spam hält")
+            Button("Nur „kein Spam“") { model.appendFilter("-kategorie:spam -is:phishing") }
+                .help("Zeigt nur, was die KI (oder du) weder für Spam noch für Phishing hält")
             Button("Kein Spam → Posteingang") { model.rescueSelection() }
                 .disabled(model.actionSelection.isEmpty || model.actionRunning)
             Button("Ist Spam") { model.markSpamSelection() }

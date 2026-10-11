@@ -121,7 +121,8 @@ struct AILiveHygieneTests {
 @Suite("Einordnen mit KI (5.4)")
 struct ClassifierTests {
     @Test func theMailGoesInFencedAndOnlyKnownCategoriesComeBack() async throws {
-        let p = ScriptedProvider([#"{"category":"personal","reason":"Einladung‮ zum Grillen"}"#, #"{"category":"memo","reason":"x"}"#])
+        let p = ScriptedProvider([#"{"category":"personal","reason":"Einladung‮ zum Grillen","phishing":"nein","phishing_reason":null}"#,
+                                  #"{"category":"memo","reason":"x","phishing":"nein","phishing_reason":null}"#])
         let classifier = MailClassifier(router: AIRouter(config: AIConfig(enabled: true), endpoint: nil, onDevice: p,
                                                          log: AICallLog(url: tempDir().appending(path: "l.jsonl"))))
         let mail = MailSnapshot(from: "max@familie.example", subject: "Grillen am Samstag?", text: "Kommt ihr?")
@@ -149,5 +150,84 @@ struct AILiveClassifyTests {
             print("\(mail.subject): \(c.category.rawValue) — \(c.reason) (\(String(format: "%.1f", c.seconds)) s)")
             #expect(c.category == expected, "\(mail.subject)")
         }
+    }
+}
+
+@Suite("Phishing (5.6)")
+struct PhishingTests {
+    @Test func theSnapshotCarriesLinkFindingsReplyToAndTheServersCheck() {
+        let raw = Data("""
+        From: Sparkasse <service@sparkasse-sicherheit.example>\r
+        Reply-To: support@andere.example\r
+        To: kunde@example.test\r
+        Subject: Ihr Konto wurde gesperrt\r
+        Authentication-Results: mx.example.test; dkim=none; spf=softfail smtp.mailfrom=x; dmarc=fail header.from=sparkasse-sicherheit.example\r
+        Content-Type: text/html; charset=utf-8\r
+        \r
+        <p>Bitte bestätigen Sie <a href="https://login.evil.example/de">www.sparkasse.de</a> sofort.</p>\r
+        """.utf8)
+        let snapshot = MailSnapshot(MIMEParser.parse(raw))
+        #expect(snapshot.authentication == "dkim=none spf=softfail dmarc=fail")
+        #expect(snapshot.links.first?.findings == [.textShowsOtherDomain])
+        let r = snapshot.rendered()
+        #expect(r.contains("Antwort an (Reply-To): support@andere.example – andere Domain als der Absender"))
+        #expect(r.contains("Prüfung des eigenen Servers: dkim=none spf=softfail dmarc=fail"))
+        #expect(r.contains("Text zeigt sparkasse.de, Ziel login.evil.example"))
+    }
+
+    @Test func phishingIsParsedApartFromTheCategory() async throws {
+        let p = ScriptedProvider([#"{"category":"spam","reason":"Gefälschte Bankwarnung","phishing":"ja","phishing_reason":"Link führt zu evil.example"}"#,
+                                  #"{"category":"newsletter","reason":"x","phishing":"vielleicht","phishing_reason":null}"#])
+        let classifier = MailClassifier(router: AIRouter(config: AIConfig(enabled: true), endpoint: nil, onDevice: p,
+                                                         log: AICallLog(url: tempDir().appending(path: "l.jsonl"))))
+        let c = try await classifier.classify(MailSnapshot(from: "a@b.example", subject: "x", text: "y"))
+        #expect(c.category == .spam && c.phishing == .likely && c.phishingReason == "Link führt zu evil.example")
+        await #expect(throws: AIError.self) { _ = try await classifier.classify(MailSnapshot(from: "a@b.example", subject: "x", text: "y")) }
+    }
+}
+
+@Suite("AILive phishing", .enabled(if: ProcessInfo.processInfo.environment["MAILKEEPER_AI"] == "1"), .serialized)
+struct AILivePhishingTests {
+    func mail(_ s: String) -> MailSnapshot { MailSnapshot(MIMEParser.parse(Data(s.replacingOccurrences(of: "\n", with: "\r\n").utf8))) }
+
+    @Test func phishingIsToldApartFromNewslettersAndRealInvoices() async throws {
+        let (config, key) = try AILiveTests.config()
+        let classifier = MailClassifier(router: AIRouter(config: config, apiKey: key, log: AICallLog(url: tempDir().appending(path: "ai.jsonl"))))
+        let phish = mail("""
+        From: Sparkasse <service@sparkasse-sicherheit.example>
+        Reply-To: support@andere.example
+        Subject: Ihr Konto wurde gesperrt
+        Authentication-Results: mx.example.test; dkim=none; spf=softfail; dmarc=fail
+        Content-Type: text/html; charset=utf-8
+
+        <p>Sehr geehrter Kunde, wegen verdächtiger Aktivitäten ist Ihr Online-Banking gesperrt. Bestätigen Sie innerhalb von 24 Stunden Ihre Daten: <a href="https://login.evil.example/de">www.sparkasse.de/sicherheit</a></p>
+        """)
+        let newsletter = mail("""
+        From: Shop Newsletter <news@shop.example>
+        List-Id: <news.shop.example>
+        List-Unsubscribe: <https://shop.example/unsub>
+        Subject: Herbst-Sale: bis zu 40 %
+        Authentication-Results: mx.example.test; dkim=pass; spf=pass; dmarc=pass
+        Content-Type: text/html; charset=utf-8
+
+        <p>Unsere Herbst-Angebote: <a href="https://click.mailchimp.example/track?u=1">www.shop.example/sale</a></p>
+        """)
+        let invoice = mail("""
+        From: Stadtwerke <rechnung@stadtwerke.example>
+        Subject: Ihre Jahresabrechnung 2025
+        Authentication-Results: mx.example.test; dkim=pass; spf=pass; dmarc=pass
+        Content-Type: text/plain; charset=utf-8
+
+        Guten Tag, Ihre Jahresabrechnung finden Sie im Kundenportal unter https://portal.stadtwerke.example/rechnungen. Der Betrag wird am 15. abgebucht.
+        """)
+        let p = try await classifier.classify(phish)
+        let n = try await classifier.classify(newsletter)
+        let i = try await classifier.classify(invoice)
+        for (name, c) in [("Phishing", p), ("Newsletter", n), ("Rechnung", i)] {
+            print("\(name): \(c.category.rawValue), phishing=\(c.phishing.rawValue) \(c.phishingReason ?? "") (\(String(format: "%.1f", c.seconds)) s)")
+        }
+        #expect(p.phishing != .none)
+        #expect(n.phishing == .none && n.category == .newsletter)
+        #expect(i.phishing == .none)
     }
 }
