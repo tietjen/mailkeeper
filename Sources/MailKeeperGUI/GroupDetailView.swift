@@ -246,6 +246,37 @@ struct GroupDetailView: View {
 struct CleanupOverviewView: View {
     let model: AppModel
 
+    /// Active: tinted with a check mark. Empty: shown, but nothing to click (choosing it would
+    /// only leave nothing).
+    @ViewBuilder private func bucketRow(_ b: CleanupOverview.Bucket) -> some View {
+        let active = model.isBucketActive(b.query)
+        let row = HStack {
+            Image(systemName: "checkmark").foregroundStyle(.tint).opacity(active ? 1 : 0)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(b.title)
+                Text(b.query).font(.caption.monospaced()).foregroundStyle(.secondary)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(b.count == 0 ? String(localized: "keine") : b.count.formatted()).monospacedDigit()
+                if b.count > 0 {
+                    Text(b.bytes.formatted(.byteCount(style: .file))).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(active ? AnyShapeStyle(.tint.opacity(0.12)) : AnyShapeStyle(.clear))
+        .contentShape(Rectangle())
+        if b.count == 0 && !active {
+            row.foregroundStyle(.tertiary).help("Nichts in dieser Ansicht")
+        } else {
+            Button { model.toggleBucket(b) } label: { row }
+                .buttonStyle(.plain)
+                .help(active ? String(localized: "Eingrenzung aufheben") : String(localized: "Gruppen auf diese Mails eingrenzen"))
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -255,33 +286,17 @@ struct CleanupOverviewView: View {
                         Text("\(total.count.formatted()) Mails · \(total.bytes.formatted(.byteCount(style: .file))) in dieser Ansicht")
                             .font(.callout).foregroundStyle(.secondary)
                     }
-                    Text("Wähle links eine Gruppe für Details. Ein Klick auf einen Bereich grenzt die Gruppen darauf ein.")
+                    Text("Wähle links eine Gruppe für Details. Ein Bereich grenzt die Gruppen ein; es ist immer nur einer aktiv, ein zweiter Klick hebt ihn auf.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 if let buckets = model.cleanupOverview?.buckets {
                     VStack(spacing: 0) {
-                        ForEach(buckets, id: \.query) { b in
-                            Button { model.applyBucket(b) } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(b.title)
-                                        Text(b.query).font(.caption.monospaced()).foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    VStack(alignment: .trailing, spacing: 1) {
-                                        Text(b.count.formatted()).monospacedDigit()
-                                        Text(b.bytes.formatted(.byteCount(style: .file))).font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                                    }
-                                }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .help("Gruppen auf diese Mails eingrenzen")
-                        }
+                        ForEach(buckets, id: \.query) { b in bucketRow(b) }
                     }
                     .background(RoundedRectangle(cornerRadius: 8).stroke(.separator))
+                    if buckets.contains(where: { model.isBucketActive($0.query) }) {
+                        Button("Eingrenzung aufheben") { model.clearBuckets() }.buttonStyle(.link)
+                    }
                 }
                 let biggest = model.groups.sorted { $0.bytes > $1.bytes }.prefix(5)
                 if !biggest.isEmpty {

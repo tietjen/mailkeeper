@@ -109,8 +109,8 @@ extension ArchiveReader {
             """, params) { GroupDetail.Place(account: $0.text(0) ?? "", mailbox: $0.text(1) ?? "", count: Int($0.int(2))) }
 
         let (onServer, onServerBytes, withAttachments, largest) = try db.queryOne("""
-            SELECT count(*) FILTER (WHERE m.id IN (SELECT l.message_id FROM locations l WHERE l.on_server = 1)),
-                   coalesce(sum(m.size) FILTER (WHERE m.id IN (SELECT l.message_id FROM locations l WHERE l.on_server = 1)), 0),
+            SELECT count(*) FILTER (WHERE m.id IN (SELECT l.message_id FROM locations l WHERE \(QuerySQL.serverLocation))),
+                   coalesce(sum(m.size) FILTER (WHERE m.id IN (SELECT l.message_id FROM locations l WHERE \(QuerySQL.serverLocation))), 0),
                    count(*) FILTER (WHERE m.attachment_count > 0), coalesce(max(m.size), 0)
             FROM messages m\(whereClause)
             """, params) { (Int($0.int(0)), $0.int(1), Int($0.int(2)), $0.int(3)) } ?? (0, 0, 0, 0)
@@ -148,16 +148,19 @@ extension ArchiveReader {
         } ?? (0, 0)
     }
 
-    /// Where cleaning up pays off in the current scope: each bucket is a query to add.
+    /// The overview's buckets. Exclusive in the app: choosing one replaces another.
+    public static let cleanupBuckets: [(title: String, query: String)] = [
+        ("Newsletter, nie geöffnet", "is:list is:unread"),
+        ("Älter als zwei Jahre, noch auf dem Server", "before:2y on:server"),
+        ("Größer als 10 MB", "larger:10M"),
+        ("Nur noch im Archiv", "only:archive"),
+    ]
+
+    /// Where cleaning up pays off in the current scope: each bucket is a query to add. Pass the
+    /// filter without an active bucket, so every count says what choosing that bucket gives.
     public func cleanupOverview(_ filter: MessageFilter) throws -> CleanupOverview {
         let all = try totals(filter)
-        let candidates: [(String, String)] = [
-            ("Newsletter, nie geöffnet", "is:list is:unread"),
-            ("Älter als zwei Jahre, noch auf dem Server", "before:2y on:server"),
-            ("Größer als 10 MB", "larger:10M"),
-            ("Nur noch im Archiv", "only:archive"),
-        ]
-        let buckets = try candidates.map { title, query in
+        let buckets = try Self.cleanupBuckets.map { title, query in
             var f = filter
             f.also.append(query)
             let t = try totals(f)

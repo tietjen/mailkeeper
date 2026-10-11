@@ -52,6 +52,9 @@ a OR b   ( … )                      alternatives and grouping; AND binds tight
   bulk actions in Phase 4.
 - Location predicates (`account:`, `folder:`, `label:`, flags, `on:server`) are evaluated
   per predicate ("some location matches"), not jointly on the same location.
+- `on:server` means a location fetched over IMAP (it has a UID) that was present at the last
+  fetch; imported mail (Maildir, mbox, .eml) is `only:archive` — MailKeeper knows no server
+  location for it, and Phase 4 may only act on locations it knows (found with TJ's import).
 
 ## Consequences
 

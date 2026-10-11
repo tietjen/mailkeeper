@@ -126,10 +126,13 @@ struct QuerySQL {
             return location(Self.flag, .text(" \\flagged "))
         case .flag(.answered):
             return location(Self.flag, .text(" \\answered "))
+        // "On the server" = a location MailKeeper fetched over IMAP (it has a UID) that was still
+        // there at the last fetch. Imported mail (Maildir, mbox, .eml) has no server location
+        // MailKeeper knows of: it is archive-only, whatever its on_server default says.
         case .onServer:
-            return location("l.on_server = 1")
+            return location(Self.serverLocation)
         case .archiveOnly:
-            return "NOT " + location("l.on_server = 1")
+            return "NOT " + location(Self.serverLocation)
         case .messageID(let id):
             params.append(.text(id))
             return "m.message_id = ?"
@@ -140,6 +143,7 @@ struct QuerySQL {
     }
 
     private static let flag = "instr(' ' || lower(l.flags) || ' ', ?) > 0"
+    static let serverLocation = "l.on_server = 1 AND l.uid IS NOT NULL"
 
     /// Uncorrelated `IN` subqueries, evaluated once per query: a correlated EXISTS can make
     /// SQLite scan a big mailbox once per message (see ArchiveReader.whereClause).

@@ -18,7 +18,6 @@ struct ContentView: View {
                 }
             }
                 .navigationSplitViewColumnWidth(min: 420, ideal: 640)
-                .safeAreaInset(edge: .top, spacing: 0) { QueryBar(model: model) }
                 .overlay {
                     if model.preparingArchive {
                         ContentUnavailableView {
@@ -48,13 +47,21 @@ struct ContentView: View {
                         } description: {
                             Text(error)
                         }
-                    } else if model.viewMode != .messages {
-                        if model.groups.isEmpty { ContentUnavailableView("Nichts zum Aufräumen", systemImage: "sparkles") }
-                    } else if model.messageIDs.isEmpty {
-                        ContentUnavailableView(model.searchText.isEmpty ? "Keine Nachrichten" : "Keine Treffer",
-                                               systemImage: model.searchText.isEmpty ? "tray" : "magnifyingglass")
+                    } else if model.viewMode != .messages ? model.groups.isEmpty : model.messageIDs.isEmpty {
+                        let searching = !model.searchText.allSatisfy(\.isWhitespace)
+                        ContentUnavailableView {
+                            Label(searching ? "Keine Treffer" : (model.viewMode == .messages ? "Keine Nachrichten" : "Nichts zum Aufräumen"),
+                                  systemImage: searching ? "magnifyingglass" : (model.viewMode == .messages ? "tray" : "sparkles"))
+                        } description: {
+                            if searching {
+                                Text("Die Suche lässt hier nichts übrig. Alle Begriffe müssen zutreffen; oben kannst du einzelne mit × entfernen.")
+                            }
+                        } actions: {
+                            if searching { Button("Suche zurücksetzen") { model.searchText = "" } }
+                        }
                     }
                 }
+                .safeAreaInset(edge: .top, spacing: 0) { QueryBar(model: model) }
         } detail: {
             if model.viewMode != .messages {
                 if let detail = model.groupDetail {

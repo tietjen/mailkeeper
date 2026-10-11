@@ -450,3 +450,29 @@ struct GroupDetailTests {
         for b in o.buckets { #expect(try r.count(MessageFilter(also: [b.query])) == b.count, "\(b.query)") }
     }
 }
+
+@Suite("On the server")
+struct OnServerTests {
+    /// Imported mail has no server location MailKeeper knows of (TJ's mbsync import showed
+    /// 24k mails "on the server" before this): Phase 4 must never act on such a claim.
+    @Test func importedMailIsArchiveOnly() async throws {
+        let layout = try ArchiveLayout.open(at: tempDir().appending(path: "os"), create: true)
+        let writer = try ArchiveWriter(layout: layout)
+        try await writer.register(AccountInfo(id: "imap", kind: "imap", name: "I"))
+        try await writer.register(AccountInfo(id: "backup", kind: "maildir", name: "B"))
+        _ = try await writer.ingest([
+            (sampleMessage(id: "<s1@t.test>", subject: "synced"), LocationInfo(account: "imap", mailbox: "INBOX", uidValidity: 1, uid: 7)),
+            (sampleMessage(id: "<i1@t.test>", subject: "imported"), LocationInfo(account: "backup", mailbox: "INBOX", providerID: "cur/1")),
+            (sampleMessage(id: "<b1@t.test>", subject: "both"), LocationInfo(account: "backup", mailbox: "INBOX", providerID: "cur/2")),
+            (sampleMessage(id: "<b1@t.test>", subject: "both"), LocationInfo(account: "imap", mailbox: "INBOX", uidValidity: 1, uid: 8)),
+        ])
+        let r = try ArchiveReader(layout: layout)
+        let subjects = { (q: String) in Set(try r.summaries(try r.messageIDs(MessageFilter(text: q + " "))).compactMap(\.subject)) }
+        #expect(try subjects("on:server") == ["synced", "both"])
+        #expect(try subjects("only:archive") == ["imported"])
+        _ = try await writer.markGone(account: "imap", mailbox: "INBOX", uidValidity: 1, uids: [7])
+        #expect(try subjects("only:archive") == ["imported", "synced"])
+        let g = try #require(try r.groups(MessageFilter(), by: .sender).first)
+        #expect(try r.groupDetail(g, within: MessageFilter()).onServer == 1)  // only "both" is still there
+    }
+}

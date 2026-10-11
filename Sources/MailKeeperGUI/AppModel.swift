@@ -319,8 +319,44 @@ final class AppModel {
             cleanupOverview = nil
         } else {
             groupDetail = nil
-            cleanupOverview = try? reader.cleanupOverview(filter)
+            var base = filter
+            base.text = Self.removing(ArchiveReader.cleanupBuckets.map(\.query).filter(isBucketActive), from: searchText)
+            cleanupOverview = try? reader.cleanupOverview(base)
         }
+    }
+
+    // MARK: Overview buckets — one at a time (TJ combined several, nothing was left, nothing said why)
+
+    /// A bucket is active when all its terms stand in the search as top-level terms.
+    func isBucketActive(_ query: String) -> Bool {
+        let chips = Set(self.query?.chips.map(\.text) ?? [])
+        let terms = query.split(separator: " ").map(String.init)
+        return !terms.isEmpty && terms.allSatisfy(chips.contains)
+    }
+
+    /// Click on a bucket: turns it off, or replaces the active one with it.
+    func toggleBucket(_ bucket: CleanupOverview.Bucket) {
+        let active = ArchiveReader.cleanupBuckets.map(\.query).filter(isBucketActive)
+        let wasActive = active.contains(bucket.query)
+        var text = Self.removing(active, from: searchText)
+        if !wasActive { text = (text.isEmpty ? "" : text) + bucket.query + " " }
+        searchText = text
+    }
+
+    func clearBuckets() {
+        searchText = Self.removing(ArchiveReader.cleanupBuckets.map(\.query).filter(isBucketActive), from: searchText)
+    }
+
+    /// The search text without the given queries' terms (top-level terms only), normalised.
+    private static func removing(_ queries: [String], from text: String) -> String {
+        let terms = Set(queries.flatMap { $0.split(separator: " ").map(String.init) })
+        guard !terms.isEmpty, let parsed = try? QueryParser.parse(text) else { return text }
+        var result = text
+        for chip in parsed.chips.reversed() where terms.contains(chip.text) {
+            result.removeSubrange(chip.range)  // back to front: earlier ranges stay valid
+        }
+        let rest = result.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return rest.isEmpty ? "" : rest + " "
     }
 
     /// One of the group's recent mails: the group's messages in the list, that mail selected.
@@ -334,11 +370,6 @@ final class AppModel {
     func showSender(_ address: String) {
         viewMode = .sender
         selectedGroupID = "\(GroupMode.sender.rawValue):\(address)"
-    }
-
-    /// Overview bucket ("Newsletter, nie geöffnet", …): narrows the groups to those messages.
-    func applyBucket(_ bucket: CleanupOverview.Bucket) {
-        appendFilter(bucket.query)
     }
 
     /// A saved view for exactly this group within the current scope and search.
