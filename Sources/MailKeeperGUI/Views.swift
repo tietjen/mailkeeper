@@ -246,6 +246,7 @@ struct ReaderView: View {
     @State private var loaded: (id: Int64, detail: MessageDetail, message: ParsedMessage, thread: [MessageSummary])?
     @State private var category: Classification?
     @State private var inJunk = false
+    @State private var rescuable = false
     @State private var hovered: LinkCheck?
     @State private var lures: [LinkCheck] = []
     @State private var failed = false
@@ -275,6 +276,7 @@ struct ReaderView: View {
                 loaded = (messageID, detail, message, thread)
                 category = model.classification(of: messageID)
                 inJunk = model.isInJunk(messageID)
+                rescuable = inJunk && model.canRescue(messageID)
                 lures = LinkExtractor.links(html: message.html, text: message.text).map { LinkCheck(href: $0.href, text: $0.text) }.filter(\.isSuspicious)
             }
         }
@@ -370,10 +372,16 @@ struct ReaderView: View {
                 Button(category?.category == nil ? "Mit KI einordnen" : "Neu einordnen") { model.classifySelection() }
                     .controlSize(.small).disabled(model.actionRunning)
             }
-            if inJunk {
+            if inJunk, rescuable {
                 Button("Kein Spam → Posteingang") { model.rescueSelection() }
                     .controlSize(.small).disabled(model.actionRunning)
                     .help("Auf dem Server aus dem Spam-Ordner in den Posteingang verschieben; das Archiv merkt es sich")
+            } else if inJunk, category?.verdict != "ham" {
+                Button("Kein Spam") { model.rescueSelection() }
+                    .controlSize(.small)
+                    .help("Diese Mail liegt auf keinem Server, den MailKeeper kennt (importiert): nur dein Urteil wird im Archiv vermerkt")
+            }
+            if inJunk {
                 if category?.verdict != "spam" {
                     Button("Ist Spam") { model.markSpamSelection() }.controlSize(.small)
                 }

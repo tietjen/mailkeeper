@@ -282,8 +282,9 @@ struct SpamReviewBar: View {
             Spacer()
             Button("Nur „kein Spam“") { model.appendFilter("-kategorie:spam -is:phishing") }
                 .help("Zeigt nur, was die KI (oder du) weder für Spam noch für Phishing hält")
-            Button("Kein Spam → Posteingang") { model.rescueSelection() }
+            Button("Kein Spam") { model.rescueSelection() }
                 .disabled(model.actionSelection.isEmpty || model.actionRunning)
+                .help("Liegt die Mail im Spam-Ordner eines abgerufenen Kontos, wandert sie dort in den Posteingang; bei importierten Mails wird nur dein Urteil vermerkt")
             Button("Ist Spam") { model.markSpamSelection() }
                 .disabled(model.actionSelection.isEmpty)
             Button("Spam-Ordner prüfen") { model.checkJunk() }

@@ -1510,19 +1510,32 @@ final class AppModel {
         do {
             let title = ids.count == 1 ? String(localized: "1 Mail aus dem Spam-Ordner") : String(localized: "\(ids.count) Mails aus dem Spam-Ordner")
             let (job, summary) = try reader.planRescue(MessageFilter(ids: ids), title: title, accounts: accountConfigs)
+            // Mails with no spam folder on a server MailKeeper knows (imported): nothing to move,
+            // but the user's "Kein Spam" counts — recorded at once (TJ).
+            let onServer = Set(job.items.compactMap(\.identity))
+            let archiveOnly = try reader.identities(of: ids).filter { !onServer.contains($0) }
+            if !archiveOnly.isEmpty {
+                withWriter { writer in for identity in archiveOnly { try await writer.confirmNotSpam(identity: identity) } }
+                contentGeneration += 1
+            }
             let plan = PlannedAction(job: job, summary: summary, filter: MessageFilter(ids: ids),
                                      examples: try reader.summaries(Array(ids.prefix(5))))
             if ids.count == 1, job.items.count == 1, job.count(.planned) == 1 {
                 execute(plan)  // TJ: one click — the checks, the queue and the audit run all the same
             } else if job.count(.planned) == 0 {
-                actionError = job.reasons.first.map { "\($0.reason)" }
-                    ?? String(localized: "Für diese Mail kennt MailKeeper keinen Spam-Ordner auf einem Server (importiert?).")
+                if archiveOnly.isEmpty, let reason = job.reasons.first?.reason { actionError = reason }
             } else {
                 pendingPlan = plan
             }
         } catch {
             actionError = "\(error)"
         }
+    }
+
+    /// Whether a "Kein Spam" would move something on a server (a spam-folder location fetched over IMAP).
+    func canRescue(_ id: Int64) -> Bool {
+        guard let reader, let job = try? reader.planRescue(MessageFilter(ids: [id]), title: "", accounts: accountConfigs).0 else { return false }
+        return job.count(.planned) > 0
     }
 
     /// "Ist Spam": the user's decision (journalled).
