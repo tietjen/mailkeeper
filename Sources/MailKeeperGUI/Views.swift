@@ -223,7 +223,7 @@ struct ReaderView: View {
                 ProgressView()
             }
         }
-        .task(id: messageID) {
+        .task(id: "\(messageID)-\(model.contentGeneration)") {
             failed = false
             guard let detail = model.detail(messageID), let message = await model.parse(detail) else {
                 failed = true

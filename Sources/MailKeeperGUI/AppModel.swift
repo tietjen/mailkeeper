@@ -163,6 +163,9 @@ final class AppModel {
     private(set) var messageIDs: [Int64] = []
     /// Bumped whenever `messageIDs` is replaced; the table reloads on change.
     private(set) var listGeneration = 0
+    /// Bumped whenever the archive changed (action, sync, import, trash): the reader reloads the
+    /// open message even though the selection stayed (TJ: place still said "Server" after a delete).
+    private(set) var contentGeneration = 0
     var selectedMessageID: Int64? { didSet { if selectedMessageID != oldValue { noteSelection() } } }
     /// Bumped when the model selects a message itself (conversation list); the table follows.
     private(set) var selectionRequest = 0
@@ -412,6 +415,7 @@ final class AppModel {
 
     func refresh() {
         guard let reader else { return }
+        contentGeneration += 1
         reloadAccounts(reader.layout)
         accounts = (try? reader.accounts()) ?? []
         stats = try? reader.stats()
