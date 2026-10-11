@@ -51,11 +51,23 @@ public enum IMAPError: Error, CustomStringConvertible, Equatable {
     }
 }
 
-/// One IMAP connection, read-only (Phase 2): mailboxes are opened with EXAMINE, bodies fetched
-/// with BODY.PEEK, and every command passes an allowlist — nothing can change server state.
+/// What a connection may change on the server.
+public enum IMAPAccess: Sendable, Equatable {
+    /// Phase 2: nothing (EXAMINE, BODY.PEEK, the read-only allowlist).
+    case readOnly
+    /// Phase 4 server delete (ADR-0006): additionally SELECT, and moving messages into the
+    /// SPECIAL-USE \Trash — UID MOVE, or UID COPY + STORE +FLAGS (\Deleted) + UID EXPUNGE on
+    /// exactly those UIDs. Never a bare EXPUNGE or CLOSE (they would purge every \Deleted
+    /// message in the mailbox, including other clients'), never another destination.
+    case moveToTrash
+}
+
+/// One IMAP connection, read-only unless opened with `access: .moveToTrash`: mailboxes are opened
+/// with EXAMINE, bodies fetched with BODY.PEEK, and every command passes an allowlist.
 /// Commands are serialised; the session is not meant for concurrent use.
-public actor IMAPSession: MailboxSource {
+public actor IMAPSession: MailboxSource, ServerTrashActions {
     public let endpoint: IMAPEndpoint
+    public let access: IMAPAccess
     public private(set) var serverCapabilities: [String] = []
     /// SHA-256 of the server's leaf certificate (STARTTLS pinned/learn mode).
     public private(set) var certificateFingerprint: String?
@@ -68,9 +80,12 @@ public actor IMAPSession: MailboxSource {
     private var currentExists = 0
     private var gmail = false
     private var condstore = false
+    /// The SPECIAL-USE \Trash mailbox, once looked up: the only destination a move may name.
+    private var trash: MailboxName?
 
-    private init(endpoint: IMAPEndpoint, channel: Channel, responses: AsyncThrowingStream<Response, Error>) {
+    private init(endpoint: IMAPEndpoint, access: IMAPAccess, channel: Channel, responses: AsyncThrowingStream<Response, Error>) {
         self.endpoint = endpoint
+        self.access = access
         self.channel = channel
         self.responses = responses.makeAsyncIterator()
     }
@@ -78,11 +93,11 @@ public actor IMAPSession: MailboxSource {
     /// Connects, secures and logs in. `readTimeout` closes the connection when the server goes
     /// silent while a command is outstanding (and between commands).
     public static func connect(_ endpoint: IMAPEndpoint, username: String, password: String,
-                               readTimeout: TimeAmount = .seconds(120)) async throws -> IMAPSession {
+                               access: IMAPAccess = .readOnly, readTimeout: TimeAmount = .seconds(120)) async throws -> IMAPSession {
         let session: IMAPSession
         let clock = ContinuousClock(), start = clock.now
         do {
-            session = try await open(endpoint, readTimeout: readTimeout)
+            session = try await open(endpoint, access: access, readTimeout: readTimeout)
             debug("connect+TLS+greeting \(clock.now - start)")
         } catch let error as IMAPError {
             throw error
@@ -100,7 +115,7 @@ public actor IMAPSession: MailboxSource {
         return session
     }
 
-    private static func open(_ endpoint: IMAPEndpoint, readTimeout: TimeAmount) async throws -> IMAPSession {
+    private static func open(_ endpoint: IMAPEndpoint, access: IMAPAccess, readTimeout: TimeAmount) async throws -> IMAPSession {
         let implicitTLS = endpoint.security == .tls
         var tls = TLSConfiguration.makeClientConfiguration()
         tls.minimumTLSVersion = .tlsv12
@@ -124,7 +139,7 @@ public actor IMAPSession: MailboxSource {
             }
             .connect(host: endpoint.host, port: endpoint.port).get()
         debug("channel connected \(ContinuousClock.now - tcp)")
-        let session = IMAPSession(endpoint: endpoint, channel: channel, responses: stream)
+        let session = IMAPSession(endpoint: endpoint, access: access, channel: channel, responses: stream)
         let t = ContinuousClock.now
         try await session.readGreeting()
         debug("greeting after channel up \(ContinuousClock.now - t)")
@@ -219,7 +234,10 @@ public actor IMAPSession: MailboxSource {
     public func examine(_ mailbox: RemoteMailbox) async throws -> MailKeeperKit.MailboxStatus {
         guard let name = mailboxNames[mailbox.name] else { throw IMAPError.protocolError("unbekanntes Postfach \(mailbox.name)") }
         let params: [SelectParameter] = condstore ? [.basic(KeyValue(key: "CONDSTORE", value: nil))] : []
-        let result = try await run(.examine(name, params))
+        return try status(of: try await run(.examine(name, params)), mailbox: mailbox.name)
+    }
+
+    private func status(of result: Result, mailbox: String) throws -> MailKeeperKit.MailboxStatus {
         var validity: UInt32?, next: UInt32?, exists = 0, modseq: UInt64?
         for payload in result.untagged {
             if case .mailboxData(.exists(let n)) = payload { exists = n }
@@ -233,7 +251,7 @@ public actor IMAPSession: MailboxSource {
             }
         }
         if case .uidValidity(let v)? = result.code { validity = UInt32(v) }
-        guard let validity else { throw IMAPError.protocolError("keine UIDVALIDITY für \(mailbox.name)") }
+        guard let validity else { throw IMAPError.protocolError("keine UIDVALIDITY für \(mailbox)") }
         currentExists = exists
         return MailKeeperKit.MailboxStatus(uidValidity: validity, uidNext: next, exists: exists, highestModSeq: modseq)
     }
@@ -296,6 +314,58 @@ public actor IMAPSession: MailboxSource {
         }
     }
 
+    // MARK: Server delete (Phase 4, access .moveToTrash)
+
+    public func trashMailbox() async throws -> String? {
+        let boxes = try await mailboxes()
+        guard let box = boxes.first(where: { $0.specialUse.contains(.trash) && $0.selectable }) else { return nil }
+        trash = mailboxNames[box.name]
+        return box.name
+    }
+
+    public func selectForChange(_ mailbox: String) async throws -> UInt32 {
+        guard access == .moveToTrash else { throw IMAPError.readOnlyViolation("SELECT") }
+        if mailboxNames[mailbox] == nil { _ = try await mailboxes() }
+        guard let name = mailboxNames[mailbox] else { throw IMAPError.protocolError("unbekanntes Postfach \(mailbox)") }
+        return try status(of: try await run(.select(name, [])), mailbox: mailbox).uidValidity
+    }
+
+    public func identities(_ uids: [UInt32]) async throws -> [UInt32: RemoteIdentity] {
+        guard !uids.isEmpty else { return [:] }
+        let header = FetchAttribute.bodySection(peek: true, SectionSpecifier(kind: .headerFields(["Message-ID"])), nil)
+        let result = try await run(.uidFetch(Self.uidSet(uids), [.uid, .flags, .rfc822Size, header], []))
+        var out: [UInt32: RemoteIdentity] = [:]
+        for f in result.fetches {
+            guard let uid = f.uid else { continue }
+            out[uid] = RemoteIdentity(messageID: f.body.flatMap(MIMEParser.messageID(ofHeader:)), size: f.size, flags: f.flags)
+        }
+        return out
+    }
+
+    public func bodies(_ uids: [UInt32]) async throws -> [UInt32: Data] {
+        Dictionary(try await fetch(uids).map { ($0.uid, $0.data) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    public func moveToTrash(_ uids: [UInt32]) async throws {
+        guard !uids.isEmpty else { return }
+        guard let trash else { throw IMAPError.protocolError("kein Papierkorb (\\Trash) bestimmt") }
+        let set = Self.uidSet(uids)
+        if serverCapabilities.contains("MOVE") {
+            try await run(.uidMove(set, trash))
+        } else if serverCapabilities.contains("UIDPLUS") {
+            try await run(.uidCopy(set, trash))
+            try await run(.uidStore(set, [], .flags(.add(silent: true, list: [.deleted]))))
+            try await run(.uidExpunge(set))
+        } else {
+            throw IMAPError.command("MOVE", "der Server kann weder MOVE noch UIDPLUS – gezieltes Löschen nicht möglich")
+        }
+    }
+
+    public func present(_ uids: [UInt32]) async throws -> Set<UInt32> {
+        guard !uids.isEmpty else { return [] }
+        return Set(try await run(.uidFetch(Self.uidSet(uids), [.uid], [])).fetches.compactMap(\.uid))
+    }
+
     // MARK: Command plumbing
 
     struct Fetched {
@@ -334,9 +404,28 @@ public actor IMAPSession: MailboxSource {
         }
     }
 
+    /// Phase 4: the few changes a `.moveToTrash` connection may make, and only toward \Trash.
+    static func isAllowedChange(_ command: Command, access: IMAPAccess, trash: MailboxName?) -> Bool {
+        guard access == .moveToTrash else { return false }
+        switch command {
+        case .select(_, let params):
+            return params.allSatisfy { if case .basic(let kv) = $0 { kv.key.uppercased() == "CONDSTORE" } else { false } }
+        case .uidMove(_, let destination), .uidCopy(_, let destination):
+            return trash != nil && destination == trash
+        case .uidStore(_, let modifiers, .flags(let store)):
+            return modifiers.isEmpty && store.operation == .add && store.flags == [.deleted]
+        case .uidExpunge:
+            return true  // explicit UIDs only (UIDPLUS); bare EXPUNGE and CLOSE stay refused
+        default:
+            return false
+        }
+    }
+
     @discardableResult
     func run(_ command: Command, failure: (String) -> IMAPError = { _ in IMAPError.closed }) async throws -> Result {
-        guard Self.isReadOnly(command) else { throw IMAPError.readOnlyViolation(Self.name(of: command)) }
+        guard Self.isReadOnly(command) || Self.isAllowedChange(command, access: access, trash: trash) else {
+            throw IMAPError.readOnlyViolation(Self.name(of: command))
+        }
         guard !busy else { throw IMAPError.protocolError("gleichzeitige Befehle auf einer Verbindung") }
         busy = true
         defer { busy = false }

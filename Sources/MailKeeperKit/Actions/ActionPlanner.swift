@@ -27,8 +27,8 @@ extension ArchiveReader {
         var withLocation: Set<Int64> = []
         try db.forEach("""
             SELECT l.message_id, l.account_id, l.mailbox, l.uid_validity, l.uid, l.sha256, l.flags,
-                   coalesce(l.internal_date, m.date), m.message_id, m.size
-            FROM locations l JOIN messages m ON m.id = l.message_id
+                   coalesce(l.internal_date, m.date), m.message_id, coalesce(b.size, m.size)
+            FROM locations l JOIN messages m ON m.id = l.message_id LEFT JOIN blobs b ON b.sha256 = l.sha256
             WHERE \(QuerySQL.serverLocation) AND l.uid_validity IS NOT NULL
               AND l.message_id IN (SELECT m.id FROM messages m\(whereClause))
             ORDER BY coalesce(l.internal_date, m.date), l.id

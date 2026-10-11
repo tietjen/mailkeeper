@@ -122,6 +122,12 @@ public enum MIMEParser {
         )
     }
 
+    /// The normalised Message-ID of raw header bytes (e.g. BODY[HEADER.FIELDS (MESSAGE-ID)]),
+    /// the same way the index stores it — for comparing a server copy with the archive.
+    public static func messageID(ofHeader data: Data) -> String? {
+        MessageIDs.identity(HeaderParser.parse(data).0["Message-ID"])
+    }
+
     /// RFC 2919 `List-Id: [description] <id>`: the id (lowercased, the grouping key) and the
     /// human description. Encoded words are decoded first (`=?utf-8?q?Gr=C3=BCne_Erde?=` was
     /// stored raw); senders that put a phrase in the brackets still get its content as id.

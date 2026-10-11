@@ -23,6 +23,8 @@ usage: mkctl [--archive <dir>] <command>
   groups [--by sender|domain|list] [--limit n] [query…]
                                               cleanup view: largest groups (of the query's messages)
   plan server-delete <query…> [--grace <d>]  dry run: what deleting on the server would do (nothing changes)
+  server-delete <query…> [--grace <d>] [--yes]
+                                              move to the server's Trash (archive keeps them; asks first)
   show <id>                                   one message: headers, locations, text
   account add gmail <address> --id <id>       add a Gmail account (app password, All Mail + labels)
   account add proton <address> --id <id> [--port 1143] [--trust <fingerprint>]
@@ -232,6 +234,33 @@ func summarize(_ p: ImportProgress, start: Date) {
               + (summary.perAccount.isEmpty ? "" : " — " + summary.perAccount.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", ")))
         for (reason, count) in job.reasons { print("skipped \(count): \(reason)") }
         print("dry run — nothing changed")
+
+    case "server-delete":
+        // ADR-0006: plan, show, confirm, execute, verify. Without --yes (or a "j") nothing changes.
+        let grace = Int(option("--grace") ?? "30") ?? 30
+        let yes = args.contains("--yes")
+        args.removeAll { $0 == "--yes" }
+        let query = args.joined(separator: " ")
+        guard !query.isEmpty else { throw CLIError(description: "server-delete <query…> [--grace <days>] [--yes]") }
+        let layout = try ArchiveLayout.open(at: root, create: false)
+        let accounts = try AccountStore(layout: layout).load()
+        let (job, summary) = try ArchiveReader(layout: layout).planServerDelete(MessageFilter(text: query + " "), title: query,
+                                                                                 accounts: accounts, graceDays: grace)
+        print("\(summary.messages) messages · \(summary.archiveOnly) only in the archive")
+        for (reason, count) in job.reasons { print("skipped \(count): \(reason)") }
+        guard job.count(.planned) > 0 else { print("nothing to do"); break }
+        print("move \(job.count(.planned)) to the server's Trash (\(bytes(job.openBytes))) — the archive keeps them")
+        guard yes || confirm("Ausführen?") else { print("not executed"); break }
+        let store = ActionStore(layout: layout)
+        try store.create(job)
+        let writer = try ArchiveWriter(layout: layout)
+        let done = try await SyncCoordinator.deleteOnServer(job.id, writer: writer, accounts: accounts) { p in
+            print("\r\(p.account ?? "") done \(p.done) · failed \(p.failed) · skipped \(p.skipped) of \(p.total)", terminator: "")
+            fflush(stdout)
+        }
+        print("")
+        print("done \(done.count(.done)) · failed \(done.count(.failed)) · skipped \(done.count(.skipped)) — job \(done.id.uuidString)")
+        for (reason, count) in done.reasons { print("  \(count): \(reason)") }
 
     case "show":
         guard let idText = args.first, let id = Int64(idText) else { throw CLIError(description: "show <id>") }

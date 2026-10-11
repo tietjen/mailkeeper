@@ -37,7 +37,7 @@ public struct RebuildReport: Sendable, Equatable {
 /// store and the journal. Order per message (ADR-0001, blobs + journal are the truth):
 /// blob durable → journal event → journal fsync → index commit.
 public actor ArchiveWriter {
-    public let layout: ArchiveLayout
+    public nonisolated let layout: ArchiveLayout
     private let lock: ArchiveLock
     private var db: Database
     private let journal: Journal

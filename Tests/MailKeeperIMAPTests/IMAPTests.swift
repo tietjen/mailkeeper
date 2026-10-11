@@ -39,6 +39,30 @@ struct ReadOnlyGuardTests {
         #expect(IMAPSession.isReadOnly(IMAPSession.presenceCommand(esearch: true)))
     }
 
+    @Test("Phase 4: a moveToTrash connection may only move into \\Trash") func trashAllowlist() {
+        let trash = MailboxName(ByteBuffer(string: "Trash"))
+        let archive = MailboxName(ByteBuffer(string: "Archive"))
+        let allowed: [Command] = [
+            .select(inbox, []), .uidMove(one, trash), .uidCopy(one, trash),
+            .uidStore(one, [], .flags(.add(silent: true, list: [.deleted]))), .uidExpunge(one),
+        ]
+        for c in allowed {
+            #expect(IMAPSession.isAllowedChange(c, access: .moveToTrash, trash: trash), "\(c)")
+            #expect(!IMAPSession.isAllowedChange(c, access: .readOnly, trash: trash), "\(c)")  // read-only stays read-only
+        }
+        let refused: [Command] = [
+            .uidMove(one, archive), .uidCopy(one, archive),                          // never another destination
+            .expunge, .close, .delete(inbox), .create(inbox, []), .rename(from: inbox, to: archive, parameters: [:]),
+            .uidStore(one, [], .flags(.add(silent: true, list: [.seen]))),          // only \Deleted may be added
+            .uidStore(one, [], .flags(.remove(silent: true, list: [.deleted]))),
+            .uidStore(one, [], .flags(.replace(silent: true, list: [.deleted]))),
+            .uidStore(one, [], .flags(.add(silent: true, list: [.deleted, .seen]))),
+        ]
+        for c in refused { #expect(!IMAPSession.isAllowedChange(c, access: .moveToTrash, trash: trash), "\(c)") }
+        // no destination at all before the \Trash mailbox has been looked up
+        #expect(!IMAPSession.isAllowedChange(.uidMove(one, trash), access: .moveToTrash, trash: nil))
+    }
+
     @Test("I5: stream errors keep their cause") func errorsKeepCause() {
         struct PayloadTooLarge: Error {}
         #expect(IMAPSession.mapped(PayloadTooLarge()) == .protocolError("PayloadTooLarge()"))
@@ -155,6 +179,54 @@ struct IntegrationTests {
         #expect(second.failures.isEmpty, "\(second.failures)")
         #expect(second.fetched == 0 && second.gone == 0)
         #expect(try ArchiveReader(layout: layout).stats().locations == first.newMessages + first.newLocations)
+    }
+
+    func seed(_ argument: String) throws {
+        let script = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appending(path: "Scripts/seed-test-mailbox.py")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        p.arguments = ["-I", script.path, argument]
+        try p.run()
+        p.waitUntilExit()
+        try #require(p.terminationStatus == 0, "seed-test-mailbox.py \(argument)")
+    }
+
+    /// Phase 4 (ADR-0006), mailcow TEST account only: three fresh messages are synced, deleted to
+    /// Trash through the narrow `.moveToTrash` access, checked on the server with a separate
+    /// read-only connection and in the archive; the test messages are then removed from Trash.
+    @Test func mailcowServerDeleteToTrash() async throws {
+        let a = try account("mailcow")
+        let folder = "MailKeeper-DeleteTest"
+        try seed("--delete-test")
+        defer { try? seed("--cleanup-trash") }
+        let endpoint = IMAPEndpoint(host: a.host, port: a.port, security: .tls)
+        let (layout, first, _) = try await run("mailcow", endpoint: endpoint, policy: SyncPolicy(mode: .standard, include: [folder]))
+        #expect(first.failures.isEmpty, "\(first.failures)")
+        let reader = try ArchiveReader(layout: layout)
+        let config = AccountConfig.imap(id: "mailcow", username: a.username, host: a.host, port: a.port)
+        let (job, _) = try reader.planServerDelete(MessageFilter(text: "folder:\(folder) "), title: "test", accounts: [config])
+        #expect(job.count(.planned) >= 3, "\(job.reasons)")  // internal date 400 days back: past the grace period
+        let store = ActionStore(layout: layout)
+        try store.create(job)
+        let pw = try password(a)
+        let done = try await ServerDeleteExecutor(writer: try ArchiveWriter(layout: layout), store: store,
+                                                  audit: AuditLog(url: tempDir().appending(path: "audit.jsonl"))).run(job.id) { _ in
+            try await IMAPSession.connect(endpoint, username: a.username, password: pw, access: .moveToTrash)
+        }
+        #expect(done.count(.done) == job.count(.planned), "\(done.reasons)")
+        // the server, seen through a separate read-only connection
+        let check = try await IMAPSession.connect(endpoint, username: a.username, password: pw)
+        let boxes = try await check.mailboxes()
+        _ = try await check.examine(try #require(boxes.first { $0.name == folder }))
+        let left = Set(try await check.allUIDs())
+        #expect(left.isDisjoint(with: done.items.compactMap { $0.location?.uid }))
+        _ = try await check.examine(try #require(boxes.first { $0.specialUse.contains(.trash) }))
+        let inTrash = Set(try await check.identities(try await check.allUIDs()).values.compactMap(\.messageID))
+        #expect(Set(done.items.compactMap(\.messageID)).isSubset(of: inTrash))
+        await check.close()
+        // the archive kept them, now archive-only
+        #expect(try reader.count(MessageFilter(text: "folder:\(folder) only:archive ")) == done.count(.done))
     }
 
     @Test func protonWrongPinIsRefused() async throws {

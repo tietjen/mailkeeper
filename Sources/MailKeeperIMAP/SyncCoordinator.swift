@@ -17,11 +17,13 @@ public extension IMAPEndpoint {
 public enum SyncError: Error, CustomStringConvertible {
     case noPassword(String)
     case unconfirmedCertificate(String)
+    case unknownAccount(String)
 
     public var description: String {
         switch self {
         case .noPassword(let id): "Für Konto „\(id)“ ist kein Passwort im Schlüsselbund"
         case .unconfirmedCertificate(let id): "Das Bridge-Zertifikat von „\(id)“ ist noch nicht bestätigt"
+        case .unknownAccount(let id): "Konto „\(id)“ ist hier nicht eingerichtet"
         }
     }
 }
@@ -38,6 +40,21 @@ public struct ConnectionCheck: Sendable {
 
 /// Glue for CLI and app: password from the keychain, connect, sync, close.
 public enum SyncCoordinator {
+    /// Runs a planned server-delete job (ADR-0006): one connection per account, opened with the
+    /// narrow `.moveToTrash` access; everything else stays refused by the allowlist.
+    public static func deleteOnServer(_ jobID: UUID, writer: ArchiveWriter, accounts: [AccountConfig],
+                                      credentials: CredentialStore = CredentialStore(), audit: AuditLog = AuditLog(),
+                                      progress: @escaping @Sendable (ServerDeleteProgress) -> Void = { _ in }) async throws -> ActionJob {
+        let executor = ServerDeleteExecutor(writer: writer, store: ActionStore(layout: writer.layout), audit: audit)
+        return try await executor.run(jobID, connect: { id in
+            guard let account = accounts.first(where: { $0.id == id }) else { throw SyncError.unknownAccount(id) }
+            if case .startTLSPinned(nil) = account.security { throw SyncError.unconfirmedCertificate(id) }
+            guard let password = try credentials.password(for: account) else { throw SyncError.noPassword(id) }
+            return try await IMAPSession.connect(IMAPEndpoint(account), username: account.username,
+                                                 password: account.normalizedPassword(password), access: .moveToTrash)
+        }, progress: progress)
+    }
+
     /// Connects with an explicit password (setup) and reports mailboxes and, for a bridge in
     /// learn mode, the certificate fingerprint to confirm.
     public static func check(_ account: AccountConfig, password: String) async throws -> ConnectionCheck {
