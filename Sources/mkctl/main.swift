@@ -46,6 +46,8 @@ usage: mkctl [--archive <dir>] <command>
   sync [<id>…]                                fetch new mail from all (or the given) accounts, read-only
   ask <everyday language…>                    KI: translate into the search language (shown, then counted)
   classify [--ai [--limit n] <query…>]        categories: rules for all messages; --ai asks the model about open ones
+  embed                                       vectors for semantic search (endpoint), then categories from similar mails
+  similar <id> [--limit n] | meaning <text…>  mails like a message / by meaning (needs embed)
   ai status | test                            KI settings of the archive; connection test (endpoint, on-device)
   ai config [--on|--off] [--endpoint <url>] [--model <task>=<alias>]… [--on-device on|off]
                                               tasks: search classify summarize embed
@@ -387,6 +389,41 @@ func summarize(_ p: ImportProgress, start: Date) {
         let counts = try reader.categoryCounts()
         for c in MailCategory.allCases where (counts[c] ?? 0) > 0 { print("\(c.label.padding(toLength: 20, withPad: " ", startingAt: 0)) \(counts[c]!)") }
         print("\("offen".padding(toLength: 20, withPad: " ", startingAt: 0)) \(counts[nil] ?? 0)")
+
+    case "embed", "similar", "meaning":
+        let layout = try ArchiveLayout.open(at: root, create: false)
+        let config = AIConfigStore(layout: layout).load()
+        guard config.enabled, config.endpoint != nil else { throw CLIError(description: "KI mit Endpoint nötig: mkctl ai config --on --endpoint <url>") }
+        let key = config.secretKey.flatMap { try? CredentialStore().secret(key: $0) }
+        let router = AIRouter(config: config, apiKey: key)
+        let reader = try ArchiveReader(layout: layout)
+        let limit = Int(option("--limit") ?? "20") ?? 20
+        if command == "embed" {
+            let indexer = EmbeddingIndexer(router: router, writer: try ArchiveWriter(layout: layout))
+            let added = try await indexer.run { p in
+                print("\r\(p.done)/\(p.total)", terminator: "")
+                fflush(stdout)
+            }
+            print("")
+            let decided = try await indexer.decideOpenBySimilarity()
+            print("\(added) Vektoren neu · \(decided) offene Mails über ähnliche eingeordnet")
+            break
+        }
+        let index = try reader.vectorIndex(model: config.model(for: .embed))
+        let hits: [(id: Int64, score: Float)]
+        if command == "similar" {
+            guard let id = args.first.flatMap({ Int64($0) }), let v = index.vector(of: id) else { throw CLIError(description: "similar <id> (mit Vektor: mkctl embed)") }
+            hits = index.nearest(to: v, k: limit, excluding: id)
+        } else {
+            let text = args.joined(separator: " ")
+            guard !text.isEmpty else { throw CLIError(description: "meaning <text…>") }
+            hits = index.nearest(to: VectorMath.normalized(try await router.embed([text]).first ?? []), k: limit)
+        }
+        let byID = Dictionary(uniqueKeysWithValues: try reader.summaries(hits.map(\.id)).map { ($0.id, $0) })
+        for h in hits {
+            guard let m = byID[h.id] else { continue }
+            print(String(format: "%.3f  %6lld  ", h.score, h.id) + "\(m.date.map { $0.formatted(date: .numeric, time: .omitted) } ?? "—")  \(clean(m.fromDisplay).prefix(28))  \(clean(m.subject ?? "").prefix(60))")
+        }
 
     case "ask":
         let text = args.joined(separator: " ")

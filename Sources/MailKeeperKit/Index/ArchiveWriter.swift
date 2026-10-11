@@ -752,6 +752,34 @@ public actor ArchiveWriter {
         }
     }
 
+    // MARK: Embeddings and similar mails (5.7)
+
+    func setEmbeddingRows(_ rows: [(id: Int64, vector: Data)], model: String) throws {
+        let now = Date().timeIntervalSince1970
+        try db.transaction {
+            for row in rows {
+                try db.run("""
+                    INSERT OR REPLACE INTO embeddings(message_id, model, dim, vector, created)
+                    SELECT id, ?, ?, ?, ? FROM messages WHERE id = ?
+                    """, [.text(model), .int(Int64(row.vector.count / 2)), .blob(row.vector), .double(now), .int(row.id)])
+            }
+        }
+    }
+
+    /// A category taken from similar mails: only where the rules left it open and neither a
+    /// model nor the user decided — a later model answer or rule change replaces it.
+    public func setSimilarClassification(_ items: [(id: Int64, category: MailCategory, reason: String)]) throws {
+        let now = Date().timeIntervalSince1970
+        try db.transaction {
+            for item in items {
+                try db.run("""
+                    UPDATE classifications SET category = ?, source = 'similar', reason = ?, rule = NULL, model = NULL, created = ?
+                    WHERE message_id = ? AND category IS NULL AND verdict IS NULL AND source = 'heuristic'
+                    """, [.text(item.category.rawValue), .text(item.reason), .double(now), .int(item.id)])
+            }
+        }
+    }
+
     /// Locations marked gone that the server lists again (a mailbox missing from one LIST, a
     /// language switch back on Gmail): on the server again, journalled as `seen` with what was
     /// known — and out of the archive trash, which means "on no server".

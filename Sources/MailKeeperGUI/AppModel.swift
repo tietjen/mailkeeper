@@ -171,6 +171,7 @@ final class AppModel {
     private var lastFilter: MessageFilter?
     /// PDF text queue (ADR-0009): progress while it runs, totals for the status bar.
     private(set) var textIndexProgress: AttachmentIndexProgress?
+    private(set) var embedProgress: EmbeddingIndexer.Progress?
     private(set) var textStats: AttachmentTextStats?
     private var textIndexTask: Task<Void, Never>?
     private var textIndexToken: UUID?
@@ -386,6 +387,10 @@ final class AppModel {
             lastFilter = nil
             junkReview = nil
             autoJunkFailed = false
+            vectorCache = nil
+            rankedMode = nil
+            rankedIDs = []
+            embedFailed = false
         }
         textIndexTask?.cancel()  // belongs to the previous archive
         textIndexTask = nil
@@ -469,6 +474,34 @@ final class AppModel {
         reloading = true
         defer { reloading = false }
         var filter = scopeFilter
+        // 5.7: by meaning ("~ text") or similar to a mail — a ranked list, not the parser's
+        if let semantic = semanticText {
+            query = nil
+            queryError = nil
+            if rankedMode != .semantic(semantic) {
+                rankedMode = nil
+                messageIDs = []
+                listGeneration += 1
+                startSemanticSearch(semantic)
+                return
+            }
+        } else if case .semantic = rankedMode {
+            rankedMode = nil
+            rankedIDs = []
+        }
+        if rankedMode != nil {
+            filter.ids = rankedIDs
+            do {
+                let rank = Dictionary(uniqueKeysWithValues: rankedIDs.enumerated().map { ($1, $0) })
+                messageIDs = try reader.messageIDs(filter).sorted { (rank[$0] ?? .max) < (rank[$1] ?? .max) }
+                listError = nil
+            } catch {
+                messageIDs = []
+                listError = "\(error)"
+            }
+            listGeneration += 1
+            return
+        }
         // Untrimmed: a trailing space ends the live prefix of the last word (ADR-0008).
         let text = searchText.allSatisfy(\.isWhitespace) ? nil : searchText
         do throws(QueryError) {
@@ -1294,7 +1327,10 @@ final class AppModel {
         let expired = (stats?.trashed ?? 0) > 0  // may hold mail older than 30 days to purge
         let rules = ((try? reader.heuristicPendingCount()) ?? 0) > 0  // categories by rule (5.4)
         let pdfs = (textStats?.pending ?? 0) > 0 && PDFTextClient.isBundled
-        guard pdfs || expired || rules else { return }
+        // vectors for semantic search (5.7): only with an endpoint, never on the Mac's model
+        let router = aiConfig.enabled && aiConfig.endpoint != nil && !embedFailed ? aiRouter() : nil
+        let embeds = router != nil && ((try? reader.embeddingCounts(model: aiConfig.model(for: .embed))).map { $0.done < $0.total } ?? false)
+        guard pdfs || expired || rules || embeds else { return }
         let extractor = pdfText
         let token = UUID()
         textIndexToken = token
@@ -1312,6 +1348,18 @@ final class AppModel {
                         Task { @MainActor in if self?.textIndexToken == token { self?.textIndexProgress = p } }
                     }
                 }
+                if embeds, let router {
+                    let indexer = EmbeddingIndexer(router: router, writer: writer)
+                    do {
+                        try await indexer.run { p in Task { @MainActor in if self?.textIndexToken == token { self?.embedProgress = p } } }
+                        if try await indexer.decideOpenBySimilarity() > 0 { await MainActor.run { self?.contentGeneration += 1 } }
+                        await MainActor.run { self?.vectorCache = nil }  // new vectors: rebuilt on the next search
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        await MainActor.run { self?.embedFailed = true }  // endpoint away: not again this session
+                    }
+                }
             } catch {
                 // cancelled for an import/sync, or the archive is locked: resumes later
             }
@@ -1320,6 +1368,7 @@ final class AppModel {
                 self.textIndexTask = nil
                 self.textIndexToken = nil
                 self.textIndexProgress = nil
+                self.embedProgress = nil
                 self.textStats = try? self.reader?.attachmentTextStats()
             }
         }
@@ -1550,6 +1599,91 @@ final class AppModel {
             for identity in identities { try await writer.setUserClassification(identity: identity, category: .spam) }
         }
         contentGeneration += 1
+    }
+
+    // MARK: Similar mails and semantic search (5.7)
+
+    enum RankedMode: Equatable {
+        case similar(id: Int64, subject: String)
+        case semantic(String)
+    }
+
+    private(set) var rankedMode: RankedMode?
+    private var rankedIDs: [Int64] = []
+    private(set) var rankedSearching = false
+    private var embedFailed = false
+    private var vectorCache: VectorIndex?
+
+    /// The text after a leading "~" in the search field: search by meaning.
+    var semanticText: String? {
+        let t = searchText.trimmingCharacters(in: .whitespaces)
+        guard t.hasPrefix("~") else { return nil }
+        let rest = t.dropFirst().trimmingCharacters(in: .whitespaces)
+        return rest.isEmpty ? nil : rest
+    }
+
+    private func vectors() async -> VectorIndex? {
+        if let vectorCache { return vectorCache }
+        guard let layout = reader?.layout else { return nil }
+        let model = aiConfig.model(for: .embed)
+        let index = await Task.detached(priority: .userInitiated) { try? ArchiveReader(layout: layout).vectorIndex(model: model) }.value
+        vectorCache = (index?.count ?? 0) > 0 ? index : nil
+        return vectorCache
+    }
+
+    /// Mails like this one, most similar first (reader: "Ähnliche Mails").
+    func showSimilar(_ id: Int64) {
+        let subject = summaries([id]).first?.subject ?? ""
+        Task {
+            guard let index = await vectors(), let v = index.vector(of: id) else {
+                actionError = String(localized: "Für diese Mail gibt es noch keinen Vektor – die Embeddings laufen im Hintergrund (Statusleiste).")
+                return
+            }
+            rankedIDs = index.nearest(to: v, k: 100, excluding: id).map(\.id)
+            rankedMode = .similar(id: id, subject: subject)
+            reloadList()
+        }
+    }
+
+    func closeRanked() {
+        let wasSemantic: Bool = if case .semantic = rankedMode { true } else { false }
+        rankedMode = nil
+        rankedIDs = []
+        if wasSemantic { setSearch("") } else { reloadList() }
+    }
+
+    /// "~ text": the query's vector against the archive's (endpoint only).
+    private func startSemanticSearch(_ text: String) {
+        guard !rankedSearching, let router = aiRouter() else {
+            if !aiConfig.enabled { queryError = String(localized: "Suche nach Bedeutung braucht die KI (Einstellungen › KI).") }
+            return
+        }
+        rankedSearching = true
+        Task {
+            defer { rankedSearching = false }
+            do {
+                guard let index = await vectors() else {
+                    queryError = String(localized: "Noch keine Vektoren – die Embeddings laufen im Hintergrund (Statusleiste).")
+                    return
+                }
+                let q = VectorMath.normalized(try await router.embed([text]).first ?? [])
+                guard semanticText == text else {  // typed on meanwhile: search the current text
+                    rankedSearching = false
+                    reloadList()
+                    return
+                }
+                rankedIDs = index.nearest(to: q, k: 200).map(\.id)
+                rankedMode = .semantic(text)
+                reloadList()
+            } catch {
+                queryError = "\(error)"
+            }
+        }
+    }
+
+    func searchByMeaning() {
+        let t = searchText.trimmingCharacters(in: .whitespaces)
+        setSearch(t.hasPrefix("~") ? String(t.dropFirst()).trimmingCharacters(in: .whitespaces) : "~ " + t)
     }
 
     // MARK: Search in everyday language (5.3)

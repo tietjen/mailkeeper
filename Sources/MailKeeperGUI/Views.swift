@@ -86,6 +86,7 @@ struct ContentView: View {
                             if model.sidebarSelection == .trash { TrashBar(model: model) }
                             if model.sidebarSelection == .spamReview { SpamReviewBar(model: model) }
                             TranslationNoteBar(model: model)
+                            RankedBar(model: model)
                             QueryBar(model: model)
                         }
                     }
@@ -138,6 +139,9 @@ struct ContentView: View {
             }
             ToolbarItem {
                 TranslateButton(model: model)
+            }
+            ToolbarItem {
+                MeaningButton(model: model)
             }
             ToolbarItem {
                 Button { model.syncAll() } label: {
@@ -372,6 +376,10 @@ struct ReaderView: View {
                 Button(category?.category == nil ? "Mit KI einordnen" : "Neu einordnen") { model.classifySelection() }
                     .controlSize(.small).disabled(model.actionRunning)
             }
+            if model.aiConfig.enabled, model.aiConfig.endpoint != nil {
+                Button("Ähnliche Mails") { model.showSimilar(messageID) }.controlSize(.small)
+                    .help("Mails, die dieser inhaltlich ähneln – die ähnlichsten zuerst")
+            }
             if inJunk, rescuable {
                 Button("Kein Spam → Posteingang") { model.rescueSelection() }
                     .controlSize(.small).disabled(model.actionRunning)
@@ -397,6 +405,7 @@ struct ReaderView: View {
         case .endpoint: return "\(c.model ?? "KI"): \(c.reason ?? "")"
         case .onDevice: return String(localized: "Modell auf diesem Mac: \(c.reason ?? "")")
         case .user: return String(localized: "deine Entscheidung")
+        case .similar: return c.reason ?? String(localized: "ähnliche Mails")
         }
     }
 
@@ -523,6 +532,13 @@ struct StatusBar: View {
                           systemImage: "exclamationmark.arrow.circlepath")
                 }
                 .buttonStyle(.link)
+            }
+            if let p = model.embedProgress, p.total > 0 {
+                ProgressView(value: Double(min(p.done, p.total)), total: Double(p.total))
+                    .frame(width: 70)
+                    .controlSize(.mini)
+                Text("Bedeutungssuche vorbereiten: \(p.done.formatted()) von \(p.total.formatted())")
+                    .help("Vektoren vom Endpoint (Betreff, Absender, Textanfang) – für „Ähnliche Mails“ und die Suche mit ~")
             }
             if let p = model.textIndexProgress, p.total > 0 {
                 ProgressView(value: Double(min(p.done, p.total)), total: Double(p.total))

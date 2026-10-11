@@ -171,6 +171,13 @@ enum Schema {
         ALTER TABLE classifications ADD COLUMN phishing TEXT;
         ALTER TABLE classifications ADD COLUMN phishing_reason TEXT;
         """,
+        // v10: vectors for semantic search and "similar mails" (5.7) — derived, not journalled.
+        """
+        CREATE TABLE embeddings(
+            message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+            model TEXT NOT NULL, dim INTEGER NOT NULL, vector BLOB NOT NULL, created REAL NOT NULL
+        );
+        """,
     ]
 
     static var currentVersion: Int { migrations.count }

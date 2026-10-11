@@ -43,6 +43,15 @@ schema, and is stored with its path, model and a one-line reason ("Warum?" in th
 results are recomputed when the rules change; a model's answer is never overwritten by them.
 Categories are labels only — no action follows from them.
 
+*As built (5.7):* vectors from the endpoint's embedding model (LiteLLM `embedding`, 1024 dims)
+over subject, sender, attachment names and the snippet — index data only, no message is read —
+stored normalised as Float16 (schema v10, derived). Search is brute force with Accelerate (sgemv
+for one query, blocked sgemm for many), in memory on demand. Step 2 of the pipeline: an open
+mail takes the category its labelled neighbours agree on (≥ 4 neighbours with cosine ≥ 0.80,
+≥ 70 % of their weight), stored as source `similar` with the vote as reason; similarity is never
+a label for others, never decides phishing, and a model answer replaces it. "Ähnliche Mails"
+and search by meaning ("~ text") rank by cosine. No on-device embeddings yet (other vector space).
+
 ## Consequences
 
 - Backfills over 100k mails cannot be LLM-bound; throughput comes from steps 1–2.

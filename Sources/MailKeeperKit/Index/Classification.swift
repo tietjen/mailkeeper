@@ -95,6 +95,8 @@ public enum ClassificationSource: String, Codable, Sendable {
     case onDevice = "on-device"
     /// The user decided ("Ist Spam" / "Kein Spam") — journalled, never overwritten.
     case user
+    /// Similar mails agreed (5.7, embeddings) — a model answer replaces it.
+    case similar
 }
 
 public struct Classification: Sendable, Equatable {
@@ -236,7 +238,7 @@ extension ArchiveReader {
     public func junkToCheck(limit: Int, _ which: JunkCheck = .unchecked) throws -> [Int64] {
         let (whereClause, params) = try Self.whereClause(MessageFilter(text: "is:junk "))
         let condition = switch which {
-        case .unchecked: "(c.message_id IS NULL OR c.source = 'heuristic')"
+        case .unchecked: "(c.message_id IS NULL OR c.source IN ('heuristic', 'similar'))"  // similarity never judges phishing
         case .onDevice: "c.source = 'on-device'"
         case .all: "(c.message_id IS NULL OR c.source != 'user')"
         }
@@ -276,7 +278,7 @@ extension ArchiveReader {
             if row.text(2) != nil || row.text(0) == "user" { r.decided += 1; return }
             if row.text(0) == "on-device" { r.byMac += 1 }
             switch (row.text(0), row.text(1)) {
-            case (nil, _), ("heuristic", _): r.unchecked += 1
+            case (nil, _), ("heuristic", _), ("similar", _): r.unchecked += 1
             case (_, "spam"): r.spam += 1
             default: r.notSpam += 1
             }

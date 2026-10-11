@@ -181,3 +181,93 @@ struct AILiveTests {
         #expect(report.models.contains("llm-fast") && report.models.contains("embedding"))
     }
 }
+
+@Suite("Embeddings im Hintergrund (5.7)", .serialized)
+struct EmbeddingIndexerTests {
+    /// A stub embedding model: "Newsletter" texts point one way, everything else another.
+    static func embed(_ body: Data) -> StubProtocol.Reply {  // used by EmbedStubProtocol
+        let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
+        let inputs = json?["input"] as? [String] ?? []
+        let data = inputs.enumerated().map { i, text -> [String: Any] in
+            let v: [Double] = text.contains("Newsletter") ? [1, 0.05 * Double(i % 3), 0] : [0, 0, 1]
+            return ["index": i, "embedding": v]
+        }
+        let out = try! JSONSerialization.data(withJSONObject: ["data": data])
+        return .init(status: 200, body: String(decoding: out, as: UTF8.self))
+    }
+
+    @Test func vectorsFillAndAnOpenMailFollowsItsClearNeighbours() async throws {
+        let layout = try ArchiveLayout.open(at: tempDir().appending(path: "ix"), create: true)
+        let writer = try ArchiveWriter(layout: layout)
+        var batch: [(data: Data, location: LocationInfo)] = (1...5).map { n in
+            (sampleMessage(id: "<n\(n)@t.test>", subject: "Newsletter Woche \(n)", extraHeaders: "List-Id: <news.t.test>\n"),
+             LocationInfo(account: "x", mailbox: "INBOX", providerID: "n\(n)"))
+        }
+        batch.append((sampleMessage(id: "<s@t.test>", subject: "Newsletter Spezialausgabe"), LocationInfo(account: "x", mailbox: "INBOX", providerID: "s")))
+        batch.append((sampleMessage(id: "<g@t.test>", subject: "Grillen am Samstag"), LocationInfo(account: "x", mailbox: "INBOX", providerID: "g")))
+        _ = try await writer.ingest(batch)
+        _ = try await writer.classifyHeuristically()
+        let provider = OpenAICompatibleProvider(baseURL: URL(string: "http://litellm.rk1.ziti:4000/v1")!, apiKey: "sk", timeout: 5,
+                                                protocolClasses: [EmbedStubProtocol.self])
+        let router = AIRouter(config: AIConfig(enabled: true, endpoint: URL(string: "http://litellm.rk1.ziti:4000/v1")!), endpoint: provider, onDevice: nil,
+                              log: AICallLog(url: tempDir().appending(path: "l.jsonl")))
+        var indexer = EmbeddingIndexer(router: router, writer: writer)
+        indexer.batch = 3
+        #expect(try await indexer.run() == 7)
+        #expect(try await indexer.run() == 0)
+        #expect(try await indexer.decideOpenBySimilarity() == 1)
+        let r = try ArchiveReader(layout: layout)
+        let subjects = { (q: String) in Set(try r.summaries(try r.messageIDs(MessageFilter(text: q + " "))).compactMap(\.subject)) }
+        #expect(try subjects("kategorie:newsletter").contains("Newsletter Spezialausgabe"))
+        #expect(try subjects("kategorie:offen") == ["Grillen am Samstag"])
+    }
+}
+
+@Suite("AILive embeddings", .enabled(if: ProcessInfo.processInfo.environment["MAILKEEPER_AI"] == "1"), .serialized)
+struct AILiveEmbeddingTests {
+    @Test func meaningFindsTheRightMail() async throws {
+        let (config, key) = try AILiveTests.config()
+        let router = AIRouter(config: config, apiKey: key, log: AICallLog(url: tempDir().appending(path: "ai.jsonl")))
+        let texts = [
+            "Betreff: Ihre Jahresabrechnung 2025\nVon: Stadtwerke <rechnung@stadtwerke.example>\nIhr Stromverbrauch und der neue Abschlag.",
+            "Betreff: Grillen am Samstag?\nVon: Max <max@familie.example>\nWir grillen ab 17 Uhr, kommt ihr?",
+            "Betreff: Ihr Flug nach Rom\nVon: Lufthansa <buchung@lufthansa.example>\nIhre Bordkarte für LH 232 am 12. Mai.",
+            "Betreff: Herbst-Sale\nVon: Shop <news@shop.example>\nBis zu 40 % auf Jacken.",
+        ]
+        let vectors = try await router.embed(texts)
+        let index = VectorIndex(ids: [1, 2, 3, 4], dim: vectors[0].count, matrix: vectors.flatMap(VectorMath.normalized))
+        for (query, expected) in [("Kosten für Energie", Int64(1)), ("Reise nach Italien", 3), ("Treffen mit der Familie", 2)] {
+            let q = VectorMath.normalized(try await router.embed([query])[0])
+            let best = index.nearest(to: q, k: 1)
+            print("„\(query)“ → \(best.first?.id ?? -1) (\(String(format: "%.3f", best.first?.score ?? 0)))")
+            #expect(best.first?.id == expected, "\(query)")
+        }
+    }
+}
+
+/// A small RFC 822 message (CRLF), like the core tests' helper.
+func sampleMessage(id: String, subject: String, body: String = "Hallo", extraHeaders: String = "") -> Data {
+    let s = "From: a@example.test\nTo: inbox@example.test\nSubject: \(subject)\nDate: Thu, 14 Mar 2019 10:00:00 +0100\nMessage-ID: \(id)\n\(extraHeaders)Content-Type: text/plain; charset=utf-8\n\n\(body)\n"
+    return Data(s.replacingOccurrences(of: "\n", with: "\r\n").utf8)
+}
+
+/// Its own URLProtocol (suites run in parallel): answers /embeddings by computing vectors.
+final class EmbedStubProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        var body = request.httpBody ?? Data()
+        if body.isEmpty, let stream = request.httpBodyStream {
+            stream.open()
+            var buf = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable { let n = stream.read(&buf, maxLength: buf.count); if n <= 0 { break }; body.append(buf, count: n) }
+            stream.close()
+        }
+        let reply = EmbeddingIndexerTests.embed(body)
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: nil, headerFields: nil)!,
+                            cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(reply.body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}

@@ -341,3 +341,49 @@ struct TranslationNoteBar: View {
         }
     }
 }
+
+/// Above the list while it is ranked by similarity (5.7): what it is similar to, and back.
+struct RankedBar: View {
+    let model: AppModel
+
+    var body: some View {
+        if let mode = model.rankedMode {
+            HStack(spacing: 8) {
+                Image(systemName: "point.3.connected.trianglepath.dotted").foregroundStyle(.teal)
+                switch mode {
+                case .similar(_, let subject):
+                    Text("Ähnlich zu „\(DisplayText.safe(subject))“").lineLimit(1)
+                case .semantic(let text):
+                    Text("Nach Bedeutung: „\(DisplayText.safe(text))“").lineLimit(1)
+                }
+                Text("· \(model.messageIDs.count) · ähnlichste zuerst").foregroundStyle(.secondary)
+                Spacer()
+                Button("Schließen") { model.closeRanked() }.controlSize(.small)
+            }
+            .font(.callout)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(.teal.opacity(0.07))
+        } else if model.rankedSearching {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Suche nach Bedeutung …").foregroundStyle(.secondary)
+                Spacer()
+            }
+            .font(.callout).padding(.horizontal, 10).padding(.vertical, 5)
+        }
+    }
+}
+
+/// Toolbar: search the field's text by meaning (prefix "~").
+struct MeaningButton: View {
+    let model: AppModel
+
+    var body: some View {
+        Button { model.searchByMeaning() } label: {
+            Label("Nach Bedeutung suchen", systemImage: "point.3.connected.trianglepath.dotted")
+        }
+        .disabled(!model.aiConfig.enabled || model.aiConfig.endpoint == nil)
+        .help("Sucht Mails, die inhaltlich passen, auch ohne die Wörter (Suchfeld mit „~“ am Anfang). Braucht Embeddings vom Endpoint.")
+    }
+}
