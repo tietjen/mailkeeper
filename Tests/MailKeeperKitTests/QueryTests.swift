@@ -295,6 +295,24 @@ struct GroupTests {
         #expect(try r.groups(MessageFilter(text: "has:attachment"), by: .domain).map(\.key).sorted() == ["amazon.de", "example.org"])
     }
 
+    @Test("A sender is named by the name it uses most, not the one that sorts last (TJ: 'ownCloud')")
+    func senderGroupTakesTheUsualName() async throws {
+        let layout = try ArchiveLayout.open(at: tempDir().appending(path: "names"), create: true)
+        let writer = try ArchiveWriter(layout: layout)
+        try await writer.register(AccountInfo(id: "a", kind: "imap", name: "A"))
+        let names = ["Jan Tietjen", "Jan Tietjen", "Jan Tietjen", "ownCloud", "Parasec", "JTP"]
+        _ = try await writer.ingest(names.enumerated().map { n, name in
+            (sampleMessage(id: "<n\(n)@t.test>", subject: "M\(n)", from: "\(name) <jan@own.test>"),
+             LocationInfo(account: "a", mailbox: "Sent", providerID: "\(n)"))
+        } + [(sampleMessage(id: "<o@t.test>", subject: "Other", from: "zz <other@own.test>"), LocationInfo(account: "a", mailbox: "INBOX", providerID: "9"))])
+        let r = try ArchiveReader(layout: layout)
+        let senders = try r.groups(MessageFilter(), by: .sender)
+        #expect(senders.first { $0.key == "jan@own.test" }?.name == "Jan Tietjen")
+        #expect(senders.first { $0.key == "other@own.test" }?.name == "zz")
+        let domain = try #require(try r.groups(MessageFilter(), by: .domain).first)
+        #expect(try r.groupDetail(domain, within: MessageFilter()).members.first { $0.address == "jan@own.test" }?.name == "Jan Tietjen")
+    }
+
     @Test func exactFieldsDoNotMatchNeighbours() async throws {
         let r = try await QueryArchiveTests.archive()
         #expect(try QueryArchiveTests.subjects(r, "domain:amazon.de") == ["Ihre Rechnung"])

@@ -122,8 +122,11 @@ extension ArchiveReader {
         var members: [GroupDetail.Member] = []
         if group.mode != .sender {
             members = try db.query("""
-                SELECT mk_lower(m.from_addr), max(m.from_name), count(*) FROM messages m\(whereClause)
-                AND m.from_addr IS NOT NULL AND instr(m.from_addr, '"') = 0
+                WITH base AS (
+                    SELECT mk_lower(m.from_addr) AS k, m.from_name AS name, m.date AS date FROM messages m\(whereClause)
+                    AND m.from_addr IS NOT NULL AND instr(m.from_addr, '"') = 0
+                ), names AS (\(ArchiveReader.usualName(from: "base")))
+                SELECT b.k, max(n.name), count(*) FROM base b LEFT JOIN names n ON n.k = b.k
                 GROUP BY 1 ORDER BY 3 DESC, 1 LIMIT 8
                 """, params) { GroupDetail.Member(address: $0.text(0) ?? "", name: $0.text(1), count: Int($0.int(2))) }
         }

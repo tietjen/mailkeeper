@@ -270,18 +270,19 @@ public final class ArchiveReader {
         case .list: "m.list_id"
         }
         // A list is named by its newest message's sender (newsletters name themselves there; the
-        // List-Id is often a machine id) — a window function, only where it is needed. A sender
-        // practically always uses one name; a domain has many senders, so none.
+        // List-Id is often a machine id). A sender by the name it uses most, the newest on a tie —
+        // not max(): one's own address carries "Jan Tietjen" 2,217 times and "ownCloud" 3 times,
+        // and "o" sorts after "J" (TJ). A domain has many senders, so none.
         let name = switch mode {
-        case .sender: "max(name)"
+        case .sender: "max(n.name)"
         case .domain: "NULL"
-        case .list: "max(name)"
+        case .list: "max(b.name)"
         }
         let nameColumn = mode == .list
             ? "first_value(m.from_name) OVER (PARTITION BY \(key) ORDER BY m.date DESC NULLS LAST, m.id DESC)"
             : "m.from_name"
         let sql = """
-            SELECT k, \(name), count(*), sum(size), max(date), min(date), sum(unread), max(unsub) FROM (
+            WITH base AS (
                 SELECT \(key) AS k, m.size AS size, m.date AS date, m.list_unsubscribe AS unsub,
                        \(nameColumn) AS name,
                        seen.message_id IS NULL AS unread
@@ -289,8 +290,11 @@ public final class ArchiveReader {
                 LEFT JOIN (SELECT DISTINCT message_id FROM locations
                            WHERE instr(' ' || lower(flags) || ' ', ' \\seen ') > 0) seen ON seen.message_id = m.id
                 \(whereClause)
-            ) WHERE k IS NOT NULL AND k != '' AND instr(k, '"') = 0  -- a quote cannot be expressed in a query value
-            GROUP BY k ORDER BY count(*) DESC, k LIMIT ?
+            ), names AS (\(mode == .sender ? Self.usualName(from: "base") : "SELECT NULL AS k, NULL AS name"))
+            SELECT b.k, \(name), count(*), sum(b.size), max(b.date), min(b.date), sum(b.unread), max(b.unsub)
+            FROM base b LEFT JOIN names n ON n.k = b.k
+            WHERE b.k IS NOT NULL AND b.k != '' AND instr(b.k, '"') = 0  -- a quote cannot be expressed in a query value
+            GROUP BY b.k ORDER BY count(*) DESC, b.k LIMIT ?
             """
         return try self.db.query(sql, params + [.int(Int64(limit))]) { row in
             MessageGroup(mode: mode, key: row.text(0) ?? "", name: row.text(1), count: Int(row.int(2)), bytes: row.int(3),
@@ -298,6 +302,16 @@ public final class ArchiveReader {
                          oldest: row.optionalDouble(5).map(Date.init(timeIntervalSince1970:)),
                          unread: Int(row.int(6)), unsubscribe: row.bool(7))
         }
+    }
+
+    /// Per key `k` of `source` (columns k, name, date), the name used most, the newest on a tie.
+    static func usualName(from source: String) -> String {
+        """
+        SELECT k, name FROM (
+            SELECT k, name, row_number() OVER (PARTITION BY k ORDER BY count(*) DESC, max(date) DESC NULLS LAST, name) AS r
+            FROM \(source) WHERE name IS NOT NULL AND name != '' GROUP BY k, name
+        ) WHERE r = 1
+        """
     }
 
     /// Distinct labels across all locations (Gmail labels, Takeout), for completion.
