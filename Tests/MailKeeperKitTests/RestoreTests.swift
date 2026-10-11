@@ -23,6 +23,7 @@ actor FakeRestoreServer: ServerRestoreActions {
     var refuse: String?
     /// One refusal before the bytes go out: the connection is gone until the next connect.
     var refuseOnceBeforeData = false
+    var refuseAlwaysBeforeData = false
     var dead = false
     var connects = 0
     /// Proton: uploads arrive as read.
@@ -39,6 +40,9 @@ actor FakeRestoreServer: ServerRestoreActions {
     func setDropAfterAppend(_ f: (@Sendable (Data) -> Bool)?) { dropAfterAppend = f }
     func setRefuse(_ s: String?) { refuse = s }
     func setRefuseOnceBeforeData() { refuseOnceBeforeData = true }
+    func setRefuseAlwaysBeforeData() { refuseAlwaysBeforeData = true }
+    func addBox(_ name: String) { boxes[name] = Box(validity: 99) }
+    func dropRoles() { for k in boxes.keys { boxes[k]!.uses = [] } }
     func setMarksSeen() { marksSeen = true }
     /// What `connect` hands out: this server, alive again.
     func connected() -> FakeRestoreServer {
@@ -69,7 +73,7 @@ actor FakeRestoreServer: ServerRestoreActions {
     func append(_ data: Data, to mailbox: String, flags: [String], internalDate: Date?) async throws -> AppendedMessage? {
         try alive()
         if let refuse { throw ServerRefusal(refuse) }
-        if refuseOnceBeforeData {
+        if refuseOnceBeforeData || refuseAlwaysBeforeData {
             refuseOnceBeforeData = false
             dead = true
             throw ServerRefusal("vor dem Senden abgelehnt", connectionClosed: true)
@@ -348,6 +352,44 @@ struct RestoreTests {
         let job = try await run(s, planned)
         #expect(job.items.first { $0.messageID == "<a@t.test>" }.map { $0.state == .done && $0.reason == nil } == true)
         #expect(job.items.first { $0.messageID == nil }?.reason == "hochgeladen; der Ort erscheint beim nächsten Abruf")
+    }
+
+    @Test func withoutAppendUIDFlagsAndLabelsStayAsTheServerStoredThem() async throws {
+        let s = try await Self.setup()
+        await s.gm.setReportsUID(false)
+        await s.gm.setMarksSeen()
+        let ids = try s.reader.messageIDs(MessageFilter(text: "subject:E "))
+        let (planned, _) = try s.reader.planRestore(MessageFilter(ids: ids), title: "E", accounts: s.accounts, options: RestoreOptions())
+        let job = try await run(s, planned)  // no abort: nothing is changed on a message not known as our upload
+        #expect(job.items.map(\.state) == [.done])
+        #expect(job.items[0].reason == "Labels nicht gesetzt: der Server meldet keine UID (kein UIDPLUS); "
+                + "Status weicht ab und bleibt so: der Server meldet keine UID (kein UIDPLUS)")
+        let flagCalls = await s.gm.flagCalls.count, labelCalls = await s.gm.labelCalls.count
+        #expect(flagCalls == 0 && labelCalls == 0)
+    }
+
+    @Test func aFullMailboxIsNotHammered() async throws {
+        let s = try await Self.setup()
+        let ids = try s.reader.messageIDs(MessageFilter())
+        let (planned, _) = try s.reader.planRestore(MessageFilter(ids: ids), title: "x", accounts: s.accounts,
+                                                    options: RestoreOptions(destination: .mailbox(account: "imap", mailbox: "Archiv")))
+        await s.imap.setRefuseAlwaysBeforeData()
+        let job = try await run(s, planned)
+        let failed = job.items.filter { $0.state == .failed }
+        #expect(failed.filter { $0.reason?.hasPrefix("nicht versucht") == true }.count == failed.count - 3)
+        #expect(await s.imap.connects == 3)  // first connect + two reconnects, then it stops trying
+    }
+
+    @Test func noRolesNoUploadIntoSomethingCalledTrash() async throws {
+        let s = try await Self.setup()
+        await s.imap.addBox("Papierkorb")
+        await s.imap.dropRoles()
+        let ids = try s.reader.messageIDs(MessageFilter(text: "subject:D "))
+        let (planned, _) = try s.reader.planRestore(MessageFilter(ids: ids), title: "D", accounts: s.accounts,
+                                                    options: RestoreOptions(destination: .mailbox(account: "imap", mailbox: "Papierkorb")))
+        let job = try await run(s, planned)
+        #expect(job.items.map(\.reason) == ["Ziel ist Papierkorb oder Spam"])
+        #expect(await s.imap.appends == 0)
     }
 
     @Test func onlyClientFlagsAndHarmlessLabelsGoBack() {

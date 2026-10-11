@@ -106,14 +106,17 @@ public struct RestoreExecutor: Sendable {
     private func run(items accountItems: [ActionItem], policy: SyncPolicy, server: inout any ServerRestoreActions,
                      reconnect: () async throws -> any ServerRestoreActions, job: inout ActionJob,
                      progress p: inout ServerDeleteProgress, notify progress: @Sendable (ServerDeleteProgress) -> Void) async throws {
-        let boxes = try await server.mailboxes()
+        var boxes = try await server.mailboxes()
         let gmail = await server.capabilities().gmail
         let synced = Set(policy.select(boxes).map(\.name))
+        let roles = boxes.contains { !$0.specialUse.isDisjoint(with: [.trash, .junk]) }
+        var refusedInARow = 0
         let byMailbox = Dictionary(grouping: accountItems, by: { $0.target!.mailbox })
         for mailbox in byMailbox.keys.sorted() {
             let items = byMailbox[mailbox]!
             let refusal: String? = if let box = boxes.first(where: { $0.name == mailbox }), box.selectable {
-                !box.specialUse.isDisjoint(with: [.trash, .junk]) ? String(localized: "Ziel ist Papierkorb oder Spam")
+                !box.specialUse.isDisjoint(with: [.trash, .junk]) || (!roles && RemoteMailbox.looksLikeTrashOrJunk(mailbox))
+                    ? String(localized: "Ziel ist Papierkorb oder Spam")
                     : !synced.contains(mailbox) ? ArchiveReader.restoreNotSynced : nil
             } else {
                 String(localized: "Ordner gibt es auf dem Server nicht – MailKeeper legt keine Ordner an")
@@ -126,17 +129,24 @@ public struct RestoreExecutor: Sendable {
             var validity = try await server.selectForChange(mailbox)
             for item in items {
                 try Task.checkCancellation()
+                if refusedInARow >= Self.maxRefusalsInARow {  // a full mailbox refuses everything: no login storm
+                    try finish(&job, item.id, .failed, String(localized: "nicht versucht: der Server lehnt jedes Hochladen ab (Postfach voll?)"), &p)
+                    continue
+                }
                 let lost = try await restore(item, validity: validity, gmail: gmail, boxes: boxes, server: server, job: &job, progress: &p)
                 progress(p)
-                if lost {  // refused before the bytes went out: swift-nio-imap has closed the connection
+                refusedInARow = lost ? refusedInARow + 1 : 0
+                if lost, refusedInARow < Self.maxRefusalsInARow {  // refused before the bytes went out: the connection is gone
                     await server.close()
                     server = try await reconnect()
-                    _ = try await server.mailboxes()
+                    boxes = try await server.mailboxes()
                     validity = try await server.selectForChange(mailbox)
                 }
             }
         }
     }
+
+    static let maxRefusalsInARow = 3
 
     /// One message. Returns true when the connection was lost to a refusal and must be renewed.
     private func restore(_ item: ActionItem, validity: UInt32, gmail: Bool, boxes: [RemoteMailbox], server: any ServerRestoreActions,
@@ -172,6 +182,9 @@ public struct RestoreExecutor: Sendable {
             return refusal.connectionClosed
         }
         var uid = appended.flatMap { $0.uidValidity == validity ? $0.uid : nil }
+        // Labels and flags may only touch this upload, known by its APPENDUID; found by search
+        // instead (no UIDPLUS), it is left as the server stored it.
+        let own = uid != nil
         var fetched: RemoteMessage?
         if uid == nil, let messageID = item.messageID {
             fetched = try await find(messageID, like: original, server: server)
@@ -183,7 +196,9 @@ public struct RestoreExecutor: Sendable {
         }
         var notes: [String] = []
         // 4. Gmail labels — only those that still exist (Gmail would create the others)
-        if gmail, !target.labels.isEmpty {
+        if !own, gmail, !target.labels.isEmpty {
+            notes.append(String(localized: "Labels nicht gesetzt: der Server meldet keine UID (kein UIDPLUS)"))
+        } else if gmail, !target.labels.isEmpty {
             let names = Set(boxes.map(\.name))
             let (existing, missing) = target.labels.partitioned { $0.hasPrefix("\\") || names.contains($0) }
             if !missing.isEmpty { notes.append(String(localized: "Labels gibt es nicht mehr: \(missing.joined(separator: ", "))")) }
@@ -210,7 +225,9 @@ public struct RestoreExecutor: Sendable {
         // 6. flags the server changed on the way in (Proton marks uploads as read) go back
         let wanted = Set(target.flags), have = Set(RestoreTarget.restorableFlags(remote.flags))
         let add = wanted.subtracting(have).sorted(), remove = have.subtracting(wanted).sorted()
-        if !add.isEmpty || !remove.isEmpty {
+        if !own, !add.isEmpty || !remove.isEmpty {
+            notes.append(String(localized: "Status weicht ab und bleibt so: der Server meldet keine UID (kein UIDPLUS)"))
+        } else if !add.isEmpty || !remove.isEmpty {
             do {
                 try await server.correctFlags(add: add, remove: remove, uid: uid)
                 remote.flags = remote.flags.filter { f in !remove.contains { $0.caseInsensitiveCompare(f) == .orderedSame } } + add

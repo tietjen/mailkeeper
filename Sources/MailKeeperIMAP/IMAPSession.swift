@@ -50,7 +50,7 @@ public enum IMAPError: Error, CustomStringConvertible, Equatable {
         case .readOnlyViolation(let c): "\(c) ist im Nur-Lese-Modus nicht erlaubt"
         case .closed: "Verbindung geschlossen oder Zeitüberschreitung"
         case .protocolError(let s): "Protokollfehler: \(s)"
-        case .refusedBeforeData: "vom Server abgelehnt, bevor die Mail gesendet wurde (zu groß, kein Platz oder keine Rechte?)"
+        case .refusedBeforeData: "Server hat vor dem Senden abgelehnt oder die Verbindung beendet (zu groß, kein Platz, keine Rechte?)"
         }
     }
 }
@@ -414,7 +414,7 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         guard (mailboxUses[mailbox] ?? []).isDisjoint(with: [.trash, .junk]) else { throw IMAPError.readOnlyViolation("APPEND \(mailbox)") }
         // Without SPECIAL-USE roles a name veto (never a positive guess): no writing into "Trash".
         let roles = mailboxUses.values.contains { !$0.isDisjoint(with: [.trash, .junk]) }
-        if !roles, Self.looksLikeTrashOrJunk(mailbox) { throw IMAPError.readOnlyViolation("APPEND \(mailbox)") }
+        if !roles, RemoteMailbox.looksLikeTrashOrJunk(mailbox) { throw ServerRefusal("Ziel ist Papierkorb oder Spam") }
         if let limit = Self.appendLimit(serverCapabilities), data.count > limit {
             throw ServerRefusal("größer als die Grenze des Servers (\(limit / 1_048_576) MB)")
         }
@@ -449,12 +449,6 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
     /// RFC 7889 APPENDLIMIT=<bytes> (Gmail announces 35 651 584).
     static func appendLimit(_ capabilities: [String]) -> Int? {
         capabilities.lazy.compactMap { c in c.hasPrefix("APPENDLIMIT=") ? Int(c.dropFirst("APPENDLIMIT=".count)) : nil }.first
-    }
-
-    static func looksLikeTrashOrJunk(_ mailbox: String) -> Bool {
-        let last = (mailbox.split(whereSeparator: { $0 == "/" || $0 == "." }).last.map(String.init) ?? mailbox).lowercased()
-        return ["trash", "junk", "spam", "deleted items", "deleted messages", "papierkorb", "gelöschte elemente",
-                "gelöschte objekte", "junk-e-mail", "bin"].contains(last)
     }
 
     /// Only a message this connection appended, in the selected mailbox.
@@ -591,10 +585,19 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
                 guard Self.isReadOnly(tagged.command) || Self.isAllowedChange(tagged.command, access: access, trash: trash) else {
                     throw IMAPError.readOnlyViolation(Self.name(of: tagged.command))
                 }
+                // a restore connection changes only what it uploaded itself — checked here, not by convention
+                if access == .restore, case .uidStore(.set(let set), _, _) = tagged.command {
+                    let own = selectedMailbox.flatMap { appendedUIDs[$0] } ?? []
+                    guard set.set.allSatisfy({ own.contains(UInt32($0.rawValue)) }) else {
+                        throw IMAPError.readOnlyViolation("STORE auf eine fremde Mail")
+                    }
+                } else if access == .restore, case .uidStore = tagged.command {
+                    throw IMAPError.readOnlyViolation("STORE ohne UID-Liste")
+                }
             case .append:
                 guard access == .restore else { throw IMAPError.readOnlyViolation("APPEND") }
             default:
-                throw IMAPError.readOnlyViolation("\(part)".prefix(40).description)
+                throw IMAPError.readOnlyViolation("unbekannter Befehlsteil")
             }
         }
         let writes = stream.map { channel.write(IMAPClientHandler.Message.part($0)) }

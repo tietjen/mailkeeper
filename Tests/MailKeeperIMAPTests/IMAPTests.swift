@@ -94,9 +94,9 @@ struct ReadOnlyGuardTests {
     @Test func appendLimitAndTrashNameVeto() {
         #expect(IMAPSession.appendLimit(["IMAP4REV1", "APPENDLIMIT=35651584"]) == 35_651_584)
         #expect(IMAPSession.appendLimit(["IMAP4REV1"]) == nil)
-        #expect(IMAPSession.looksLikeTrashOrJunk("INBOX/Trash") && IMAPSession.looksLikeTrashOrJunk("Papierkorb")
-                && IMAPSession.looksLikeTrashOrJunk("INBOX.Spam"))
-        #expect(!IMAPSession.looksLikeTrashOrJunk("Spam-Archiv") && !IMAPSession.looksLikeTrashOrJunk("INBOX"))
+        #expect(RemoteMailbox.looksLikeTrashOrJunk("INBOX/Trash") && RemoteMailbox.looksLikeTrashOrJunk("Papierkorb")
+                && RemoteMailbox.looksLikeTrashOrJunk("INBOX.Spam"))
+        #expect(!RemoteMailbox.looksLikeTrashOrJunk("Spam-Archiv") && !RemoteMailbox.looksLikeTrashOrJunk("Projekte/bin"))
     }
 
     @Test("APPEND dates go out in UTC") func appendDate() throws {
@@ -339,11 +339,33 @@ struct IntegrationTests {
             _ = try await session.sendAppend(Data("Subject: x\r\n\r\nx\r\n".utf8), to: MailboxName(ByteBuffer(string: missing)),
                                              options: AppendOptions(flagList: [], internalDate: nil, extensions: [:]))
         }
-        print("refusal: \(refusal?.message ?? "-"), connection closed: \(refusal?.connectionClosed ?? false)")
+        #expect(refusal?.connectionClosed == true, "\(refusal?.message ?? "-")")  // refused before the literal (B1)
         await session.close()
         let check = try await IMAPSession.connect(endpoint, username: a.username, password: pw)
         #expect(try await !check.mailboxes().contains { $0.name == missing })
         await check.close()
+    }
+
+    /// A restore connection may put flags right on its own upload — and on nothing else.
+    @Test func mailcowRestoreTouchesOnlyItsOwnUpload() async throws {
+        let a = try account("mailcow")
+        let folder = "MailKeeper-RestoreTest"
+        try seed("--restore-test")
+        defer { try? seed("--cleanup-restore") }
+        let endpoint = IMAPEndpoint(host: a.host, port: a.port, security: .tls)
+        let session = try await IMAPSession.connect(endpoint, username: a.username, password: try password(a), access: .restore)
+        let boxes = try await session.mailboxes()
+        #expect(boxes.contains { $0.name == folder })
+        _ = try await session.selectForChange(folder)
+        let foreign = try #require(try await session.allUIDs().first)  // seeded, not uploaded by this connection
+        let message = Data("From: restore-test@mailkeeper.test\r\nSubject: own upload\r\nMessage-ID: <mk-rst-own-\(UUID().uuidString)@mailkeeper.test>\r\n\r\nx\r\n".utf8)
+        let appended = try #require(try await session.append(message, to: folder, flags: [], internalDate: nil))
+        try await session.correctFlags(add: ["\\Seen", "\\Flagged"], remove: [], uid: appended.uid)
+        try await session.correctFlags(add: [], remove: ["\\Flagged"], uid: appended.uid)
+        let flags = try #require(try await session.fetch([appended.uid]).first?.flags)
+        #expect(flags.contains("\\Seen") && !flags.contains("\\Flagged"))
+        await #expect(throws: IMAPError.self) { try await session.correctFlags(add: ["\\Seen"], remove: [], uid: foreign) }
+        await session.close()
     }
 
     @Test func protonWrongPinIsRefused() async throws {

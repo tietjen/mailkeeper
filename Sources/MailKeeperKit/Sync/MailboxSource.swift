@@ -6,6 +6,14 @@ public enum SpecialUse: String, Sendable, Codable, CaseIterable {
 }
 
 public struct RemoteMailbox: Sendable, Hashable {
+    /// Without SPECIAL-USE roles on the server: a name veto against writing into a trash or junk
+    /// folder (never used to *find* one — deleting goes only to a role-marked \Trash).
+    public static func looksLikeTrashOrJunk(_ name: String) -> Bool {
+        let last = (name.split(whereSeparator: { $0 == "/" || $0 == "." }).last.map(String.init) ?? name).lowercased()
+        return ["trash", "junk", "spam", "deleted items", "deleted messages", "papierkorb", "gelöschte elemente",
+                "gelöschte objekte", "junk-e-mail"].contains(last)
+    }
+
     /// Decoded display name (modified UTF-7 resolved), e.g. "[Gmail]/Entwürfe". This is the
     /// mailbox key of the archive's locations.
     public var name: String
