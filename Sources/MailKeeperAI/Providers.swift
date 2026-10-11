@@ -144,19 +144,28 @@ public struct OpenAICompatibleProvider: ChatProvider {
                           attempt: attempt)
     }
 
-    /// Vectors in input order.
+    /// Vectors in input order. In requests of at most `maxBatch` texts (TEI behind LiteLLM
+    /// refuses more than 32 with 422), empty texts replaced (TEI refuses them with 400).
     public func embed(_ texts: [String], model: String) async throws -> [[Float]] {
         guard !texts.isEmpty else { return [] }
-        let json = try await post("embeddings", ["model": model, "input": texts], limit: 64 << 20)
-        guard let data = json["data"] as? [[String: Any]], data.count == texts.count else {
-            throw AIError.badAnswer(String(localized: "Embedding-Antwort unvollständig"))
+        var out: [[Float]] = []
+        out.reserveCapacity(texts.count)
+        for start in stride(from: 0, to: texts.count, by: Self.maxBatch) {
+            let chunk = texts[start..<min(start + Self.maxBatch, texts.count)].map { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "(ohne Text)" : $0 }
+            let json = try await post("embeddings", ["model": model, "input": chunk], limit: 64 << 20)
+            guard let data = json["data"] as? [[String: Any]], data.count == chunk.count else {
+                throw AIError.badAnswer(String(localized: "Embedding-Antwort unvollständig"))
+            }
+            let ordered = data.sorted { ($0["index"] as? Int ?? 0) < ($1["index"] as? Int ?? 0) }
+            for item in ordered {
+                guard let vector = item["embedding"] as? [Double], !vector.isEmpty else { throw AIError.badAnswer(String(localized: "Embedding ohne Vektor")) }
+                out.append(vector.map(Float.init))
+            }
         }
-        let ordered = data.sorted { ($0["index"] as? Int ?? 0) < ($1["index"] as? Int ?? 0) }
-        return try ordered.map { item in
-            guard let vector = item["embedding"] as? [Double], !vector.isEmpty else { throw AIError.badAnswer(String(localized: "Embedding ohne Vektor")) }
-            return vector.map(Float.init)
-        }
+        return out
     }
+
+    public static let maxBatch = 32
 
     /// The models the key may use.
     public func models() async throws -> [String] {

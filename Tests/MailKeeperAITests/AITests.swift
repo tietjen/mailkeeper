@@ -188,6 +188,8 @@ struct EmbeddingIndexerTests {
     static func embed(_ body: Data) -> StubProtocol.Reply {  // used by EmbedStubProtocol
         let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
         let inputs = json?["input"] as? [String] ?? []
+        if inputs.count > 32 { return .init(status: 422, body: #"{"error":{"message":"batch size > maximum allowed batch size 32"}}"#) }
+        if inputs.contains(where: \.isEmpty) { return .init(status: 400, body: #"{"error":{"message":"inputs cannot be empty"}}"#) }
         let data = inputs.enumerated().map { i, text -> [String: Any] in
             let v: [Double] = text.contains("Newsletter") ? [1, 0.05 * Double(i % 3), 0] : [0, 0, 1]
             return ["index": i, "embedding": v]
@@ -270,4 +272,16 @@ final class EmbedStubProtocol: URLProtocol, @unchecked Sendable {
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
+}
+
+@Suite("Embeddings in Paketen", .serialized)
+struct EmbeddingBatchTests {
+    @Test func moreThan32TextsGoInSeveralRequestsAndEmptyOnesAreReplaced() async throws {
+        let provider = OpenAICompatibleProvider(baseURL: URL(string: "http://litellm.rk1.ziti:4000/v1")!, apiKey: "sk", timeout: 5,
+                                                protocolClasses: [EmbedStubProtocol.self])
+        let texts = (0..<70).map { $0 == 5 ? "  " : "Newsletter \($0)" }
+        let vectors = try await provider.embed(texts, model: "embedding")
+        #expect(vectors.count == 70)
+        #expect(vectors[5] == [0, 0, 1])  // "(ohne Text)": no newsletter
+    }
 }

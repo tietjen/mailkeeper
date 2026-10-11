@@ -12,7 +12,7 @@ public struct EmbeddingIndexer: Sendable {
 
     public let router: AIRouter
     public let writer: ArchiveWriter
-    public var batch = 64
+    public var batch = 32
 
     public init(router: AIRouter, writer: ArchiveWriter) {
         self.router = router
