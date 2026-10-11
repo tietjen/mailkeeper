@@ -1,6 +1,6 @@
 # ADR-0009: Attachment text is extracted out of process, in a locked-down XPC service
 
-- Status: proposed (2026-10-10)
+- Status: accepted (TJ, 2026-10-11)
 - Deciders: TJ
 
 ## Context
