@@ -6,10 +6,10 @@ import SwiftUI
 struct GroupTable: View {
     let model: AppModel
     @State private var sortOrder = [KeyPathComparator(\MessageGroup.count, order: .reverse)]
-    @State private var selection: MessageGroup.ID?
 
     var body: some View {
-        Table(model.groups.sorted(using: sortOrder), selection: $selection, sortOrder: $sortOrder) {
+        let selection = Binding<MessageGroup.ID?>(get: { model.selectedGroupID }, set: { model.selectedGroupID = $0 })
+        Table(model.groups.sorted(using: sortOrder), selection: selection, sortOrder: $sortOrder) {
             TableColumn(title, value: \.key) { g in
                 VStack(alignment: .leading, spacing: 1) {
                     Text(DisplayText.safe(g.name ?? g.key)).lineLimit(1)

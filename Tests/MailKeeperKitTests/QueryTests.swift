@@ -404,3 +404,49 @@ struct Phase3ReviewTests {
         #expect(try ThreadTests.partition(ArchiveReader(layout: layout)) == ThreadTests.expected)
     }
 }
+
+@Suite("Cleanup detail pane")
+struct GroupDetailTests {
+    @Test func unsubscribeTargetsAreFiltered() {
+        let both = UnsubscribeInfo.parse(listUnsubscribe: "<mailto:u@list.test?subject=unsub>, <https://list.test/u?id=1>",
+                                         post: "List-Unsubscribe=One-Click")
+        #expect(both?.https?.absoluteString == "https://list.test/u?id=1" && both?.mailto != nil && both?.oneClick == true)
+        #expect(both?.preferred == both?.https)
+        #expect(UnsubscribeInfo.parse(listUnsubscribe: "<mailto:u@list.test>", post: nil)?.preferred?.scheme == "mailto")
+        for bad in ["<javascript:alert(1)>", "<http://list.test/u>", "<data:text/html,x>", "<https://>", "https://no-brackets.test",
+                    "<https://a.test/x y>", "<file:///etc/passwd>"] {
+            #expect(UnsubscribeInfo.parse(listUnsubscribe: bad, post: nil) == nil, "\(bad)")
+        }
+        #expect(UnsubscribeInfo.parse(listUnsubscribe: nil, post: nil) == nil)
+    }
+
+    @Test func detailOfAGroupWithinTheScope() async throws {
+        let r = try await QueryArchiveTests.archive()
+        let now = Calendar.current.date(from: DateComponents(year: 2025, month: 2, day: 10))!
+        let list = try #require(try r.groups(MessageFilter(), by: .list).first)
+        let d = try r.groupDetail(list, within: MessageFilter(), now: now)
+        #expect(d.months.count == 24 && d.months.last?.count == 0)
+        #expect(d.places == [GroupDetail.Place(account: "a", mailbox: "Newsletter", count: 1)])
+        #expect(d.onServer == 1 && d.withAttachments == 0 && d.read == 0)
+        #expect(d.recent.map(\.subject) == ["Wochenrückblick"])
+        #expect(d.unsubscribe?.mailto?.absoluteString == "mailto:unsub@example.com" && d.unsubscribe?.https == nil)
+        #expect(d.members.map(\.address) == ["news@example.com"])
+
+        let sender = try #require(try r.groups(MessageFilter(), by: .sender).first { $0.key == "mueller@firma.de" })
+        let s = try r.groupDetail(sender, within: MessageFilter(), now: now)
+        #expect(s.onServer == 0 && s.months.last?.count == 0 && s.months[22].count == 1)  // January 2025
+        #expect(s.lastYear == 1 && s.members.isEmpty && s.unsubscribe == nil && s.largest > 20_000)
+        // within a search, the group detail counts only the matches
+        let domain = try #require(try r.groups(MessageFilter(text: "has:attachment"), by: .domain).first { $0.key == "example.org" })
+        #expect(try r.groupDetail(domain, within: MessageFilter(text: "has:attachment")).recent.count == 1)
+    }
+
+    @Test func overviewBucketsAddUp() async throws {
+        let r = try await QueryArchiveTests.archive()
+        let o = try r.cleanupOverview(MessageFilter())
+        #expect(o.total.count == 4)
+        let byQuery = Dictionary(uniqueKeysWithValues: o.buckets.map { ($0.query, $0.count) })
+        #expect(byQuery["is:list is:unread"] == 1 && byQuery["only:archive"] == 1 && byQuery["larger:10M"] == 0)
+        for b in o.buckets { #expect(try r.count(MessageFilter(also: [b.query])) == b.count, "\(b.query)") }
+    }
+}

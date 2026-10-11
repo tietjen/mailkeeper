@@ -102,14 +102,18 @@ public struct MessageFilter: Sendable, Equatable {
     public var text: String?
     /// A saved search's query; combined with `text` by AND, each parsed on its own.
     public var base: String?
+    /// Further queries AND-ed on (a cleanup group's exact query, an overview bucket).
+    public var also: [String] = []
     /// Reference time for relative dates ("30d").
     public var now: Date
 
-    public init(account: String? = nil, mailbox: String? = nil, text: String? = nil, base: String? = nil, now: Date = Date()) {
+    public init(account: String? = nil, mailbox: String? = nil, text: String? = nil, base: String? = nil,
+                also: [String] = [], now: Date = Date()) {
         self.account = account
         self.mailbox = mailbox
         self.text = text
         self.base = base
+        self.also = also
         self.now = now
     }
 }
@@ -147,7 +151,7 @@ public final class ArchiveReader {
 
     /// The live connection; reopened when an index rebuild replaced the file underneath
     /// (an old connection would answer every query with SQLITE_IOERR).
-    private var db: Database {
+    var db: Database {
         get throws {
             let now = Self.inode(layout.indexURL.path)
             if now != 0, now != inode {
@@ -247,7 +251,7 @@ public final class ArchiveReader {
         return out.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
-    private static func whereClause(_ filter: MessageFilter) throws -> (String, [SQLValue]) {
+    static func whereClause(_ filter: MessageFilter) throws -> (String, [SQLValue]) {
         var conditions: [String] = []
         var params: [SQLValue] = []
         // Uncorrelated IN, evaluated once. A correlated EXISTS let SQLite pick the (account,
@@ -262,7 +266,7 @@ public final class ArchiveReader {
             conditions.append(c + ")")
         }
         // ADR-0008 query language; an invalid query throws QueryError instead of widening.
-        for text in [filter.base, filter.text].compactMap({ $0 }) {
+        for text in [filter.base, filter.text].compactMap({ $0 }) + filter.also {
             guard let root = try QueryParser.parse(text, now: filter.now).root else { continue }
             var compiled = QuerySQL()
             conditions.append(compiled.condition(root))

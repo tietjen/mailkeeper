@@ -69,6 +69,12 @@ final class AppModel {
     private(set) var labels: [String] = []
     var viewMode: ViewMode = .messages { didSet { if viewMode != oldValue { reloadList() } } }
     private(set) var groups: [MessageGroup] = []
+    /// Cleanup view, right-hand pane: the selected group's details, else an overview.
+    var selectedGroupID: String? { didSet { if selectedGroupID != oldValue { loadGroupDetail() } } }
+    private(set) var groupDetail: GroupDetail?
+    private(set) var cleanupOverview: CleanupOverview?
+    /// The filter of the last successful list/group load (scope + search).
+    private var lastFilter: MessageFilter?
     /// PDF text queue (ADR-0009): progress while it runs, totals for the status bar.
     private(set) var textIndexProgress: AttachmentIndexProgress?
     private(set) var textStats: AttachmentTextStats?
@@ -240,15 +246,23 @@ final class AppModel {
             queryError = error.message
             messageIDs = []
             groups = []
+            groupDetail = nil
+            cleanupOverview = nil
             listGeneration += 1
             selectedMessageID = nil
             return
         }
         filter.text = text
+        lastFilter = filter
         do {
             if let mode = viewMode.group {
                 groups = try reader.groups(filter, by: mode)
                 listError = nil
+                if let id = selectedGroupID, !groups.contains(where: { $0.id == id }) {
+                    selectedGroupID = nil  // didSet loads the overview
+                } else {
+                    loadGroupDetail()  // same group (or none), new scope or search
+                }
                 return
             }
             messageIDs = try reader.messageIDs(filter, sort: sort, ascending: ascending)
@@ -256,6 +270,8 @@ final class AppModel {
         } catch let error as QueryError {
             messageIDs = []
             groups = []
+            groupDetail = nil
+            cleanupOverview = nil
             queryError = String(localized: "Gespeicherte Suche: \(error.message)")
         } catch {
             messageIDs = []
@@ -293,6 +309,48 @@ final class AppModel {
     func openGroup(_ group: MessageGroup) {
         appendFilter(group.query)
         viewMode = .messages
+    }
+
+    /// Only what the right-hand pane shows: the selected group's details, else the overview.
+    private func loadGroupDetail() {
+        guard let reader, let filter = lastFilter, viewMode != .messages else { return }
+        if let id = selectedGroupID, let group = groups.first(where: { $0.id == id }) {
+            groupDetail = try? reader.groupDetail(group, within: filter)
+            cleanupOverview = nil
+        } else {
+            groupDetail = nil
+            cleanupOverview = try? reader.cleanupOverview(filter)
+        }
+    }
+
+    /// One of the group's recent mails: the group's messages in the list, that mail selected.
+    func openMessage(_ id: Int64, of group: MessageGroup) {
+        appendFilter(group.query)
+        viewMode = .messages
+        reveal(id)
+    }
+
+    /// From a domain or list group to one of its senders.
+    func showSender(_ address: String) {
+        viewMode = .sender
+        selectedGroupID = "\(GroupMode.sender.rawValue):\(address)"
+    }
+
+    /// Overview bucket ("Newsletter, nie geöffnet", …): narrows the groups to those messages.
+    func applyBucket(_ bucket: CleanupOverview.Bucket) {
+        appendFilter(bucket.query)
+    }
+
+    /// A saved view for exactly this group within the current scope and search.
+    func savedSearch(for group: MessageGroup) -> SavedSearch {
+        let text = [searchText.trimmingCharacters(in: .whitespaces), group.query].filter { !$0.isEmpty }.joined(separator: " ") + " "
+        let query: String = switch sidebarSelection {
+        case .account(let a): SavedSearchStore.query(account: a, text: text)
+        case .mailbox(let a, let m): SavedSearchStore.query(account: a, mailbox: m, text: text)
+        case .saved(let id): SavedSearchStore.query(base: savedSearches.first { $0.id == id }?.query, text: text)
+        case .all, nil: SavedSearchStore.query(text: text)
+        }
+        return SavedSearch(name: group.name ?? group.key, query: query)
     }
 
     /// Appends a filter term (from the Filter menu) to the search text.

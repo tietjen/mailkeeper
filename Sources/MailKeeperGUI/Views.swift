@@ -56,7 +56,13 @@ struct ContentView: View {
                     }
                 }
         } detail: {
-            if let id = model.selectedMessageID {
+            if model.viewMode != .messages {
+                if let detail = model.groupDetail {
+                    GroupDetailView(model: model, detail: detail)
+                } else {
+                    CleanupOverviewView(model: model)
+                }
+            } else if let id = model.selectedMessageID {
                 ReaderView(model: model, messageID: id)
             } else {
                 ContentUnavailableView("Keine Nachricht ausgewählt", systemImage: "envelope")
