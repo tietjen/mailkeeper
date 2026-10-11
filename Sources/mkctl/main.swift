@@ -30,6 +30,9 @@ usage: mkctl [--archive <dir>] <command>
   restore <query…> [--to <account>:<mailbox>] [--now] [--yes]
                                               upload from the archive back to where it was (or --to);
                                               --now: arrival date today instead of the original
+  export <query…> (--eml <dir> | --mbox <file>)
+                                              write messages out: one .eml each (exact bytes, never
+                                              overwrites) or one mbox (mboxrd); blobs verified first
   show <id>                                   one message: headers, locations, text
   account add gmail <address> --id <id>       add a Gmail account (app password, All Mail + labels)
   account add proton <address> --id <id> [--port 1143] [--trust <fingerprint>]
@@ -321,6 +324,28 @@ func summarize(_ p: ImportProgress, start: Date) {
         print("")
         print("done \(done.count(.done)) · failed \(done.count(.failed)) · skipped \(done.count(.skipped)) — job \(done.id.uuidString)")
         for (reason, count) in done.reasons { print("  \(count): \(reason)") }
+        for (note, count) in done.notes { print("  done \(count): \(note)") }
+
+    case "export":
+        let eml = option("--eml"), mbox = option("--mbox")
+        let query = args.joined(separator: " ")
+        guard (eml == nil) != (mbox == nil), let target = eml ?? mbox else {
+            throw CLIError(description: "export <query…> (--eml <dir> | --mbox <file>)")
+        }
+        let destination = URL(fileURLWithPath: (target as NSString).expandingTildeInPath)
+        if eml != nil { try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true) }
+        if mbox != nil, FileManager.default.fileExists(atPath: destination.path) {
+            throw CLIError(description: "\(destination.path) exists — choose another file")
+        }
+        let layout = try ArchiveLayout.open(at: root, create: false)
+        let items = try ArchiveReader(layout: layout).exportItems(MessageFilter(text: query.isEmpty ? nil : query + " "))
+        let report = try await ArchiveExporter(blobs: layout.blobs).export(items, format: eml != nil ? .eml : .mbox, to: destination) { done, total in
+            print("\r\(done)/\(total)", terminator: "")
+            fflush(stdout)
+        }
+        print("")
+        print("exported \(report.exported) (\(bytes(report.bytes))) to \(destination.path)")
+        for (reason, count) in report.problems.sorted(by: { $0.key < $1.key }) { print("left out \(count): \(reason)") }
 
     case "show":
         guard let idText = args.first, let id = Int64(idText) else { throw CLIError(description: "show <id>") }

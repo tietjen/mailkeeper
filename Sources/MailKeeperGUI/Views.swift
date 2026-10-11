@@ -138,6 +138,15 @@ struct ContentView: View {
         }
         .sheet(item: $model.pendingPlan) { PlanSheet(model: model, plan: $0) }
         .sheet(item: $model.actionResult) { ResultSheet(model: model, job: $0) }
+        .sheet(item: $model.pendingExport) { ExportSheet(model: model, request: $0) }
+        .alert("Export fertig", isPresented: Binding(get: { model.exportResult != nil }, set: { if !$0 { model.exportResult = nil } }),
+               presenting: model.exportResult) { report in
+            Button("Im Finder zeigen") { model.revealExport(report); model.exportResult = nil }
+            Button("OK", role: .cancel) { model.exportResult = nil }
+        } message: { report in
+            Text("\(report.exported.formatted()) Mails (\(report.bytes.formatted(.byteCount(style: .file)))) nach „\(report.destination.lastPathComponent)“."
+                 + report.problems.sorted { $0.key < $1.key }.map { "\n\($0.value.formatted()) nicht exportiert: \($0.key)" }.joined())
+        }
         .alert("Aktion", isPresented: Binding(get: { model.actionError != nil }, set: { if !$0 { model.actionError = nil } })) {
             Button("OK") { model.actionError = nil }
         } message: {

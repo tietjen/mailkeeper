@@ -217,6 +217,44 @@ struct ResultSheet: View {
     }
 }
 
+/// Format choice before the destination panel.
+struct ExportSheet: View {
+    let model: AppModel
+    let request: ExportRequest
+    @State private var format: ExportFormat = .eml
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Exportieren").font(.title3.weight(.semibold))
+                Text(DisplayText.safe(request.title)).foregroundStyle(.secondary).lineLimit(2)
+            }
+            Text("\(request.count.formatted()) Mails · \(request.bytes.formatted(.byteCount(style: .file)))").font(.callout)
+            Picker("Format", selection: $format) {
+                Text("Einzelne .eml-Dateien").tag(ExportFormat.eml)
+                Text("Eine mbox-Datei").tag(ExportFormat.mbox)
+            }
+            .pickerStyle(.radioGroup)
+            Text(format == .eml
+                 ? "Je Mail eine Datei mit genau den archivierten Bytes, benannt nach Datum und Betreff. Öffnet in Apple Mail und lässt sich in jedes Mailprogramm ziehen."
+                 : "Alle Mails in einer Datei (mboxrd) – zum Import in Apple Mail (Ablage › Postfächer importieren), Thunderbird oder wieder in MailKeeper.")
+                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text("Jede Archivkopie wird vorher geprüft; beschädigte werden nicht geschrieben, sondern gemeldet.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Abbrechen") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Exportieren …") { model.runExport(request, format: format) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(request.count == 0 || model.actionRunning)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+    }
+}
+
 /// Reader pane while several messages are selected.
 struct SelectionSummaryView: View {
     let model: AppModel
@@ -237,6 +275,7 @@ struct SelectionSummaryView: View {
                     Button("Aus dem Archiv löschen …") { model.planSelection(.archiveDelete) }
                     Button("Auf den Server zurückspielen …") { model.planSelection(.restore) }
                 }
+                Button("Exportieren …") { model.exportSelection() }
             }
             .disabled(model.actionRunning)
         }

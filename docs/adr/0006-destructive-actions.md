@@ -53,7 +53,15 @@ APPEND, Proton rebuilds messages and ignores the APPEND date, Dovecot is textboo
    fails that item and the executor reconnects. APPENDLIMIT is honoured up front; Gmail labels
    that no longer exist are left out (STORE would create them); without SPECIAL-USE a name veto
    keeps uploads out of "Trash"/"Junk". Client flags the server changed on the way in are put
-   back on that upload only (Proton marks uploads as read).
+   back on that upload only (Proton marks uploads as read) — only when the APPENDUID names it;
+   found by search instead, labels and flags stay as the server stored them (noted). After three
+   refusals in a row an account's rest is not tried (full mailbox: no login storm). The
+   connection itself checks that every STORE names only UIDs it appended.
+7. **Export (4.6):** not destructive, so no queue: one `.eml` per message (exactly the archived
+   bytes, `O_EXCL` — never overwrites, date as file date) or one mbox (mboxrd: `From` line,
+   `>From` escaping, bytes and line endings kept, one LF after each message — MailKeeper's mbox
+   import gives back the same blobs). Every blob is verified first; damaged or missing copies
+   are reported, not written. A stopped mbox export removes the half file. Files are 0600.
 6. **Models never act:** LLM output can propose a queue entry; only the user executes it.
    Rules may run unattended only for non-destructive actions (tags, labels in the archive).
 

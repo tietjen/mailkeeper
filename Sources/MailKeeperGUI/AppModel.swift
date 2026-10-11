@@ -58,6 +58,15 @@ struct PlannedAction: Identifiable {
     var stored = false
 }
 
+/// An export waiting for its format and destination (export sheet).
+struct ExportRequest: Identifiable {
+    var id = UUID()
+    var filter: MessageFilter
+    var title: String
+    var count: Int
+    var bytes: Int64
+}
+
 /// An archive this app has opened before (TJ: switch between configured archives). The
 /// bookmark carries the sandbox permission across launches.
 struct KnownArchive: Codable, Identifiable, Equatable {
@@ -134,6 +143,8 @@ final class AppModel {
     /// Phase 4: the table's selection (several rows), the plan waiting for a go, the running job.
     var selectedMessageIDs: Set<Int64> = []
     var pendingPlan: PlannedAction?
+    var pendingExport: ExportRequest?
+    var exportResult: ExportReport?
     var actionResult: ActionJob?
     var actionError: String?
     private(set) var actionProgress: ActionRunProgress?
@@ -917,6 +928,94 @@ final class AppModel {
     func replan(_ plan: PlannedAction, graceDays: Int) {
         self.plan(plan.job.kind, filter: plan.filter, title: plan.job.title, graceDays: graceDays)
         pendingPlan?.id = plan.id  // same sheet, new numbers
+    }
+
+    // MARK: Export (4.6)
+
+    /// The selected messages (in the trash view: from the trash).
+    func exportSelection() {
+        let ids = actionSelection
+        guard !ids.isEmpty else { return }
+        var filter = MessageFilter(ids: ids)
+        if sidebarSelection == .trash { filter.trash = .only }
+        prepareExport(filter, title: ids.count == 1 ? String(localized: "1 ausgewählte Mail") : String(localized: "\(ids.count) ausgewählte Mails"))
+    }
+
+    /// Everything the list shows (search, folder, filters).
+    func exportResults() {
+        guard let lastFilter else { return }
+        prepareExport(lastFilter, title: String(localized: "Alle Mails der Liste"))
+    }
+
+    var canExportResults: Bool { lastFilter != nil && (stats?.messages ?? 0) > 0 }
+
+    private func prepareExport(_ filter: MessageFilter, title: String) {
+        guard let reader else { return }
+        do {
+            let items = try reader.exportItems(filter)
+            pendingExport = ExportRequest(filter: filter, title: title, count: items.count,
+                                          bytes: items.reduce(Int64(0)) { $0 + Int64($1.size) })
+        } catch {
+            actionError = "\(error)"
+        }
+    }
+
+    /// Asks where to, then writes in the background (progress and stop in the status bar).
+    func runExport(_ request: ExportRequest, format: ExportFormat) {
+        guard let reader, !actionRunning else { return }
+        let destination: URL
+        switch format {
+        case .eml:
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = false
+            panel.canCreateDirectories = true
+            panel.prompt = String(localized: "Exportieren")
+            panel.message = String(localized: "Ordner für die .eml-Dateien – am besten ein neuer, leerer. Vorhandene Dateien werden nie überschrieben.")
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            destination = url
+        case .mbox:
+            let panel = NSSavePanel()
+            panel.nameFieldStringValue = "MailKeeper-Export.mbox"
+            panel.canCreateDirectories = true
+            panel.prompt = String(localized: "Exportieren")
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            destination = url
+        }
+        pendingExport = nil
+        let items: [ExportItem]
+        do { items = try reader.exportItems(request.filter) } catch { actionError = "\(error)"; return }
+        let blobs = reader.layout.blobs
+        actionRunning = true
+        actionProgress = ActionRunProgress(title: String(localized: "Exportieren"), done: 0, total: items.count, failed: 0)
+        actionTask = Task.detached { [weak self] in
+            let accessing = destination.startAccessingSecurityScopedResource()
+            defer { if accessing { destination.stopAccessingSecurityScopedResource() } }
+            var report: ExportReport?
+            var problem: String?
+            do {
+                report = try await ArchiveExporter(blobs: blobs).export(items, format: format, to: destination) { done, total in
+                    Task { @MainActor in self?.actionProgress?.done = done; self?.actionProgress?.total = total }
+                }
+            } catch is CancellationError {
+                problem = format == .mbox ? String(localized: "Export abgebrochen; die unvollständige mbox-Datei ist entfernt.")
+                                          : String(localized: "Export abgebrochen; die schon geschriebenen Dateien bleiben.")
+            } catch {
+                problem = "\(error)"
+            }
+            await MainActor.run {
+                guard let self else { return }
+                self.actionRunning = false
+                self.actionProgress = nil
+                self.actionTask = nil
+                if let report { self.exportResult = report }
+                if let problem { self.actionError = problem }
+            }
+        }
+    }
+
+    func revealExport(_ report: ExportReport) {
+        NSWorkspace.shared.activateFileViewerSelecting([report.destination])
     }
 
     /// Plan sheet: another destination or date for a restore, same selection.

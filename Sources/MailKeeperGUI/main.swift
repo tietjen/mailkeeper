@@ -30,6 +30,12 @@ struct MailKeeperApp: App {
                         Button(kind.title) { model.startImport(kind) }
                     }
                 }
+                Divider()
+                Button("Auswahl exportieren …") { model.exportSelection() }
+                    .keyboardShortcut("e", modifiers: [.command, .shift])
+                    .disabled(model.actionSelection.isEmpty || model.actionRunning)
+                Button("Alle Mails der Liste exportieren …") { model.exportResults() }
+                    .disabled(!model.canExportResults || model.actionRunning)
             }
             HistoryCommands(model: model)
             CommandGroup(after: .pasteboard) {

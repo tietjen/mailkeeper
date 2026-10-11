@@ -185,11 +185,14 @@ struct MessageTable: NSViewRepresentable {
             if model.sidebarSelection == .trash {
                 add(menu, count == 1 ? String(localized: "Wiederherstellen") : String(localized: "\(count) Mails wiederherstellen"), #selector(restore))
                 add(menu, String(localized: "Endgültig löschen …"), #selector(purge))
+                menu.addItem(.separator())
+                add(menu, String(localized: "Exportieren …"), #selector(export))
             } else {
                 add(menu, String(localized: "Auf dem Server löschen …"), #selector(deleteOnServer))
                 add(menu, String(localized: "Aus dem Archiv löschen …"), #selector(deleteFromArchive))
                 menu.addItem(.separator())
                 add(menu, String(localized: "Auf den Server zurückspielen …"), #selector(restoreToServer))
+                add(menu, String(localized: "Exportieren …"), #selector(export))
             }
         }
 
@@ -202,6 +205,7 @@ struct MessageTable: NSViewRepresentable {
         @objc private func deleteOnServer() { model.planSelection(.serverDelete) }
         @objc private func deleteFromArchive() { model.planSelection(.archiveDelete) }
         @objc private func restoreToServer() { model.planSelection(.restore) }
+        @objc private func export() { model.exportSelection() }
         @objc private func restore() { model.restoreSelection() }
         @objc private func purge() { Task { await model.purgeSelection() } }
 
