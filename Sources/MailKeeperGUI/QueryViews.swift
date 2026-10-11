@@ -249,3 +249,35 @@ struct HistoryCommands: Commands {
         }
     }
 }
+
+/// The archives this app knows, the current one checked; open another, create a new one.
+struct ArchiveMenuItems: View {
+    let model: AppModel
+
+    var body: some View {
+        ForEach(model.knownArchives) { archive in
+            Button {
+                model.switchTo(archive)
+            } label: {
+                let title = "\(model.archiveName(archive.path)) — \(model.abbreviated(archive.path))"
+                if archive.path == model.archiveRoot?.path {
+                    Label(title, systemImage: "checkmark")
+                } else {
+                    Text(title)
+                }
+            }
+        }
+        Divider()
+        Button("Anderes Archiv öffnen …") { model.openArchive() }
+        Button("Neues Archiv anlegen …") { model.createArchive() }
+        let others = model.knownArchives.filter { $0.path != model.archiveRoot?.path }
+        if !others.isEmpty {
+            Divider()
+            Menu("Aus der Liste entfernen") {
+                ForEach(others) { archive in
+                    Button("\(model.archiveName(archive.path)) — \(model.abbreviated(archive.path))") { model.forget(archive) }
+                }
+            }
+        }
+    }
+}

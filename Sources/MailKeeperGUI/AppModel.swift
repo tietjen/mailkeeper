@@ -58,6 +58,15 @@ struct PlannedAction: Identifiable {
     var stored = false
 }
 
+/// An archive this app has opened before (TJ: switch between configured archives). The
+/// bookmark carries the sandbox permission across launches.
+struct KnownArchive: Codable, Identifiable, Equatable {
+    var path: String
+    var bookmark: Data?
+    var lastOpened: Date
+    var id: String { path }
+}
+
 struct ActionRunProgress: Equatable {
     var title: String
     var done: Int
@@ -173,7 +182,30 @@ final class AppModel {
 
     private static let bookmarkKey = "archiveBookmark"
 
+    private(set) var knownArchives: [KnownArchive] = []
+    private static let knownArchivesKey = "knownArchives"
+
     init() {
+        if let data = UserDefaults.standard.data(forKey: Self.knownArchivesKey),
+           let list = try? JSONDecoder().decode([KnownArchive].self, from: data) {
+            knownArchives = list
+        } else {
+            // First start with the list: take over what the app knew before — the one remembered
+            // archive (bookmark) and the default location, if it holds an archive.
+            if let data = UserDefaults.standard.data(forKey: Self.bookmarkKey) {
+                var stale = false
+                if let url = try? URL(resolvingBookmarkData: data, options: [.withSecurityScope], bookmarkDataIsStale: &stale) {
+                    knownArchives.append(KnownArchive(path: url.path, bookmark: data, lastOpened: .distantPast))
+                }
+            }
+            let standard = Self.defaultArchiveURL
+            if FileManager.default.fileExists(atPath: standard.appending(path: "archive.json").path),
+               !knownArchives.contains(where: { $0.path == standard.path }) {
+                knownArchives.append(KnownArchive(path: standard.path, bookmark: try? standard.bookmarkData(options: [.withSecurityScope]),
+                                                  lastOpened: .distantPast))
+            }
+            saveKnownArchives()
+        }
         openInitialArchive()
     }
 
@@ -202,9 +234,123 @@ final class AppModel {
             open(url, create: false)
             return
         }
-        let fallback = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appending(path: "MailKeeper/Archive")
-        open(fallback, create: true)
+        open(Self.defaultArchiveURL, create: true)
+    }
+
+    static var defaultArchiveURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appending(path: "MailKeeper/Archive")
+    }
+
+    // MARK: Known archives
+
+    /// "Standard-Archiv" for the default location, else the folder's name.
+    func archiveName(_ path: String?) -> String {
+        guard let path else { return "MailKeeper" }
+        if URL(fileURLWithPath: path).standardizedFileURL == Self.defaultArchiveURL.standardizedFileURL {
+            return String(localized: "Standard-Archiv")
+        }
+        return URL(fileURLWithPath: path).lastPathComponent
+    }
+
+    var currentArchiveName: String { archiveName(archiveRoot?.path) }
+
+    /// "~/Documents/MailArchivTest"
+    func abbreviated(_ path: String) -> String { (path as NSString).abbreviatingWithTildeInPath }
+
+    private func remember(_ url: URL) {
+        let bookmark = try? url.bookmarkData(options: [.withSecurityScope])
+        knownArchives.removeAll { $0.path == url.path }
+        knownArchives.insert(KnownArchive(path: url.path, bookmark: bookmark, lastOpened: Date()), at: 0)
+        saveKnownArchives()
+        if let bookmark { UserDefaults.standard.set(bookmark, forKey: Self.bookmarkKey) }  // reopened at the next launch
+    }
+
+    private func saveKnownArchives() {
+        if let data = try? JSONEncoder().encode(knownArchives) { UserDefaults.standard.set(data, forKey: Self.knownArchivesKey) }
+    }
+
+    /// Removes an archive from the list (its files stay untouched).
+    func forget(_ archive: KnownArchive) {
+        knownArchives.removeAll { $0.path == archive.path }
+        saveKnownArchives()
+    }
+
+    func switchTo(_ archive: KnownArchive) {
+        guard archive.path != archiveRoot?.path else { return }
+        var url = URL(fileURLWithPath: archive.path)
+        if let data = archive.bookmark {
+            var stale = false
+            guard let resolved = try? URL(resolvingBookmarkData: data, options: [.withSecurityScope], bookmarkDataIsStale: &stale) else {
+                actionError = String(localized: "„\(archiveName(archive.path))“ ist nicht erreichbar. Ist das Laufwerk angeschlossen?")
+                return
+            }
+            url = resolved
+        }
+        openExisting(url)
+    }
+
+    /// Opens a folder that already holds an archive; never creates one (TJ ended up in an empty
+    /// archive because choosing any empty folder silently created it).
+    private func openExisting(_ url: URL) {
+        let accessing = url.startAccessingSecurityScopedResource()
+        guard FileManager.default.fileExists(atPath: url.appending(path: "archive.json").path) else {
+            if accessing { url.stopAccessingSecurityScopedResource() }
+            actionError = String(localized: "In „\(abbreviated(url.path))“ liegt kein MailKeeper-Archiv. Ein neues legst du mit „Neues Archiv anlegen …“ an.")
+            return
+        }
+        guard !actionRunning, !syncRunning, !importRunning else {
+            if accessing { url.stopAccessingSecurityScopedResource() }
+            actionError = String(localized: "Erst wenn Import, Abruf oder Aktion fertig sind, lässt sich das Archiv wechseln.")
+            return
+        }
+        guard open(url, create: false) else {
+            if accessing { url.stopAccessingSecurityScopedResource() }
+            return
+        }
+        if scopedURL != url { scopedURL?.stopAccessingSecurityScopedResource() }
+        scopedURL = accessing ? url : nil
+        remember(url)
+    }
+
+    func openArchive() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = false
+        panel.prompt = String(localized: "Öffnen")
+        panel.message = String(localized: "Wähle einen Ordner, der ein MailKeeper-Archiv enthält.")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        openExisting(url)
+    }
+
+    /// A new archive, only in an empty folder.
+    func createArchive() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = String(localized: "Anlegen")
+        panel.message = String(localized: "Wähle einen leeren Ordner für das neue Archiv – oder lege mit „Neuer Ordner“ einen an.")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let accessing = url.startAccessingSecurityScopedResource()
+        if FileManager.default.fileExists(atPath: url.appending(path: "archive.json").path) {
+            if accessing { url.stopAccessingSecurityScopedResource() }
+            openExisting(url)  // already an archive: open it
+            return
+        }
+        let visible = ((try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []).filter { !$0.hasPrefix(".") }
+        guard visible.isEmpty else {
+            if accessing { url.stopAccessingSecurityScopedResource() }
+            actionError = String(localized: "„\(abbreviated(url.path))“ ist nicht leer. Ein neues Archiv braucht einen leeren Ordner.")
+            return
+        }
+        guard !actionRunning, !syncRunning, !importRunning, open(url, create: true) else {
+            if accessing { url.stopAccessingSecurityScopedResource() }
+            return
+        }
+        if scopedURL != url { scopedURL?.stopAccessingSecurityScopedResource() }
+        scopedURL = accessing ? url : nil
+        remember(url)
     }
 
     @discardableResult
@@ -239,6 +385,7 @@ final class AppModel {
             }
             preparingArchive = false
             reader = try ArchiveReader(layout: layout)
+            if url != archiveRoot || !knownArchives.contains(where: { $0.path == url.path }) { remember(url) }
             archiveRoot = url
             volumeEncrypted = layout.volumeIsEncrypted
             openError = nil
@@ -258,25 +405,7 @@ final class AppModel {
         }
     }
 
-    func chooseArchive() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.prompt = String(localized: "Archiv verwenden")
-        panel.message = String(localized: "Wähle einen bestehenden MailKeeper-Archivordner oder einen leeren Ordner für ein neues Archiv.")
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        let accessing = url.startAccessingSecurityScopedResource()
-        guard open(url, create: true) else {
-            if accessing { url.stopAccessingSecurityScopedResource() }
-            return  // keep the previous bookmark; the error is shown
-        }
-        scopedURL?.stopAccessingSecurityScopedResource()
-        scopedURL = accessing ? url : nil
-        if let bookmark = try? url.bookmarkData(options: [.withSecurityScope]) {
-            UserDefaults.standard.set(bookmark, forKey: Self.bookmarkKey)
-        }
-    }
+    func chooseArchive() { openArchive() }
 
     // MARK: Data
 

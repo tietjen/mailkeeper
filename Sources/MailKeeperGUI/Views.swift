@@ -32,7 +32,10 @@ struct ContentView: View {
                             } description: {
                                 Text(error)
                             } actions: {
-                                Button("Archiv wählen …") { model.chooseArchive() }
+                                Button("Archiv öffnen …") { model.openArchive() }
+                            if model.knownArchives.count > 1 {
+                                Menu("Archiv wechseln") { ArchiveMenuItems(model: model) }.fixedSize()
+                            }
                             }
                         } else if let error = model.listError {
                             ContentUnavailableView {
@@ -85,6 +88,8 @@ struct ContentView: View {
             }
             StatusBar(model: model)  // below, not an inset: the AppKit table ignores insets (last row was hidden)
         }
+        .navigationTitle(model.currentArchiveName)
+        .toolbarTitleMenu { ArchiveMenuItems(model: model) }  // click the title: switch archives (TJ)
         .searchable(text: $model.searchText, placement: .toolbar, prompt: "Suchen, z. B. from:amazon has:pdf")
         .searchSuggestions {
             ForEach(model.suggestions, id: \.completion) { s in
