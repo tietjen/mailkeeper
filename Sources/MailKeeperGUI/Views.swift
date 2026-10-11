@@ -246,6 +246,7 @@ struct ReaderView: View {
     @State private var loaded: (id: Int64, detail: MessageDetail, message: ParsedMessage, thread: [MessageSummary])?
     @State private var category: Classification?
     @State private var inJunk = false
+    @State private var hovered: LinkCheck?
     @State private var failed = false
 
     var body: some View {
@@ -263,6 +264,7 @@ struct ReaderView: View {
         }
         .task(id: "\(messageID)-\(model.contentGeneration)") {
             failed = false
+            hovered = nil
             guard let detail = model.detail(messageID), let message = await model.parse(detail) else {
                 failed = true
                 return
@@ -283,7 +285,8 @@ struct ReaderView: View {
                     .padding(12)
                 Divider()
                 if let html = message.html, let rules = ContentRules.shared.list {
-                    MessageWebView(html: html, message: message, rules: rules)
+                    MessageWebView(html: html, message: message, rules: rules) { hovered = $0 }
+                        .overlay(alignment: .bottomLeading) { if let hovered { LinkTargetBar(link: hovered) } }
                 } else {
                     ScrollView {
                         Text(message.text)
@@ -606,5 +609,37 @@ struct ConversationList: View {
         }
         .buttonStyle(.plain)  // not .disabled: that would grey out the highlight
         .help(isCurrent ? String(localized: "Diese Nachricht ist geöffnet") : String(localized: "Nachricht öffnen"))
+    }
+}
+
+/// Bottom of the reader while the pointer is on a link (TJ): where it really goes — and, in
+/// orange, why it looks like a lure (text shows another domain, bare IP, punycode, shortener …).
+struct LinkTargetBar: View {
+    let link: LinkCheck
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Image(systemName: link.isSuspicious ? "exclamationmark.triangle.fill" : "link")
+                    .foregroundStyle(link.isSuspicious ? .orange : .secondary)
+                Text(verbatim: DisplayText.safe(String(link.target.prefix(300))))
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            if link.isSuspicious {
+                if let shown = link.shownDomain, let domain = link.domain, link.findings.contains(.textShowsOtherDomain) {
+                    Text("Angezeigt: \(DisplayText.safe(shown)) · Ziel: \(DisplayText.safe(domain))").fontWeight(.semibold).foregroundStyle(.orange)
+                }
+                ForEach(link.findings.filter { $0 != .textShowsOtherDomain }, id: \.self) { f in
+                    Text(f.text).foregroundStyle(.orange)
+                }
+            }
+        }
+        .font(.caption)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+        .padding(6)
+        .frame(maxWidth: 640, alignment: .leading)
+        .allowsHitTesting(false)
     }
 }

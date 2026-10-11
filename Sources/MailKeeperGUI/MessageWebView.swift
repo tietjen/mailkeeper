@@ -7,14 +7,32 @@ import WebKit
 /// Renders a mail's HTML in a locked-down WKWebView (ADR-0003): no JavaScript, no persistent
 /// website data, every network load blocked by a content rule list and a CSP; inline images
 /// (`cid:`) come from the message itself through a custom scheme. Links open in the browser
-/// only on an explicit click.
+/// only on an explicit click; hovering one reports its target (TJ) — through a script of
+/// MailKeeper's own in an isolated content world: the mail's scripts stay off and cannot see it.
 struct MessageWebView: NSViewRepresentable {
     let html: String
     let message: ParsedMessage
     /// Required: the view never exists without the blocking rules.
     let rules: WKContentRuleList
+    /// The link under the pointer (nil when it leaves).
+    var onHover: (LinkCheck?) -> Void = { _ in }
 
     static let scheme = "mk-cid"
+    static let hoverWorld = WKContentWorld.world(name: "mailkeeper-link-hover")
+    /// Reports the hovered link's resolved target and visible text, nothing else.
+    static let hoverScript = """
+    (() => {
+      let last;
+      const report = (a) => {
+        const v = a ? JSON.stringify([a.href, (a.innerText || a.textContent || '').slice(0, 300)]) : null;
+        if (v === last) return;
+        last = v;
+        window.webkit.messageHandlers.mkLinkHover.postMessage(v);
+      };
+      document.addEventListener('mouseover', (e) => report(e.target.closest ? e.target.closest('a[href]') : null), true);
+      document.addEventListener('mouseleave', () => report(null), true);
+    })();
+    """
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -24,6 +42,11 @@ struct MessageWebView: NSViewRepresentable {
         config.defaultWebpagePreferences.allowsContentJavaScript = false
         config.setURLSchemeHandler(context.coordinator.cidHandler, forURLScheme: Self.scheme)
         config.userContentController.add(rules)
+        config.userContentController.addUserScript(WKUserScript(source: Self.hoverScript, injectionTime: .atDocumentEnd,
+                                                                forMainFrameOnly: true, in: Self.hoverWorld))
+        // weakly: the controller would otherwise keep the coordinator (and its view) alive
+        config.userContentController.add(WeakScriptHandler(context.coordinator), contentWorld: Self.hoverWorld, name: "mkLinkHover")
+        context.coordinator.onHover = onHover
         let view = WKWebView(frame: .zero, configuration: config)
         view.navigationDelegate = context.coordinator
         view.uiDelegate = context.coordinator
@@ -31,6 +54,7 @@ struct MessageWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ view: WKWebView, context: Context) {
+        context.coordinator.onHover = onHover
         let document = Self.wrap(html)
         guard context.coordinator.loaded != document else { return }
         context.coordinator.loaded = document
@@ -48,9 +72,21 @@ struct MessageWebView: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         var loaded: String?
         let cidHandler = CIDSchemeHandler()
+        var onHover: (LinkCheck?) -> Void = { _ in }
+
+        /// From the isolated hover script only (its own content world): `["href", "text"]` or null.
+        func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard message.name == "mkLinkHover" else { return }
+            guard let json = message.body as? String, json.count < 10_000,
+                  let pair = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String], pair.count == 2 else {
+                onHover(nil)
+                return
+            }
+            onHover(LinkCheck(href: pair[0], text: pair[1]))
+        }
 
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
             if action.navigationType == .other, action.request.url?.scheme == "about" || action.request.url == nil {
@@ -72,6 +108,16 @@ struct MessageWebView: NSViewRepresentable {
             }
             return nil
         }
+    }
+}
+
+/// Forwards script messages without retaining the receiver.
+@MainActor
+final class WeakScriptHandler: NSObject, WKScriptMessageHandler {
+    weak var target: (any WKScriptMessageHandler)?
+    init(_ target: any WKScriptMessageHandler) { self.target = target }
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        target?.userContentController(controller, didReceive: message)
     }
 }
 
