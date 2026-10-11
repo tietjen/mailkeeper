@@ -50,9 +50,12 @@ struct GroupDetailView: View {
                 .frame(width: 40, height: 40)
                 .background(Circle().fill(.tint.opacity(0.12)))
             VStack(alignment: .leading, spacing: 2) {
-                Text(DisplayText.safe(group.name ?? group.key)).font(.title3.weight(.semibold)).lineLimit(2)
+                Text(DisplayText.safe(detail.listDescription ?? group.name ?? group.key)).font(.title3.weight(.semibold)).lineLimit(2)
                 Text("\(DisplayText.safe(group.key)) · \(kind)").font(.callout).foregroundStyle(.secondary).lineLimit(1)
                     .textSelection(.enabled)
+                if group.mode == .list, let sender = group.name, sender != detail.listDescription {
+                    Text("zuletzt von \(DisplayText.safe(sender))").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
             }
         }
     }

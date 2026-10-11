@@ -63,6 +63,8 @@ public struct GroupDetail: Sendable {
     /// Senders inside a domain or list group (empty for a sender group).
     public var members: [Member]
     public var unsubscribe: UnsubscribeInfo?
+    /// For a list: the description from `List-Id: description <id>` of the newest message.
+    public var listDescription: String?
 
     public var read: Int { group.count - group.unread }
 }
@@ -134,10 +136,16 @@ extension ArchiveReader {
             let headers = HeaderParser.parse(try layout.blobs.read(blob)).0
             unsubscribe = UnsubscribeInfo.parse(listUnsubscribe: headers["List-Unsubscribe"], post: headers["List-Unsubscribe-Post"])
         }
+        var listDescription: String?
+        if group.mode == .list, let newest = recentIDs.first,
+           let blob = try db.queryOne("SELECT primary_blob FROM messages WHERE id = ?", [.int(newest)], { $0.text(0) }) ?? nil {
+            listDescription = MIMEParser.listID(HeaderParser.parse(try layout.blobs.read(blob)).0["List-Id"]).description
+        }
 
         return GroupDetail(group: group, months: months, lastYear: lastYear, places: places, onServer: onServer,
                            onServerBytes: onServerBytes, withAttachments: withAttachments, largest: largest,
-                           recent: try summaries(recentIDs), members: members, unsubscribe: unsubscribe)
+                           recent: try summaries(recentIDs), members: members, unsubscribe: unsubscribe,
+                           listDescription: listDescription)
     }
 
     /// Count and size of what the filter selects.

@@ -476,3 +476,19 @@ struct OnServerTests {
         #expect(try r.groupDetail(g, within: MessageFilter()).onServer == 1)  // only "both" is still there
     }
 }
+
+@Suite("List-Id")
+struct ListIDTests {
+    @Test func idAndDescription() {
+        #expect(MIMEParser.listID("Weekly news <News.Example.COM>") == ("news.example.com", "Weekly news"))
+        #expect(MIMEParser.listID("\"Dev list\" <dev.lists.example.org>") == ("dev.lists.example.org", "Dev list"))
+        #expect(MIMEParser.listID("<only.id.example>") == ("only.id.example", nil))
+        // stored raw before: an encoded word without brackets
+        #expect(MIMEParser.listID("=?utf-8?q?Gr=C3=BCne_Erde-Aktuelles?=") == ("grüne erde-aktuelles", "Grüne Erde-Aktuelles"))
+        #expect(MIMEParser.listID("=?utf-8?q?Gr=C3=BCne_Erde?= <news.erde.example>") == ("news.erde.example", "Grüne Erde"))
+        // a phrase put inside the brackets still yields a key
+        #expect(MIMEParser.listID("794489526 <Lea von Roastmarket>") == ("lea von roastmarket", "794489526"))
+        #expect(MIMEParser.listID(nil) == (nil, nil))
+        #expect(MIMEParser.listID("   ") == (nil, nil))
+    }
+}

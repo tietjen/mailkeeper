@@ -221,11 +221,21 @@ public final class ArchiveReader {
         case .domain: "CASE WHEN instr(m.from_addr, '@') > 0 THEN mk_lower(substr(m.from_addr, instr(m.from_addr, '@') + 1)) END"
         case .list: "m.list_id"
         }
-        // A name only for single senders: for a domain or list it would be an arbitrary member's.
-        let name = mode == .sender ? "max(name)" : "NULL"
+        // A list is named by its newest message's sender (newsletters name themselves there; the
+        // List-Id is often a machine id) — a window function, only where it is needed. A sender
+        // practically always uses one name; a domain has many senders, so none.
+        let name = switch mode {
+        case .sender: "max(name)"
+        case .domain: "NULL"
+        case .list: "max(name)"
+        }
+        let nameColumn = mode == .list
+            ? "first_value(m.from_name) OVER (PARTITION BY \(key) ORDER BY m.date DESC NULLS LAST, m.id DESC)"
+            : "m.from_name"
         let sql = """
             SELECT k, \(name), count(*), sum(size), max(date), min(date), sum(unread), max(unsub) FROM (
-                SELECT \(key) AS k, m.from_name AS name, m.size AS size, m.date AS date, m.list_unsubscribe AS unsub,
+                SELECT \(key) AS k, m.size AS size, m.date AS date, m.list_unsubscribe AS unsub,
+                       \(nameColumn) AS name,
                        seen.message_id IS NULL AS unread
                 FROM messages m
                 LEFT JOIN (SELECT DISTINCT message_id FROM locations

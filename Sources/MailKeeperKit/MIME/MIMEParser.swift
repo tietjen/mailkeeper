@@ -111,8 +111,7 @@ public enum MIMEParser {
             messageID: MessageIDs.identity(h["Message-ID"]),
             inReplyTo: MessageIDs.first(h["In-Reply-To"]),
             references: MessageIDs.all(h["References"]),
-            listID: h["List-Id"].map { MessageIDs.all($0).first.map { String($0.dropFirst().dropLast()) } ?? $0 }
-                .map { $0.trimmingCharacters(in: .whitespaces).lowercased() },
+            listID: Self.listID(h["List-Id"]).id,
             hasListUnsubscribe: h["List-Unsubscribe"] != nil,
             precedence: h["Precedence"]?.trimmingCharacters(in: .whitespaces).lowercased(),
             autoSubmitted: h["Auto-Submitted"]?.trimmingCharacters(in: .whitespaces).lowercased(),
@@ -121,6 +120,20 @@ public enum MIMEParser {
             attachments: collector.attachments,
             truncated: truncated
         )
+    }
+
+    /// RFC 2919 `List-Id: [description] <id>`: the id (lowercased, the grouping key) and the
+    /// human description. Encoded words are decoded first (`=?utf-8?q?Gr=C3=BCne_Erde?=` was
+    /// stored raw); senders that put a phrase in the brackets still get its content as id.
+    public static func listID(_ raw: String?) -> (id: String?, description: String?) {
+        guard let raw else { return (nil, nil) }
+        let decoded = collapseWhitespace(EncodedWords.decode(raw)).trimmingCharacters(in: .whitespaces)
+        if let open = decoded.lastIndex(of: "<"), let close = decoded[open...].firstIndex(of: ">") {
+            let id = decoded[decoded.index(after: open)..<close].trimmingCharacters(in: .whitespaces)
+            let phrase = decoded[..<open].trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\"")))
+            if !id.isEmpty { return (id.lowercased(), phrase.isEmpty ? nil : phrase) }
+        }
+        return (decoded.isEmpty ? nil : decoded.lowercased(), decoded.isEmpty ? nil : decoded)
     }
 
     /// `<content-id>`s (lowercased) referenced as `cid:` from the HTML, in one linear pass.
