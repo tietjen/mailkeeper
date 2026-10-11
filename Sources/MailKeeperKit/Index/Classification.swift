@@ -120,7 +120,8 @@ public struct HeuristicFeatures: Sendable, Equatable {
 /// "Konto/Sicherheit" would lend it credibility (S3).
 public enum Heuristics {
     /// Raise when the rules change: older heuristic results are computed again.
-    public static let version = 1
+    /// 2: a sender named for notifications or alerts wins over list headers (GitHub, LinkedIn).
+    public static let version = 2
 
     public static func classify(_ f: HeuristicFeatures) -> (category: MailCategory, rule: String)? {
         let subject = (f.subject ?? "").lowercased()
@@ -144,6 +145,7 @@ public enum Heuristics {
         if !list, travelWords.contains(where: subject.contains) {
             return (.travel, String(localized: "Betreff nennt Buchung oder Ticket"))
         }
+        if notifierWords.contains(where: local.contains) { return (.notification, String(localized: "Absender „\(local)“")) }
         if list { return (.newsletter, String(localized: "Mailingliste (List-Id)")) }
         if ["bulk", "list", "junk"].contains(precedence) { return (.newsletter, String(localized: "Massenversand (Precedence: \(precedence))")) }
         if f.listUnsubscribe { return (.newsletter, String(localized: "Abmeldelink (List-Unsubscribe)")) }
@@ -162,6 +164,9 @@ public enum Heuristics {
     static let travelWords = ["buchungsbestätigung", "reservierungsbestätigung", "ihre buchung", "ihre reservierung",
                               "fahrkarte", "online-ticket", "boarding", "check-in", "reiseplan", "itinerary",
                               "booking confirmation", "flugbestätigung", "ihre reise"]
+    /// Senders that announce themselves as notifications — stronger than list headers, which
+    /// notification services (GitHub, LinkedIn) send as well.
+    static let notifierWords = ["notification", "notifications", "notify", "alert", "benachrichtigung"]
     static let robotWords = ["noreply", "no-reply", "no_reply", "donotreply", "do-not-reply", "notification", "notify",
                              "alert", "automailer", "mailer", "system", "automat"]
 }

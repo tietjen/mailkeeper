@@ -22,6 +22,8 @@ struct ClassificationTests {
         #expect(rule("shop@amazon.example", "Ihre Bestellung wurde versandt") == .orderShipping)
         #expect(rule("buchung@bahn.example", "Ihre Buchungsbestätigung") == .travel)
         #expect(rule("deals@x.example", "Lieferung gratis!", list: "deals.x.example") == .newsletter)  // a list wins over words
+        #expect(rule("notifications@github.example", "[repo] PR merged", list: "repo.github.example", unsubscribe: true) == .notification)
+        #expect(rule("noreply@newsletter.example", "Wochenrückblick", list: "news.example") == .newsletter)  // plain noreply: still a newsletter
         // never by rule: people, work, account and phishing — a rule would lend a fake security mail credibility
         #expect(rule("security@bank-alert.example", "Ihr Konto wurde gesperrt – Passwort bestätigen") == nil)
         #expect(rule("max@familie.example", "Grillen am Samstag?") == nil)
