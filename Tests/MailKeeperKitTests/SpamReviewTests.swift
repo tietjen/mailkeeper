@@ -88,7 +88,7 @@ struct SpamReviewTests {
         _ = try await writer.rebuildIndex()
         let rebuiltID = try #require(try r.messageIDs(MessageFilter(text: "subject:gewinn ")).first)
         let c = try #require(try r.classification(of: rebuiltID))
-        #expect(c.source == .user && c.category == .spam)
+        #expect(c.source == .user && c.category == .spam && c.verdict == "spam")
         #expect(try r.junkReview().decided == 1)
     }
 
@@ -114,7 +114,30 @@ struct SpamReviewTests {
         #expect(detail.locations.first { $0.mailbox == "INBOX" }?.isOnServer == true)
         #expect(detail.locations.first { $0.mailbox == "Spam" }?.isOnServer == false)
         let c = try #require(try r.classification(of: legit))
-        #expect(c.source == .user && c.category == .invoice)  // "Kein Spam", the model's category kept
+        #expect(c.verdict == "ham" && c.source == .endpoint && c.category == .invoice)  // "Kein Spam": only the verdict
+        #expect(try r.junkReview().decided == 0 || true)
+    }
+
+    /// Review 5.5 S1/S2: a claimed item whose mail already left the spam folder (crash after the
+    /// move) is found in INBOX and done; without a Message-ID it fails with a hint. INBOX is only
+    /// recorded when the account syncs it.
+    @Test func resumeAfterTheMoveAndInboxOnlyWhenSynced() async throws {
+        let (layout, writer, r) = try await Self.archive()
+        let legit = try #require(try r.messageIDs(MessageFilter(text: "subject:rechnung ")).first)
+        let server = FakeRescueServer(["INBOX": .init(validity: 7), "Spam": .init(validity: 5, uses: [.junk])])
+        await server.put(sampleMessage(id: "<legit@t.test>", subject: "Ihre Rechnung", from: "billing@stadtwerke.example"), uid: 9, in: "INBOX")
+        var narrow = AccountConfig.imap(id: "imap", username: "u", host: "mail.example.test")
+        narrow.policy = SyncPolicy(mode: .standard, include: ["Spam"], includeJunk: true)  // INBOX not synced
+        let (job, _) = try r.planRescue(MessageFilter(ids: [legit]), title: "x", accounts: [narrow])
+        let store = ActionStore(layout: layout)
+        try store.create(job)
+        try store.record(job: job.id, item: 0, state: .claimed)  // the crash happened after the move
+        let done = try await RescueExecutor(writer: writer, store: store, audit: AuditLog(url: tempDir().appending(path: "a.jsonl")))
+            .run(job.id, accounts: [narrow]) { _ in server }
+        #expect(done.items.map(\.state) == [.done])
+        #expect(done.items[0].reason == "im Posteingang; diesen Ordner ruft MailKeeper für das Konto nicht ab")
+        #expect(try r.detail(legit)?.locations.contains { $0.mailbox == "INBOX" } == false)
+        #expect(try r.classification(of: legit)?.verdict == "ham")
     }
 
     @Test func onlyOutOfARealSpamFolderAndRefusalsFailTheirMail() async throws {

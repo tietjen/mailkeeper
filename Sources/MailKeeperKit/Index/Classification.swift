@@ -70,6 +70,21 @@ public enum MailCategory: String, Codable, Sendable, CaseIterable {
     public static func parse(_ word: String) -> MailCategory? { aliases[word.lowercased()] }
 }
 
+/// A model's (or the link checks') view on phishing, apart from the category (TJ, 5.6).
+public enum PhishingLevel: String, Codable, Sendable, CaseIterable {
+    case none = "nein"
+    case suspicious = "verdacht"
+    case likely = "ja"
+
+    public var label: String {
+        switch self {
+        case .none: String(localized: "kein Phishing")
+        case .suspicious: String(localized: "Phishing-Verdacht")
+        case .likely: String(localized: "Phishing")
+        }
+    }
+}
+
 /// Who decided a message's category.
 public enum ClassificationSource: String, Codable, Sendable {
     /// MailKeeper's rules over the headers (deterministic, ADR-0004 §1).
@@ -92,6 +107,10 @@ public struct Classification: Sendable, Equatable {
     /// The model's one-line reason (display-safe, bounded).
     public var reason: String?
     public var created: Date
+    /// The user's spam verdict: "spam" ("Ist Spam") or "ham" ("Kein Spam").
+    public var verdict: String?
+    public var phishing: PhishingLevel?
+    public var phishingReason: String?
 }
 
 /// What the rules look at — all of it already in the index, no message is read.
@@ -175,10 +194,13 @@ public enum Heuristics {
 
 extension ArchiveReader {
     public func classification(of id: Int64) throws -> Classification? {
-        try db.queryOne("SELECT category, source, rule, model, reason, created FROM classifications WHERE message_id = ?", [.int(id)]) { r in
+        try db.queryOne("""
+            SELECT category, source, rule, model, reason, created, verdict, phishing, phishing_reason FROM classifications WHERE message_id = ?
+            """, [.int(id)]) { r in
             Classification(category: r.text(0).flatMap(MailCategory.init(rawValue:)),
                            source: r.text(1).flatMap(ClassificationSource.init(rawValue:)) ?? .heuristic,
-                           rule: r.text(2), model: r.text(3), reason: r.text(4), created: Date(timeIntervalSince1970: r.double(5)))
+                           rule: r.text(2), model: r.text(3), reason: r.text(4), created: Date(timeIntervalSince1970: r.double(5)),
+                           verdict: r.text(6), phishing: r.text(7).flatMap(PhishingLevel.init(rawValue:)), phishingReason: r.text(8))
         }
     }
 
@@ -205,7 +227,7 @@ extension ArchiveReader {
         let (whereClause, params) = try Self.whereClause(MessageFilter(text: "is:junk "))
         return try db.query("""
             SELECT m.id FROM messages m LEFT JOIN classifications c ON c.message_id = m.id
-            WHERE (c.message_id IS NULL OR c.source = 'heuristic') AND m.id IN (SELECT m.id FROM messages m\(whereClause))
+            WHERE (c.message_id IS NULL OR c.source = 'heuristic') AND c.verdict IS NULL AND m.id IN (SELECT m.id FROM messages m\(whereClause))
             ORDER BY m.date DESC LIMIT ?
             """, params + [.int(Int64(limit))]) { $0.int(0) }
     }
@@ -219,6 +241,8 @@ extension ArchiveReader {
         public var spam = 0
         /// The user decided.
         public var decided = 0
+        /// A model sees phishing (suspicion or likely) — counted apart from spam (TJ, 5.6).
+        public var phishing = 0
 
         public init() {}
     }
@@ -227,13 +251,14 @@ extension ArchiveReader {
         let (whereClause, params) = try Self.whereClause(MessageFilter(text: "is:junk "))
         var r = JunkReview()
         try db.forEach("""
-            SELECT c.source, c.category FROM messages m LEFT JOIN classifications c ON c.message_id = m.id
+            SELECT c.source, c.category, c.verdict, c.phishing FROM messages m LEFT JOIN classifications c ON c.message_id = m.id
             WHERE m.id IN (SELECT m.id FROM messages m\(whereClause))
             """, params) { row in
             r.total += 1
+            if ["verdacht", "ja"].contains(row.text(3) ?? "") { r.phishing += 1 }
+            if row.text(2) != nil || row.text(0) == "user" { r.decided += 1; return }
             switch (row.text(0), row.text(1)) {
             case (nil, _), ("heuristic", _): r.unchecked += 1
-            case ("user", _): r.decided += 1
             case (_, "spam"): r.spam += 1
             default: r.notSpam += 1
             }

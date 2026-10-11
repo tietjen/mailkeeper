@@ -384,6 +384,8 @@ final class AppModel {
             actionResult = nil
             exportResult = nil
             lastFilter = nil
+            junkReview = nil
+            autoJunkFailed = false
         }
         textIndexTask?.cancel()  // belongs to the previous archive
         textIndexTask = nil
@@ -1405,7 +1407,7 @@ final class AppModel {
 
     static let maxClassify = 500
 
-    private func runClassification(_ ids: [Int64], title: String = String(localized: "Einordnen")) {
+    private func runClassification(_ ids: [Int64], title: String = String(localized: "Einordnen"), automatic: Bool = false) {
         guard let root = archiveRoot, let router = aiRouter(), !actionRunning, !syncRunning, !importRunning else {
             if !aiConfig.enabled { actionError = String(localized: "Die KI ist nicht eingerichtet (Einstellungen › KI).") }
             return
@@ -1448,7 +1450,14 @@ final class AppModel {
                 self.actionRunning = false
                 self.actionProgress = nil
                 self.actionTask = nil
-                if let message { self.actionError = message }
+                if let message {
+                    if automatic {  // quietly in the status line; no further automatic run this session
+                        self.autoJunkFailed = true
+                        self.syncMessage = [self.syncMessage, String(localized: "Spam-Prüfung: \(message)")].compactMap { $0 }.joined(separator: "\n")
+                    } else {
+                        self.actionError = message
+                    }
+                }
                 self.contentGeneration += 1
                 self.refresh()
                 self.startTextIndexing()
@@ -1461,9 +1470,17 @@ final class AppModel {
     private(set) var junkReview: ArchiveReader.JunkReview?
     var spamAccountsEnabled: Bool { accountConfigs.contains { $0.policy.includeJunk } }
 
-    func isInJunk(_ id: Int64) -> Bool {
-        ((try? reader?.count(MessageFilter(text: "is:junk ", ids: [id]))) ?? 0) > 0
+    func isInJunk(_ id: Int64) -> Bool { anyInJunk([id]) }
+
+    /// One query for several messages (the context menu must not scan per message).
+    func anyInJunk(_ ids: [Int64]) -> Bool {
+        guard !ids.isEmpty else { return false }
+        return ((try? reader?.count(MessageFilter(text: "is:junk ", ids: ids))) ?? 0) > 0
     }
+
+    /// After a failed automatic spam check, no further automatic runs this session (the endpoint
+    /// is away: no alert after every sync).
+    private var autoJunkFailed = false
 
     /// Settings › Konten: read (and check) the account's spam folder too.
     func setSpamCheck(_ id: String, _ on: Bool) {
@@ -1494,7 +1511,7 @@ final class AppModel {
             let (job, summary) = try reader.planRescue(MessageFilter(ids: ids), title: title, accounts: accountConfigs)
             let plan = PlannedAction(job: job, summary: summary, filter: MessageFilter(ids: ids),
                                      examples: try reader.summaries(Array(ids.prefix(5))))
-            if job.items.count == 1, job.count(.planned) == 1 {
+            if ids.count == 1, job.items.count == 1, job.count(.planned) == 1 {
                 execute(plan)  // TJ: one click — the checks, the queue and the audit run all the same
             } else if job.count(.planned) == 0 {
                 actionError = job.reasons.first.map { "\($0.reason)" }
@@ -1647,9 +1664,9 @@ final class AppModel {
                 self?.syncMessage = text
                 self?.refresh()
                 // new mail in checked spam folders: the model looks at it (5.5)
-                if let self, self.aiConfig.enabled, self.spamAccountsEnabled,
-                   let ids = try? self.reader?.junkToCheck(limit: 100), !ids.isEmpty {
-                    self.runClassification(ids, title: String(localized: "Spam prüfen"))
+                if let self, self.aiConfig.enabled, self.spamAccountsEnabled, !self.autoJunkFailed,
+                   let ids = try? self.reader?.junkToCheck(limit: 50), !ids.isEmpty {
+                    self.runClassification(ids, title: String(localized: "Spam prüfen"), automatic: true)
                 } else {
                     self?.startTextIndexing()
                 }

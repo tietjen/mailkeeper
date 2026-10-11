@@ -366,7 +366,7 @@ public actor ArchiveWriter {
                                    time: event.time)
                     missing.subtract(event.shas ?? [])  // deleted on purpose, not lost
                 } else if event.kind == .classified {
-                    try applyUserClassification(identity: identity, category: event.category, time: event.time)
+                    try applyUserDecision(identity: identity, category: event.category, verdict: event.verdict, time: event.time)
                 } else {
                     try applyTrash(event.kind, identity: identity, time: event.time)
                 }
@@ -685,9 +685,12 @@ public actor ArchiveWriter {
         try db.transaction {
             for (id, features) in rows {
                 let result = Heuristics.classify(features)
+                // an upsert: the user's verdict and a phishing assessment stay
                 try db.run("""
-                    INSERT OR REPLACE INTO classifications(message_id, category, source, rule, model, reason, version, created)
+                    INSERT INTO classifications(message_id, category, source, rule, model, reason, version, created)
                     VALUES (?, ?, 'heuristic', ?, NULL, NULL, ?, ?)
+                    ON CONFLICT(message_id) DO UPDATE SET category = excluded.category, source = 'heuristic', rule = excluded.rule,
+                        model = NULL, reason = NULL, version = excluded.version, created = excluded.created
                     """, [.int(id), .optional(result?.category.rawValue), .optional(result?.rule),
                           .int(Int64(Heuristics.version)), .double(now)])
             }
@@ -695,40 +698,58 @@ public actor ArchiveWriter {
         return rows.count
     }
 
-    /// A model's answer for one message (reason already display-safe and bounded by the caller).
-    /// Never over a decision of the user.
-    public func setClassification(messageID: Int64, category: MailCategory, source: ClassificationSource, model: String?, reason: String?) throws {
+    /// A model's answer for one message (texts already display-safe and bounded by the caller),
+    /// with its phishing assessment (5.6). Never over a category the user gave; the user's
+    /// verdict stays.
+    public func setClassification(messageID: Int64, category: MailCategory, source: ClassificationSource, model: String?, reason: String?,
+                                  phishing: PhishingLevel? = nil, phishingReason: String? = nil) throws {
         try db.run("""
-            INSERT OR REPLACE INTO classifications(message_id, category, source, rule, model, reason, version, created)
-            SELECT id, ?, ?, NULL, ?, ?, 0, ? FROM messages
+            INSERT INTO classifications(message_id, category, source, rule, model, reason, version, created, phishing, phishing_reason)
+            SELECT id, ?, ?, NULL, ?, ?, 0, ?, ?, ? FROM messages
             WHERE id = ? AND id NOT IN (SELECT message_id FROM classifications WHERE source = 'user')
+            ON CONFLICT(message_id) DO UPDATE SET category = excluded.category, source = excluded.source, rule = NULL,
+                model = excluded.model, reason = excluded.reason, version = 0, created = excluded.created,
+                phishing = excluded.phishing, phishing_reason = excluded.phishing_reason
             """, [.text(category.rawValue), .text(source.rawValue), .optional(model), .optional(reason),
-                  .double(Date().timeIntervalSince1970), .int(messageID)])
+                  .double(Date().timeIntervalSince1970), .optional(phishing?.rawValue), .optional(phishingReason), .int(messageID)])
     }
 
-    /// The user's decision ("Ist Spam": `.spam`; "Kein Spam": the model's category if it was not
-    /// spam, else open) — journalled: it survives a rebuild, unlike rule and model results.
+    /// "Ist Spam": category spam, the user's — journalled, survives a rebuild, no model overrides it.
     public func setUserClassification(identity: String, category: MailCategory?) throws {
         let time = Date().timeIntervalSince1970
-        try journal.append(.classified(identity: identity, category: category?.rawValue, time: time))
+        try journal.append(.classified(identity: identity, category: category?.rawValue, verdict: category == .spam ? "spam" : nil, time: time))
         try journal.sync()
-        try applyUserClassification(identity: identity, category: category?.rawValue, time: time)
+        try applyUserDecision(identity: identity, category: category?.rawValue, verdict: category == .spam ? "spam" : nil, time: time)
     }
 
-    /// "Kein Spam": keeps a non-spam category, clears a spam one.
+    /// "Kein Spam": only the verdict — the category stays the model's (and may be asked again);
+    /// journalled.
     public func confirmNotSpam(identity: String) throws {
-        let current = try db.queryOne("""
-            SELECT c.category FROM classifications c JOIN messages m ON m.id = c.message_id WHERE m.identity = ?
-            """, [.text(identity)]) { $0.text(0) } ?? nil
-        let keep = current.flatMap(MailCategory.init(rawValue:)).flatMap { $0 == .spam ? nil : $0 }
-        try setUserClassification(identity: identity, category: keep)
+        let time = Date().timeIntervalSince1970
+        try journal.append(.classified(identity: identity, category: nil, verdict: "ham", time: time))
+        try journal.sync()
+        try applyUserDecision(identity: identity, category: nil, verdict: "ham", time: time)
     }
 
-    private func applyUserClassification(identity: String, category: String?, time: Double) throws {
-        try db.run("""
-            INSERT OR REPLACE INTO classifications(message_id, category, source, rule, model, reason, version, created)
-            SELECT id, ?, 'user', NULL, NULL, NULL, 0, ? FROM messages WHERE identity = ?
-            """, [.optional(category), .double(time), .text(identity)])
+    /// A `classified` event: with a category the user set the category (source user); a verdict
+    /// alone ("ham") only marks the verdict.
+    private func applyUserDecision(identity: String, category: String?, verdict: String?, time: Double) throws {
+        if let category {
+            try db.run("""
+                INSERT INTO classifications(message_id, category, source, rule, model, reason, version, created, verdict)
+                SELECT id, ?, 'user', NULL, NULL, NULL, 0, ?, ? FROM messages WHERE identity = ?
+                ON CONFLICT(message_id) DO UPDATE SET category = excluded.category, source = 'user', rule = NULL, model = NULL,
+                    reason = NULL, created = excluded.created, verdict = excluded.verdict
+                """, [.text(category), .double(time), .optional(verdict), .text(identity)])
+        } else {
+            try db.run("""
+                INSERT INTO classifications(message_id, category, source, rule, model, reason, version, created, verdict)
+                SELECT id, NULL, 'heuristic', NULL, NULL, NULL, 0, ?, ? FROM messages WHERE identity = ?
+                ON CONFLICT(message_id) DO UPDATE SET verdict = excluded.verdict,
+                    category = CASE WHEN classifications.source = 'user' AND classifications.category = 'spam' THEN NULL ELSE classifications.category END,
+                    source = CASE WHEN classifications.source = 'user' AND classifications.category = 'spam' THEN 'heuristic' ELSE classifications.source END
+                """, [.double(time), .optional(verdict), .text(identity)])
+        }
     }
 
     /// Locations marked gone that the server lists again (a mailbox missing from one LIST, a

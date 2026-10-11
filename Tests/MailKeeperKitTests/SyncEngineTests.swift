@@ -266,6 +266,24 @@ struct SyncEngineTests {
         #expect(try onServer() == 1 && reader.stats().trashed == 0)
     }
 
+    /// Review 5.5 B1: an action recorded a location above mail that arrived in between (rescue:
+    /// INBOX/6 while 4 and 5 were new) — the next sync fills the gap instead of skipping it forever.
+    @Test func gapsBelowTheHighestKnownUIDAreFilled() async throws {
+        let (layout, writer) = try archive("gaps")
+        let source = FakeSource([inbox])
+        for n in 1...3 { await source.add("INBOX", mail(n)) }
+        let engine = SyncEngine(writer: writer, account: account, policy: SyncPolicy(mode: .standard))
+        _ = try await engine.run(source: source)
+        await source.add("INBOX", mail(4))
+        await source.add("INBOX", mail(5))
+        let rescued = await source.add("INBOX", mail(6, "Gerettet"))
+        _ = try await writer.ingest(mail(6, "Gerettet"), at: LocationInfo(account: "acc", mailbox: "INBOX", uidValidity: 1, uid: rescued))
+        let report = try await engine.run(source: source)
+        #expect(report.gapsFilled == 2)
+        #expect(try ArchiveReader(layout: layout).count(MessageFilter()) == 6)
+        #expect(try await engine.run(source: source).gapsFilled == 0)
+    }
+
     @Test func condstoreOnlyAsksForChanges() async throws {
         let (_, writer) = try archive("condstore")
         let source = FakeSource([inbox])

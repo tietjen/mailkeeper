@@ -41,7 +41,7 @@ public struct RescueExecutor: Sendable {
         let byAccount = Dictionary(grouping: job.open.filter { $0.location != nil }, by: { $0.location!.account })
         for account in byAccount.keys.sorted() {
             try Task.checkCancellation()
-            guard accounts.contains(where: { $0.id == account }) else {
+            guard let config = accounts.first(where: { $0.id == account }) else {
                 for item in byAccount[account]! { try finish(&job, item.id, .failed, String(localized: "Konto ist hier nicht eingerichtet"), &p) }
                 continue
             }
@@ -49,7 +49,7 @@ public struct RescueExecutor: Sendable {
             progress(p)
             let server = try await connect(account)
             do {
-                try await run(items: byAccount[account]!, server: server, job: &job, progress: &p, notify: progress)
+                try await run(items: byAccount[account]!, policy: config.policy, server: server, job: &job, progress: &p, notify: progress)
                 await server.close()
             } catch {
                 await server.close()
@@ -61,9 +61,12 @@ public struct RescueExecutor: Sendable {
         return job
     }
 
-    private func run(items accountItems: [ActionItem], server: any ServerRescueActions, job: inout ActionJob,
+    private func run(items accountItems: [ActionItem], policy: SyncPolicy, server: any ServerRescueActions, job: inout ActionJob,
                      progress p: inout ServerDeleteProgress, notify progress: @Sendable (ServerDeleteProgress) -> Void) async throws {
         let boxes = try await server.mailboxes()
+        // the INBOX location is recorded only where the account also syncs INBOX — otherwise no
+        // sync would ever see it go (Gmail syncs All Mail; include lists)
+        let inboxSynced = policy.select(boxes).contains { $0.name.uppercased() == "INBOX" }
         let roles = boxes.contains { $0.specialUse.contains(.junk) }
         guard let inbox = boxes.first(where: { $0.name.uppercased() == "INBOX" }) else {
             for item in accountItems { try finish(&job, item.id, .failed, String(localized: "Kein Posteingang (INBOX) auf dem Server"), &p) }
@@ -100,11 +103,16 @@ public struct RescueExecutor: Sendable {
             let bodies = needBodies.isEmpty ? [:] : try await server.bodies(needBodies)
             var go: [ActionItem] = []
             var gone: Set<UInt32> = []
+            var resumed: [ActionItem] = []  // claimed before a crash and no longer in the spam folder
             for item in current {
                 let uid = item.location!.uid
                 guard let r = remote[uid] else {
                     gone.insert(uid)
-                    try finish(&job, item.id, .failed, String(localized: "liegt nicht mehr im Spam-Ordner – erst neu abrufen"), &p)
+                    if item.state == .claimed {
+                        resumed.append(item)  // probably moved already: looked for in INBOX below
+                    } else {
+                        try finish(&job, item.id, .failed, String(localized: "liegt nicht mehr im Spam-Ordner – erst neu abrufen"), &p)
+                    }
                     continue
                 }
                 let same = item.messageID.map { r.messageID == $0 && (r.size == nil || r.size == item.size) }
@@ -113,11 +121,13 @@ public struct RescueExecutor: Sendable {
                     try finish(&job, item.id, .failed, String(localized: "Mail auf dem Server stimmt nicht mit dem Archiv überein"), &p)
                 }
             }
-            guard !go.isEmpty else { continue }
+            guard !go.isEmpty || !resumed.isEmpty else { continue }
             for item in go { try store.record(job: job.id, item: item.id, state: .claimed) }
             var refusal: String?
-            do { try await server.moveToInbox(go.map { $0.location!.uid }) } catch let r as ServerRefusal { refusal = r.message }
-            let stillThere = try await server.present(go.map { $0.location!.uid })
+            if !go.isEmpty {
+                do { try await server.moveToInbox(go.map { $0.location!.uid }) } catch let r as ServerRefusal { refusal = r.message }
+            }
+            let stillThere = go.isEmpty ? [] : try await server.present(go.map { $0.location!.uid })
             let moved = go.filter { !stillThere.contains($0.location!.uid) }
             for item in go where stillThere.contains(item.location!.uid) {
                 try finish(&job, item.id, .failed, refusal.map { String(localized: "vom Server abgelehnt: \($0)") }
@@ -128,40 +138,63 @@ public struct RescueExecutor: Sendable {
                 _ = try await writer.markGone(account: moved.first?.location?.account ?? items[0].location!.account, mailbox: mailbox,
                                               uidValidity: validity, uids: gone)
             }
-            guard !moved.isEmpty else { continue }
-            // the archive learns the INBOX location (like a sync) and the user's decision
-            let inboxValidity = try await server.selectForChange(inbox.name)
-            for item in moved {
+            guard !moved.isEmpty || !resumed.isEmpty else { continue }
+            // The server's state is final now: whatever fails from here, a moved mail is done.
+            var inboxValidity: UInt32?
+            do { inboxValidity = try await server.selectForChange(inbox.name) } catch is ServerRefusal {}
+            for item in moved + resumed {
+                let wasResumed = resumed.contains(item)
+                var found: RemoteMessage?
+                if inboxValidity != nil, let messageID = item.messageID {
+                    found = try? await find(messageID, sha: item.sha256, server: server)
+                }
+                if wasResumed, found == nil {
+                    try finish(&job, item.id, .failed, item.messageID == nil
+                               ? String(localized: "Ausgang unbekannt (Mail ohne Message-ID) – bitte im Posteingang nachsehen")
+                               : String(localized: "liegt weder im Spam-Ordner noch im Posteingang – erst neu abrufen"), &p)
+                    continue
+                }
                 var note: String?
-                if let messageID = item.messageID, let found = try await find(messageID, sha: item.sha256, server: server) {
+                var at: ServerLocation?
+                if let found, let validity = inboxValidity, inboxSynced {
                     _ = try await writer.ingest(found.data, at: LocationInfo(account: item.location!.account, mailbox: inbox.name,
-                                                                             uidValidity: inboxValidity, uid: found.uid,
+                                                                             uidValidity: validity, uid: found.uid,
                                                                              providerID: found.providerID, internalDate: found.internalDate,
                                                                              flags: found.flags, labels: found.labels))
+                    at = ServerLocation(account: item.location!.account, mailbox: inbox.name, uidValidity: validity, uid: found.uid)
+                } else if found != nil {
+                    note = String(localized: "im Posteingang; diesen Ordner ruft MailKeeper für das Konto nicht ab")
                 } else {
                     note = String(localized: "im Posteingang; der Ort erscheint beim nächsten Abruf")
                 }
                 if let identity = item.identity { try await writer.confirmNotSpam(identity: identity) }
-                try finish(&job, item.id, .done, note, &p)
+                try finish(&job, item.id, .done, note, &p, at: at)
             }
             progress(p)
         }
     }
 
-    /// The moved message in INBOX: same Message-ID, and the same bytes or sender and subject.
+    /// The moved message in INBOX: the same bytes, or the same Message-ID with the same sender
+    /// and subject (the archive's identity rule — a reused Message-ID is not the message).
     private func find(_ messageID: String, sha: String, server: any ServerRescueActions) async throws -> RemoteMessage? {
         let uids = try await server.search(messageID: messageID)
         guard !uids.isEmpty else { return nil }
         let candidates = try await server.fetch(Array(uids.suffix(20)))
-        return candidates.first { sha256Hex($0.data) == sha } ?? candidates.first { MIMEParser.parse($0.data).messageID == messageID }
+        if let exact = candidates.first(where: { sha256Hex($0.data) == sha }) { return exact }
+        guard let data = try? writer.layout.blobs.read(sha) else { return nil }
+        let original = MIMEParser.parse(data)
+        return candidates.first { c in
+            let p = MIMEParser.parse(c.data)
+            return p.messageID == messageID && ArchiveWriter.sameMessage(from: original.from.first?.address, subject: original.subject, as: p)
+        }
     }
 
     private func finish(_ job: inout ActionJob, _ id: Int, _ state: ActionItem.State, _ reason: String?,
-                        _ p: inout ServerDeleteProgress) throws {
+                        _ p: inout ServerDeleteProgress, at location: ServerLocation? = nil) throws {
         try store.record(job: job.id, item: id, state: state, reason: reason)
         job.items[id].state = state
         job.items[id].reason = reason
-        try? audit.append(job: job, item: job.items[id])
+        try? audit.append(job: job, item: job.items[id], at: location)
         switch state {
         case .done: p.done += 1
         case .failed: p.failed += 1

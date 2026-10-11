@@ -193,7 +193,7 @@ struct MessageTable: NSViewRepresentable {
                 menu.addItem(.separator())
                 add(menu, String(localized: "Auf den Server zurückspielen …"), #selector(restoreToServer))
                 add(menu, String(localized: "Exportieren …"), #selector(export))
-                if model.sidebarSelection == .spamReview || model.actionSelection.prefix(20).contains(where: model.isInJunk) {
+                if model.sidebarSelection == .spamReview || model.anyInJunk(Array(model.actionSelection.prefix(50))) {
                     menu.addItem(.separator())
                     add(menu, String(localized: "Kein Spam → Posteingang"), #selector(rescue))
                     add(menu, String(localized: "Ist Spam"), #selector(markSpam))

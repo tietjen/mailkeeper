@@ -102,7 +102,9 @@ struct ReadOnlyGuardTests {
         #expect(IMAPSession.isAllowedChange(.select(inboxName, []), access: .rescueFromJunk, trash: nil, inbox: inboxName))
         #expect(IMAPSession.isAllowedChange(.uidMove(one, inboxName), access: .rescueFromJunk, trash: nil, inbox: inboxName))
         #expect(IMAPSession.isAllowedChange(.uidCopy(one, inboxName), access: .rescueFromJunk, trash: nil, inbox: inboxName))
+        #expect(IMAPSession.isAllowedChange(.uidStore(one, [], .flags(.add(silent: true, list: [.deleted]))), access: .rescueFromJunk, trash: nil, inbox: inboxName))
         for c: Command in [.uidMove(one, archive), .uidMove(.lastCommand, inboxName), .uidStore(one, [], .flags(.add(silent: true, list: [.seen]))),
+                           .uidExpunge(.lastCommand), .uidStore(.lastCommand, [], .flags(.add(silent: true, list: [.deleted]))),
                            .expunge, .close, .create(inboxName, []), .delete(archive)] {
             #expect(!IMAPSession.isAllowedChange(c, access: .rescueFromJunk, trash: nil, inbox: inboxName), "\(c)")
         }
@@ -399,6 +401,7 @@ struct IntegrationTests {
     /// a separate read-only connection; the archive knows the INBOX location afterwards.
     @Test func mailcowNoSpamBackToInbox() async throws {
         let a = try account("mailcow")
+        try seed("--cleanup-junk")  // leftovers of earlier (manual) runs would match too
         try seed("--junk-test")
         defer { try? seed("--cleanup-junk") }
         let endpoint = IMAPEndpoint(host: a.host, port: a.port, security: .tls)
@@ -418,7 +421,9 @@ struct IntegrationTests {
                                             audit: AuditLog(url: tempDir().appending(path: "audit.jsonl"))).run(job.id, accounts: [config]) { _ in
             try await IMAPSession.connect(endpoint, username: a.username, password: pw, access: .rescueFromJunk)
         }
-        #expect(done.count(.done) == 1 && done.items[0].reason == nil, "\(done.reasons)")
+        #expect(done.count(.done) == 1, "\(done.reasons)")
+        // INBOX is outside this test's sync selection (include: Junk): not recorded, said so
+        #expect(done.items[0].reason == "im Posteingang; diesen Ordner ruft MailKeeper für das Konto nicht ab")
         let messageID = try #require(job.items.first?.messageID)
         let check = try await IMAPSession.connect(endpoint, username: a.username, password: pw)
         let boxes = try await check.mailboxes()
@@ -428,8 +433,9 @@ struct IntegrationTests {
         #expect(try await check.search(messageID: messageID).isEmpty)
         await check.close()
         let detail = try #require(try reader.detail(ids[0]))
-        #expect(detail.locations.contains { $0.mailbox == "INBOX" && $0.isOnServer })
-        #expect(try reader.classification(of: ids[0])?.source == .user)
+        #expect(!detail.locations.contains { $0.mailbox == "INBOX" })
+        #expect(detail.locations.first { $0.mailbox == "Junk" }?.isOnServer == false)
+        #expect(try reader.classification(of: ids[0])?.verdict == "ham")
     }
 
     @Test func protonWrongPinIsRefused() async throws {

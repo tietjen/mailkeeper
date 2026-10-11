@@ -167,7 +167,10 @@ struct QuerySQL {
     }()
 
     static let junkNames = ["junk", "spam", "junk e-mail", "junk-e-mail", "junk mail", "bulk mail"]
-    static let junkLocation: String = "(" + ([role("junk")] + names(junkNames)).joined(separator: " OR ") + ")"
+    /// The role, or — only for accounts whose server marks no junk mailbox (imports, old servers) —
+    /// the usual names, as the rescue does (a user folder "Projekte/Spam" is no spam folder there).
+    static let junkLocation: String = "(" + role("junk") + " OR ((" + names(junkNames).joined(separator: " OR ")
+        + ") AND l.account_id NOT IN (SELECT account_id FROM mailbox_roles WHERE instr(roles, ' junk ') > 0)))"
 
     private static func names(_ list: [String]) -> [String] {
         list.flatMap { n in ["mk_lower(l.mailbox) = '\(n)'", "mk_lower(l.mailbox) LIKE '%/\(n)'", "mk_lower(l.mailbox) LIKE '%.\(n)'"] }

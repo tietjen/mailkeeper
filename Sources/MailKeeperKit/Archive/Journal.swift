@@ -39,8 +39,10 @@ public struct JournalEvent: Codable, Sendable, Equatable {
     public var locations: [Tombstone]?
     /// Purged `mid:` identity: hash of sender and subject (never the text itself).
     public var who: String?
-    /// `classified`: the category the user gave (nil: "not spam", category left open).
+    /// `classified`: the category the user gave (nil: only a verdict).
     public var category: String?
+    /// `classified`: the user's spam verdict, "spam" or "ham".
+    public var verdict: String?
 
     /// An IMAP location of a purged message: sync must not fetch it again.
     public struct Tombstone: Codable, Sendable, Equatable, Hashable {
@@ -56,7 +58,7 @@ public struct JournalEvent: Codable, Sendable, Equatable {
         case kind = "k", time = "t", account = "a", accountKind = "ak", accountName = "an"
         case mailbox = "mb", uidValidity = "uv", uid = "u", providerID = "pid", sha256 = "sha"
         case internalDate = "id", flags = "f", labels = "l", identity = "idn", shas = "shas", locations = "locs", who = "who"
-        case category = "cat"
+        case category = "cat", verdict = "vd"
     }
 
     public static func trash(_ kind: Kind, identity: String, time: Double = Date().timeIntervalSince1970) -> JournalEvent {
@@ -68,8 +70,9 @@ public struct JournalEvent: Codable, Sendable, Equatable {
         JournalEvent(kind: .purged, time: time, account: archiveAccount, identity: identity, shas: shas, locations: locations, who: who)
     }
 
-    public static func classified(identity: String, category: String?, time: Double = Date().timeIntervalSince1970) -> JournalEvent {
-        JournalEvent(kind: .classified, time: time, account: archiveAccount, identity: identity, category: category)
+    public static func classified(identity: String, category: String?, verdict: String? = nil,
+                                  time: Double = Date().timeIntervalSince1970) -> JournalEvent {
+        JournalEvent(kind: .classified, time: time, account: archiveAccount, identity: identity, category: category, verdict: verdict)
     }
 
     public static func account(_ id: String, kind: String, name: String, time: Double = Date().timeIntervalSince1970) -> JournalEvent {

@@ -101,6 +101,8 @@ public struct SyncReport: Sendable, Equatable {
     public var gone = 0
     /// Locations gone earlier that the server lists again.
     public var back = 0
+    /// Messages below the highest known UID that were missing (filled in).
+    public var gapsFilled = 0
     /// Messages deleted from the archive for good earlier: not fetched into it again.
     public var deletedBefore = 0
     /// Mailboxes that failed, with the error; the others were synced.
@@ -134,7 +136,9 @@ public struct SyncEngine: Sendable {
         progress(p)
         let listed = try await source.mailboxes()
         let plan = policy.select(listed)
-        try await writer.setMailboxRoles(account: account.id, listed)  // \Junk, \Sent … for is:junk / is:sent
+        if listed.contains(where: \.selectable) {  // a broken LIST must not wipe the roles
+            try await writer.setMailboxRoles(account: account.id, listed)  // \Junk, \Sent … for is:junk / is:sent
+        }
         let caps = await source.capabilities()
         var report = SyncReport()
         // Mailboxes that vanished from the server (renamed or deleted folder, Gmail language
@@ -266,6 +270,22 @@ public struct SyncEngine: Sendable {
             // ... and known messages marked gone that are listed again (review 4.7)
             report.back += try await writer.markPresent(account: id, mailbox: box.name, uidValidity: validity,
                                                         uids: present.intersection(known).subtracting(onServer))
+            // Gaps: listed, unknown, below what step 1 asked for — an action (rescue, restore)
+            // recorded a location whose UID is above mail that arrived in between (review 5.5).
+            let gaps = present.subtracting(known).subtracting(candidates.map(\.uid)).filter { $0 <= maxKnown }
+            if let low = gaps.min() {
+                let sized = try await source.messageSizes(fromUID: low).filter { gaps.contains($0.uid) }.sorted { $0.uid < $1.uid }
+                p.phase = .fetching
+                p.toFetch += sized.count
+                for c in sized {
+                    try Task.checkCancellation()
+                    if !batch.isEmpty, batchSize + c.size > batchBytes || batch.count >= batchCount { try await flush() }
+                    batch.append(c.uid)
+                    batchSize += c.size
+                }
+                try await flush()
+                report.gapsFilled += sized.count
+            }
         }
         if let m = status.highestModSeq {
             try await writer.setSyncState(account: id, mailbox: box.name, uidValidity: validity, highestModSeq: m)

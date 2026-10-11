@@ -260,6 +260,7 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
     public func examine(_ mailbox: RemoteMailbox) async throws -> MailKeeperKit.MailboxStatus {
         guard let name = mailboxNames[mailbox.name] else { throw IMAPError.protocolError("unbekanntes Postfach \(mailbox.name)") }
         let params: [SelectParameter] = condstore ? [.basic(KeyValue(key: "CONDSTORE", value: nil))] : []
+        selectedMailbox = nil  // read-only now: no change may refer to a previous SELECT
         return try status(of: try await run(.examine(name, params)), mailbox: mailbox.name)
     }
 

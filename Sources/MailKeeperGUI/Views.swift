@@ -359,6 +359,7 @@ struct ReaderView: View {
                 .help("Alle Mails dieser Art zeigen")
                 Text(DisplayText.safe(categorySource)).foregroundStyle(.secondary).lineLimit(2)
                     .help(DisplayText.safe(categorySource))
+                if let verdictText { Text(verdictText).foregroundStyle(.green) }
             } else {
                 Text(category == nil ? "noch nicht eingeordnet" : "offen – keine Regel passt").foregroundStyle(.secondary)
             }
@@ -370,7 +371,7 @@ struct ReaderView: View {
                 Button("Kein Spam → Posteingang") { model.rescueSelection() }
                     .controlSize(.small).disabled(model.actionRunning)
                     .help("Auf dem Server aus dem Spam-Ordner in den Posteingang verschieben; das Archiv merkt es sich")
-                if category?.source != .user || category?.category != .spam {
+                if category?.verdict != "spam" {
                     Button("Ist Spam") { model.markSpamSelection() }.controlSize(.small)
                 }
             }
@@ -385,6 +386,14 @@ struct ReaderView: View {
         case .endpoint: return "\(c.model ?? "KI"): \(c.reason ?? "")"
         case .onDevice: return String(localized: "Modell auf diesem Mac: \(c.reason ?? "")")
         case .user: return String(localized: "deine Entscheidung")
+        }
+    }
+
+    private var verdictText: String? {
+        switch category?.verdict {
+        case "ham": String(localized: "du: kein Spam")
+        case "spam": String(localized: "du: Spam")
+        default: nil
         }
     }
 

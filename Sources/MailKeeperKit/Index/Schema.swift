@@ -164,6 +164,13 @@ enum Schema {
             PRIMARY KEY(account_id, mailbox)
         ) WITHOUT ROWID;
         """,
+        // v9: the user's verdict apart from the category ("Kein Spam" keeps the model's category
+        // and lets it be asked again), and the phishing assessment beside the category (5.6).
+        """
+        ALTER TABLE classifications ADD COLUMN verdict TEXT;
+        ALTER TABLE classifications ADD COLUMN phishing TEXT;
+        ALTER TABLE classifications ADD COLUMN phishing_reason TEXT;
+        """,
     ]
 
     static var currentVersion: Int { migrations.count }
