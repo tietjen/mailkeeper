@@ -64,6 +64,13 @@ struct FilterMenu: View {
 
     var body: some View {
         Menu {
+            Menu("Kategorie") {
+                ForEach(MailCategory.allCases, id: \.self) { c in
+                    Button { model.appendFilter("kategorie:\(c.queryWord)") } label: { Label(c.label, systemImage: c.icon) }
+                }
+                Divider()
+                Button("Offen (keine Regel, noch keine KI)") { model.appendFilter("kategorie:offen") }
+            }
             Section("Zur Suche hinzufügen") {
                 ForEach(filters, id: \.1) { title, term in
                     Button(title) { model.appendFilter(term) }

@@ -1278,7 +1278,9 @@ final class AppModel {
         guard let root = archiveRoot, let reader, textIndexTask == nil, !syncRunning, !importRunning, !actionRunning else { return }
         textStats = try? reader.attachmentTextStats()
         let expired = (stats?.trashed ?? 0) > 0  // may hold mail older than 30 days to purge
-        guard (textStats?.pending ?? 0) > 0 || expired, PDFTextClient.isBundled || expired else { return }
+        let rules = ((try? reader.heuristicPendingCount()) ?? 0) > 0  // categories by rule (5.4)
+        let pdfs = (textStats?.pending ?? 0) > 0 && PDFTextClient.isBundled
+        guard pdfs || expired || rules else { return }
         let extractor = pdfText
         let token = UUID()
         textIndexToken = token
@@ -1287,8 +1289,14 @@ final class AppModel {
                 let writer = try ArchiveWriter(layout: try ArchiveLayout.open(at: root, create: false))
                 let purged = try await writer.purgeExpired(days: 30)  // archive trash: 30 days, then for good (ADR-0006)
                 if purged.messages > 0 || purged.backOnServer > 0 { await MainActor.run { self?.refresh() } }
-                _ = try await AttachmentIndexer(writer: writer, extractor: extractor).run { p in
-                    Task { @MainActor in if self?.textIndexToken == token { self?.textIndexProgress = p } }
+                if rules {  // fast: headers only, no message is read
+                    while try await writer.classifyHeuristically() > 0 { try Task.checkCancellation() }
+                    await MainActor.run { self?.contentGeneration += 1 }
+                }
+                if pdfs {
+                    _ = try await AttachmentIndexer(writer: writer, extractor: extractor).run { p in
+                        Task { @MainActor in if self?.textIndexToken == token { self?.textIndexProgress = p } }
+                    }
                 }
             } catch {
                 // cancelled for an import/sync, or the archive is locked: resumes later
@@ -1359,6 +1367,81 @@ final class AppModel {
         let router = AIRouter(config: aiConfig, apiKey: key)
         aiRouterCache = router
         return router
+    }
+
+    // MARK: Categories (5.4)
+
+    func classification(of id: Int64) -> Classification? {
+        try? reader?.classification(of: id)
+    }
+
+    /// The selected messages, asked of the model (also those the rules decided: the user asks).
+    func classifySelection() {
+        let ids = actionSelection
+        guard !ids.isEmpty else { return }
+        runClassification(Array(ids.prefix(Self.maxClassify)))
+    }
+
+    /// Of the list, those the rules left open.
+    func classifyOpenInList() {
+        guard let reader, let filter = lastFilter, let ids = try? reader.openForClassification(filter, limit: Self.maxClassify), !ids.isEmpty else {
+            actionError = String(localized: "In dieser Liste ist keine Mail offen – die Regeln haben alle eingeordnet.")
+            return
+        }
+        runClassification(ids)
+    }
+
+    static let maxClassify = 500
+
+    private func runClassification(_ ids: [Int64]) {
+        guard let root = archiveRoot, let router = aiRouter(), !actionRunning, !syncRunning, !importRunning else {
+            if !aiConfig.enabled { actionError = String(localized: "Die KI ist nicht eingerichtet (Einstellungen › KI).") }
+            return
+        }
+        actionRunning = true
+        actionProgress = ActionRunProgress(title: String(localized: "Einordnen"), done: 0, total: ids.count, failed: 0, resumable: false)
+        let indexing = pauseTextIndexing()
+        actionTask = Task.detached { [weak self] in
+            await indexing?.value
+            var problem: String?
+            var failed = 0
+            do {
+                let layout = try ArchiveLayout.open(at: root, create: false)
+                let reader = try ArchiveReader(layout: layout)
+                let writer = try ArchiveWriter(layout: layout)
+                let classifier = MailClassifier(router: router)
+                for (n, id) in ids.enumerated() {
+                    try Task.checkCancellation()
+                    do {
+                        guard let parsed = try reader.parsedMessage(id) else { continue }
+                        let c = try await classifier.classify(MailSnapshot(parsed))
+                        try await writer.setClassification(messageID: id, category: c.category,
+                                                           source: c.path == .onDevice ? .onDevice : .endpoint, model: c.model, reason: c.reason)
+                    } catch let error as AIError {
+                        failed += 1
+                        if case .notConfigured = error { throw error }
+                        if failed >= 5, failed == n + 1 { throw error }  // nothing works: stop early, say why
+                    }
+                    let done = n + 1, f = failed
+                    await MainActor.run { self?.actionProgress?.done = done; self?.actionProgress?.failed = f }
+                }
+            } catch is CancellationError {
+                problem = String(localized: "Einordnen angehalten; was fertig war, bleibt.")
+            } catch {
+                problem = "\(error)"
+            }
+            let message = problem ?? (failed > 0 ? String(localized: "\(failed) Mails ließen sich nicht einordnen (siehe ~/Library/Logs/MailKeeper/ai.jsonl).") : nil)
+            await MainActor.run {
+                guard let self else { return }
+                self.actionRunning = false
+                self.actionProgress = nil
+                self.actionTask = nil
+                if let message { self.actionError = message }
+                self.contentGeneration += 1
+                self.refresh()
+                self.startTextIndexing()
+            }
+        }
     }
 
     // MARK: Search in everyday language (5.3)

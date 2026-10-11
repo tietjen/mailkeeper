@@ -45,6 +45,7 @@ usage: mkctl [--archive <dir>] <command>
                                               manage accounts (remove keeps the archived mail)
   sync [<id>…]                                fetch new mail from all (or the given) accounts, read-only
   ask <everyday language…>                    KI: translate into the search language (shown, then counted)
+  classify [--ai [--limit n] <query…>]        categories: rules for all messages; --ai asks the model about open ones
   ai status | test                            KI settings of the archive; connection test (endpoint, on-device)
   ai config [--on|--off] [--endpoint <url>] [--model <task>=<alias>]… [--on-device on|off]
                                               tasks: search classify summarize embed
@@ -353,6 +354,38 @@ func summarize(_ p: ImportProgress, start: Date) {
         print("")
         print("exported \(report.exported) (\(bytes(report.bytes))) to \(destination.path)")
         for (reason, count) in report.problems.sorted(by: { $0.key < $1.key }) { print("left out \(count): \(reason)") }
+
+    case "classify":
+        let layout = try ArchiveLayout.open(at: root, create: false)
+        let ai = args.contains("--ai")
+        args.removeAll { $0 == "--ai" }
+        let limit = Int(option("--limit") ?? "50") ?? 50
+        let writer = try ArchiveWriter(layout: layout)
+        var ruled = 0
+        while case let n = try await writer.classifyHeuristically(), n > 0 { ruled += n }
+        if ruled > 0 { print("Regeln: \(ruled) Mails angesehen") }
+        let reader = try ArchiveReader(layout: layout)
+        if ai {
+            let config = AIConfigStore(layout: layout).load()
+            guard config.enabled else { throw CLIError(description: "KI ist aus: mkctl ai config --on --endpoint <url>") }
+            let key = config.secretKey.flatMap { try? CredentialStore().secret(key: $0) }
+            let classifier = MailClassifier(router: AIRouter(config: config, apiKey: key))
+            let query = args.joined(separator: " ")
+            for id in try reader.openForClassification(MessageFilter(text: query.isEmpty ? nil : query + " "), limit: limit) {
+                guard let parsed = try reader.parsedMessage(id) else { continue }
+                do {
+                    let c = try await classifier.classify(MailSnapshot(parsed))
+                    try await writer.setClassification(messageID: id, category: c.category, source: c.path == .onDevice ? .onDevice : .endpoint,
+                                                       model: c.model, reason: c.reason)
+                    print("\(c.category.label.padding(toLength: 20, withPad: " ", startingAt: 0)) \(clean(String((parsed.subject ?? "").prefix(60))))  — \(clean(c.reason))")
+                } catch {
+                    print("✗ \(clean(String((parsed.subject ?? "").prefix(60)))): \(error)")
+                }
+            }
+        }
+        let counts = try reader.categoryCounts()
+        for c in MailCategory.allCases where (counts[c] ?? 0) > 0 { print("\(c.label.padding(toLength: 20, withPad: " ", startingAt: 0)) \(counts[c]!)") }
+        print("\("offen".padding(toLength: 20, withPad: " ", startingAt: 0)) \(counts[nil] ?? 0)")
 
     case "ask":
         let text = args.joined(separator: " ")

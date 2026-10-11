@@ -29,6 +29,8 @@ after:30d  before:1y                relative (d, w, m, y)
 account:gmail  folder:INBOX  folder:Archiv/*  label:Steuer  list:newsletter   (List-Id contains)
 is:unread|read|flagged|answered|list|sent   on:server  only:archive   msgid:<id@host>
 thread:<id@host>                    the conversation containing that message (3.4, additive)
+kategorie:rechnung  category:spam   the category (5.4): newsletter benachrichtigung rechnung bestellung
+                                    konto persönlich arbeit reise spam, or offen (no rule, no model yet)
 pdf:kündigung                       only the text of PDF attachments; plain words also match it (3.5, ADR-0009)
 -word  -from:x                      negation
 a OR b   ( … )                      alternatives and grouping; AND binds tighter than OR

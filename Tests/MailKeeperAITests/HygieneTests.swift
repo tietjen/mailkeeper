@@ -117,3 +117,37 @@ struct AILiveHygieneTests {
         }
     }
 }
+
+@Suite("Einordnen mit KI (5.4)")
+struct ClassifierTests {
+    @Test func theMailGoesInFencedAndOnlyKnownCategoriesComeBack() async throws {
+        let p = ScriptedProvider([#"{"category":"personal","reason":"Einladung‮ zum Grillen"}"#, #"{"category":"memo","reason":"x"}"#])
+        let classifier = MailClassifier(router: AIRouter(config: AIConfig(enabled: true), endpoint: nil, onDevice: p,
+                                                         log: AICallLog(url: tempDir().appending(path: "l.jsonl"))))
+        let mail = MailSnapshot(from: "max@familie.example", subject: "Grillen am Samstag?", text: "Kommt ihr?")
+        let c = try await classifier.classify(mail)
+        #expect(c.category == .personal && c.reason == "Einladung zum Grillen")
+        let request = try #require(await p.requests.first)
+        #expect(request.user.hasPrefix("<<<MAIL-") && request.user.contains("Grillen am Samstag?") && request.system.contains("nie"))
+        await #expect(throws: AIError.self) { _ = try await classifier.classify(mail) }  // "memo" is no category
+    }
+}
+
+@Suite("AILive classify", .enabled(if: ProcessInfo.processInfo.environment["MAILKEEPER_AI"] == "1"), .serialized)
+struct AILiveClassifyTests {
+    @Test func ambiguousMailsGetTheRightCategory() async throws {
+        let (config, key) = try AILiveTests.config()
+        let classifier = MailClassifier(router: AIRouter(config: config, apiKey: key, log: AICallLog(url: tempDir().appending(path: "ai.jsonl"))))
+        let cases: [(MailSnapshot, MailCategory)] = [
+            (MailSnapshot(from: "max@familie.example", fromName: "Max", subject: "Grillen am Samstag?", text: "Hallo ihr, wir grillen Samstag ab 17 Uhr. Kommt ihr mit den Kindern?"), .personal),
+            (MailSnapshot(from: "kanzlei@stb.example", fromName: "Kanzlei Berger", subject: "Unterlagen Jahresabschluss", text: "Sehr geehrter Herr Probe, für den Jahresabschluss fehlen uns noch die Kontoauszüge Q4."), .work),
+            (MailSnapshot(from: "security@bank-alert.example", fromName: "Sparkasse", subject: "Ihr Konto wurde gesperrt", text: "Aufgrund verdächtiger Aktivitäten wurde Ihr Online-Banking gesperrt. Bestätigen Sie Ihre Daten innerhalb 24h unter folgendem Link."), .spam),
+            (MailSnapshot(from: "no-reply@accounts.example", fromName: "Example Konto", subject: "Ihr Bestätigungscode", text: "Ihr Code lautet 482913. Er ist 10 Minuten gültig. Wenn Sie das nicht waren, ändern Sie Ihr Passwort."), .accountSecurity),
+        ]
+        for (mail, expected) in cases {
+            let c = try await classifier.classify(mail)
+            print("\(mail.subject): \(c.category.rawValue) — \(c.reason) (\(String(format: "%.1f", c.seconds)) s)")
+            #expect(c.category == expected, "\(mail.subject)")
+        }
+    }
+}

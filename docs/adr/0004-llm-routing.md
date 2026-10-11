@@ -34,6 +34,15 @@ means `SystemLanguageModel` only — never Private Cloud Compute. HTTP only for 
 `.ziti` (ATS); non-local endpoints get a warning. `~/Library/Logs/MailKeeper/ai.jsonl` logs
 task, path, model, seconds, tokens, finish reason, attempt and outcome — no prompt, no answer.
 
+*As built (5.4):* nine categories (S3). The rules run in the background for every message
+(headers in the index only, no message is read; 43k in seconds) and settle newsletters,
+notifications, and invoices/orders/travel with clear signs; personal, work, account and spam are
+never decided by a rule (a rule calling a phishing mail "Konto/Sicherheit" would lend it
+credibility). A model asks only on request (selection, the list's open ones), fenced, strict
+schema, and is stored with its path, model and a one-line reason ("Warum?" in the reader). Rule
+results are recomputed when the rules change; a model's answer is never overwritten by them.
+Categories are labels only — no action follows from them.
+
 ## Consequences
 
 - Backfills over 100k mails cannot be LLM-bound; throughput comes from steps 1–2.

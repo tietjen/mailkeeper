@@ -651,6 +651,46 @@ public actor ArchiveWriter {
         }
     }
 
+    // MARK: Categories (Phase 5.4)
+
+    /// Runs the rules over messages that have no category row yet (or one from older rules), one
+    /// batch per call; returns how many it looked at (0 = done). Model answers are kept.
+    public func classifyHeuristically(batch: Int = 2_000) throws -> Int {
+        let rows = try db.query("""
+            SELECT m.id, m.from_addr, m.subject, m.list_id, m.list_unsubscribe, m.precedence, m.auto_submitted,
+                   EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id AND a.is_inline = 0
+                           AND (a.mime_type = 'application/pdf' OR a.filename LIKE '%.pdf'))
+            FROM messages m LEFT JOIN classifications c ON c.message_id = m.id
+            WHERE c.message_id IS NULL OR (c.source = 'heuristic' AND c.version < ?)
+            LIMIT ?
+            """, [.int(Int64(Heuristics.version)), .int(Int64(batch))]) { r in
+            (r.int(0), HeuristicFeatures(from: r.text(1), subject: r.text(2), listID: r.text(3), listUnsubscribe: r.bool(4),
+                                         precedence: r.text(5), autoSubmitted: r.text(6), hasPDF: r.bool(7)))
+        }
+        guard !rows.isEmpty else { return 0 }
+        let now = Date().timeIntervalSince1970
+        try db.transaction {
+            for (id, features) in rows {
+                let result = Heuristics.classify(features)
+                try db.run("""
+                    INSERT OR REPLACE INTO classifications(message_id, category, source, rule, model, reason, version, created)
+                    VALUES (?, ?, 'heuristic', ?, NULL, NULL, ?, ?)
+                    """, [.int(id), .optional(result?.category.rawValue), .optional(result?.rule),
+                          .int(Int64(Heuristics.version)), .double(now)])
+            }
+        }
+        return rows.count
+    }
+
+    /// A model's answer for one message (reason already display-safe and bounded by the caller).
+    public func setClassification(messageID: Int64, category: MailCategory, source: ClassificationSource, model: String?, reason: String?) throws {
+        try db.run("""
+            INSERT OR REPLACE INTO classifications(message_id, category, source, rule, model, reason, version, created)
+            SELECT id, ?, ?, NULL, ?, ?, 0, ? FROM messages WHERE id = ?
+            """, [.text(category.rawValue), .text(source.rawValue), .optional(model), .optional(reason),
+                  .double(Date().timeIntervalSince1970), .int(messageID)])
+    }
+
     /// Locations marked gone that the server lists again (a mailbox missing from one LIST, a
     /// language switch back on Gmail): on the server again, journalled as `seen` with what was
     /// known — and out of the archive trash, which means "on no server".

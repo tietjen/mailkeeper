@@ -141,6 +141,21 @@ enum Schema {
         """
         ALTER TABLE tombstones ADD COLUMN who TEXT;
         """,
+        // v7: categories (Phase 5.4) — derived, not journalled: the rules recompute theirs, a
+        // model's answer is asked again after a rebuild. category NULL = left open by the rules.
+        """
+        CREATE TABLE classifications(
+            message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+            category TEXT,
+            source TEXT NOT NULL,
+            rule TEXT,
+            model TEXT,
+            reason TEXT,
+            version INTEGER NOT NULL,
+            created REAL NOT NULL
+        );
+        CREATE INDEX classifications_category ON classifications(category);
+        """,
     ]
 
     static var currentVersion: Int { migrations.count }

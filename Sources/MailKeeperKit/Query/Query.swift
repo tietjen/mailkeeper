@@ -35,6 +35,8 @@ public enum QueryPredicate: Sendable, Equatable {
     /// List-Id equals the text.
     case listID(String)
     case isList
+    /// The message's category (Phase 5.4); nil = left open by the rules, no model answer yet.
+    case category(MailCategory?)
     /// Sent mail: a location in a sent mailbox, or Gmail's \Sent label.
     case isSent
     case flag(Flag)
@@ -90,7 +92,7 @@ public enum QueryParser {
 
     enum Field: String, CaseIterable {
         case from, to, subject, body, filename, pdf, sender, has, larger, smaller
-        case after, before, until, date, account, folder, label, list, listid, domain, `is`, on, only, msgid, thread
+        case after, before, until, date, account, folder, label, list, listid, domain, `is`, on, only, msgid, thread, category
 
         static let aliases: [String: Field] = {
             var map = Dictionary(uniqueKeysWithValues: allCases.map { ($0.rawValue, $0) })
@@ -100,6 +102,7 @@ public enum QueryParser {
                 "kleiner": .smaller, "ab": .after, "since": .after, "seit": .after, "vor": .before, "bis": .until,
                 "datum": .date, "konto": .account, "in": .folder, "ordner": .folder, "liste": .list, "ist": .is,
                 "auf": .on, "nur": .only, "message-id": .msgid, "konversation": .thread, "anhangtext": .pdf,
+                "kategorie": .category, "art": .category,
             ]
             map.merge(extra) { a, _ in a }
             return map
@@ -376,6 +379,13 @@ public enum QueryParser {
                 case "sent", "gesendet", "versendet": return (.predicate(.isSent), "gesendet")
                 default: throw QueryError("„is:\(value)“ kenne ich nicht — unread, read, flagged, answered, list oder sent.")
                 }
+            case .category:
+                let word = try required().lowercased()
+                if ["offen", "unbekannt", "open", "none", "keine"].contains(word) { return (.predicate(.category(nil)), "Kategorie: offen") }
+                guard let category = MailCategory.parse(word) else {
+                    throw QueryError("\(name) kennt „\(value)“ nicht — \(MailCategory.allCases.map(\.queryWord).joined(separator: ", ")) oder offen.")
+                }
+                return (.predicate(.category(category)), category.label)
             case .on:
                 guard ["server"].contains(try required().lowercased()) else { throw QueryError("Gemeint ist „on:server“.") }
                 return (.predicate(.onServer), "auf dem Server")

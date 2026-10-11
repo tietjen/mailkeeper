@@ -281,6 +281,9 @@ struct SelectionSummaryView: View {
                     Button("Auf den Server zurückspielen …") { model.planSelection(.restore) }
                 }
                 Button("Exportieren …") { model.exportSelection() }
+                if model.aiConfig.enabled {
+                    Button("Mit KI einordnen") { model.classifySelection() }
+                }
             }
             .disabled(model.actionRunning)
         }

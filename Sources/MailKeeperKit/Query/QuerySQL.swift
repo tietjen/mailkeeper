@@ -120,6 +120,11 @@ struct QuerySQL {
             return "(m.list_id IS NOT NULL OR m.list_unsubscribe = 1)"
         case .isSent:
             return location(Self.sentLocation)
+        case .category(let category?):
+            params.append(.text(category.rawValue))
+            return "m.id IN (SELECT c.message_id FROM classifications c WHERE c.category = ?)"
+        case .category(nil):
+            return "m.id NOT IN (SELECT c.message_id FROM classifications c WHERE c.category IS NOT NULL)"
         case .flag(.unread):
             return "NOT " + location(Self.flag, .text(" \\seen "))
         case .flag(.read):

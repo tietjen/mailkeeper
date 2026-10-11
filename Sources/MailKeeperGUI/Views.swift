@@ -237,6 +237,7 @@ struct ReaderView: View {
     let model: AppModel
     let messageID: Int64
     @State private var loaded: (id: Int64, detail: MessageDetail, message: ParsedMessage, thread: [MessageSummary])?
+    @State private var category: Classification?
     @State private var failed = false
 
     var body: some View {
@@ -259,7 +260,10 @@ struct ReaderView: View {
                 return
             }
             let thread = detail.summary.threadCount > 1 ? model.thread(of: messageID) : []
-            if !Task.isCancelled { loaded = (messageID, detail, message, thread) }
+            if !Task.isCancelled {
+                loaded = (messageID, detail, message, thread)
+                category = model.classification(of: messageID)
+            }
         }
     }
 
@@ -298,6 +302,7 @@ struct ReaderView: View {
                 filterRow("Datum", [(date.formatted(date: .long, time: .shortened), MessageFilters.date(date), nil, nil)])
             }
             placeRow(d)
+            categoryRow()
             filterRow("Ablage", d.locations.map {
                 ("\($0.account) › \($0.mailbox)", MessageFilters.place(account: $0.account, mailbox: $0.mailbox), nil,
                  $0.isOnServer ? "server.rack" : "archivebox")
@@ -322,6 +327,43 @@ struct ReaderView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    /// What kind of mail (5.4) and who said so: a rule, the endpoint's model or the one on this Mac.
+    @ViewBuilder
+    private func categoryRow() -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("Art").foregroundStyle(.secondary).frame(width: 64, alignment: .trailing)
+            if let c = category?.category {
+                Button {
+                    model.appendFilter("kategorie:\(c.queryWord)")
+                } label: {
+                    Label(c.label, systemImage: c.icon)
+                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(Capsule().fill(.purple.opacity(0.1)))
+                }
+                .buttonStyle(.plain)
+                .help("Alle Mails dieser Art zeigen")
+                Text(DisplayText.safe(categorySource)).foregroundStyle(.secondary).lineLimit(2)
+                    .help(DisplayText.safe(categorySource))
+            } else {
+                Text(category == nil ? "noch nicht eingeordnet" : "offen – keine Regel passt").foregroundStyle(.secondary)
+            }
+            if model.aiConfig.enabled {
+                Button(category?.category == nil ? "Mit KI einordnen" : "Neu einordnen") { model.classifySelection() }
+                    .controlSize(.small).disabled(model.actionRunning)
+            }
+        }
+        .font(.callout)
+    }
+
+    private var categorySource: String {
+        guard let c = category else { return "" }
+        switch c.source {
+        case .heuristic: return String(localized: "Regel: \(c.rule ?? "—")")
+        case .endpoint: return "\(c.model ?? "KI"): \(c.reason ?? "")"
+        case .onDevice: return String(localized: "Modell auf diesem Mac: \(c.reason ?? "")")
         }
     }
 

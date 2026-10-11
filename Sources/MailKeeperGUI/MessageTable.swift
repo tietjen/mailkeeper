@@ -193,6 +193,11 @@ struct MessageTable: NSViewRepresentable {
                 menu.addItem(.separator())
                 add(menu, String(localized: "Auf den Server zurückspielen …"), #selector(restoreToServer))
                 add(menu, String(localized: "Exportieren …"), #selector(export))
+                if model.aiConfig.enabled {
+                    menu.addItem(.separator())
+                    add(menu, count == 1 ? String(localized: "Mit KI einordnen") : String(localized: "\(min(count, AppModel.maxClassify)) Mails mit KI einordnen"),
+                        #selector(classify))
+                }
             }
         }
 
@@ -206,6 +211,7 @@ struct MessageTable: NSViewRepresentable {
         @objc private func deleteFromArchive() { model.planSelection(.archiveDelete) }
         @objc private func restoreToServer() { model.planSelection(.restore) }
         @objc private func export() { model.exportSelection() }
+        @objc private func classify() { model.classifySelection() }
         @objc private func restore() { model.restoreSelection() }
         @objc private func purge() { Task { await model.purgeSelection() } }
 

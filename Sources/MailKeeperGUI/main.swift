@@ -54,6 +54,8 @@ struct MailKeeperApp: App {
                 Button("Suchtext in Suchsprache übersetzen") { model.translateSearch() }
                     .keyboardShortcut("f", modifiers: [.command, .option])
                     .disabled(!model.canTranslateSearch)
+                Button("Offene Mails der Liste mit KI einordnen") { model.classifyOpenInList() }
+                    .disabled(!model.aiConfig.enabled || model.actionRunning)
             }
             CommandGroup(after: .toolbar) {
                 Button("Aktualisieren") { model.refresh() }
