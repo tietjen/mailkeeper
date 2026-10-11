@@ -11,13 +11,17 @@ public struct ChatRequest: Sendable {
     public var user: String
     public var schema: AISchema?
     public var maxTokens: Int
+    /// A shorter `user` for Apple's on-device model, whose context window holds about 4,000
+    /// tokens (instructions and answer included) — the router uses it on that path.
+    public var compactUser: String?
 
-    public init(task: AITask, system: String, user: String, schema: AISchema? = nil, maxTokens: Int = 800) {
+    public init(task: AITask, system: String, user: String, schema: AISchema? = nil, maxTokens: Int = 800, compactUser: String? = nil) {
         self.task = task
         self.system = system
         self.user = user
         self.schema = schema
         self.maxTokens = maxTokens
+        self.compactUser = compactUser
     }
 }
 
@@ -66,6 +70,15 @@ public enum AIError: Error, CustomStringConvertible, Equatable {
         case .server(let code, let s): String(localized: "Endpoint meldet \(code): \(s)")
         case .badAnswer(let s): s
         case .truncated: String(localized: "Antwort abgeschnitten (Token-Grenze erreicht)")
+        }
+    }
+
+    /// Worth waiting for: the endpoint is away, busy or hanging — not refusing the request.
+    public var isTransient: Bool {
+        switch self {
+        case .connection, .timeout: true
+        case .server(let code, _): [429, 500, 502, 503, 504].contains(code)
+        default: false
         }
     }
 

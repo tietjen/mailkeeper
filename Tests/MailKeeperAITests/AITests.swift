@@ -225,6 +225,56 @@ struct EmbeddingIndexerTests {
     }
 }
 
+@Suite("Embedding backfill survives a short outage")
+struct EmbeddingRetryTests {
+    @Test func aBusyEndpointIsWaitedForARefusalIsNot() async throws {
+        let layout = try ArchiveLayout.open(at: tempDir().appending(path: "retry"), create: true)
+        let writer = try ArchiveWriter(layout: layout)
+        _ = try await writer.ingest((1...4).map { n in
+            (sampleMessage(id: "<r\(n)@t.test>", subject: "Mail \(n)"), LocationInfo(account: "x", mailbox: "INBOX", providerID: "r\(n)"))
+        })
+        let base = URL(string: "http://litellm.rk1.ziti:4000/v1")!
+        let provider = OpenAICompatibleProvider(baseURL: base, apiKey: "sk", timeout: 5, protocolClasses: [FlakyEmbedStubProtocol.self])
+        let router = AIRouter(config: AIConfig(enabled: true, endpoint: base), endpoint: provider, onDevice: nil,
+                              log: AICallLog(url: tempDir().appending(path: "l.jsonl")))
+        var indexer = EmbeddingIndexer(router: router, writer: writer)
+        indexer.batch = 2
+        indexer.retryDelays = [.milliseconds(10), .milliseconds(10)]
+        FlakyEmbedStubProtocol.script.withLock { $0 = [500, 500, 200, 500, 200] }
+        #expect(try await indexer.run() == 4)  // two failures in a row, then one: all waited out
+
+        _ = try await writer.ingest([(sampleMessage(id: "<r9@t.test>", subject: "Mail 9"), LocationInfo(account: "x", mailbox: "INBOX", providerID: "r9"))])
+        FlakyEmbedStubProtocol.script.withLock { $0 = [500, 500, 500] }
+        await #expect(throws: AIError.self) { try await indexer.run() }  // more than retryDelays: gives up
+        FlakyEmbedStubProtocol.script.withLock { $0 = [401] }
+        await #expect(throws: AIError.self) { try await indexer.run() }  // a refusal: at once
+        #expect(FlakyEmbedStubProtocol.script.withLock { $0.isEmpty })
+    }
+}
+
+/// Answers /embeddings with the scripted status codes in turn (200 = vectors), then 200.
+final class FlakyEmbedStubProtocol: URLProtocol, @unchecked Sendable {
+    static let script = Mutex<[Int]>([])
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let status = Self.script.withLock { $0.isEmpty ? 200 : $0.removeFirst() }
+        var body = request.httpBody ?? Data()
+        if body.isEmpty, let stream = request.httpBodyStream {
+            stream.open()
+            var buf = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable { let n = stream.read(&buf, maxLength: buf.count); if n <= 0 { break }; body.append(buf, count: n) }
+            stream.close()
+        }
+        let reply = status == 200 ? EmbeddingIndexerTests.embed(body) : StubProtocol.Reply(status: status, body: #"{"error":{"message":"busy"}}"#)
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: nil, headerFields: nil)!,
+                            cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(reply.body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
 @Suite("AILive embeddings", .enabled(if: ProcessInfo.processInfo.environment["MAILKEEPER_AI"] == "1"), .serialized)
 struct AILiveEmbeddingTests {
     @Test func meaningFindsTheRightMail() async throws {
