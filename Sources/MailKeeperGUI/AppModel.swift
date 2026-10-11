@@ -930,7 +930,7 @@ final class AppModel {
     var restoreTargets: [(account: String, mailboxes: [String])] {
         accountConfigs.compactMap { config in
             let boxes = (accounts.first { $0.id == config.id }?.mailboxes.map(\.name) ?? [])
-                .filter { config.policy.include?.contains($0) ?? true }
+                .filter(config.policy.mayContain)
             return boxes.isEmpty ? nil : (config.id, boxes)
         }
     }

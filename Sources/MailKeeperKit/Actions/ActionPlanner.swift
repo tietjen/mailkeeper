@@ -171,7 +171,7 @@ extension ArchiveReader {
                 var reason = reason
                 if reason == nil, let target {
                     if let account = configured[target.account] {
-                        if let include = account.policy.include, !include.contains(target.mailbox) { reason = Self.restoreNotSynced }
+                        if !account.policy.mayContain(target.mailbox) { reason = Self.restoreNotSynced }
                         if account.kind != .gmail { item.target?.labels = [] }
                     } else {
                         reason = String(localized: "Konto ist hier nicht eingerichtet")

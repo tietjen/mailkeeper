@@ -25,6 +25,12 @@ public struct SyncPolicy: Sendable, Codable, Equatable {
         self.includeJunkAndTrash = includeJunkAndTrash
     }
 
+    /// What can be told by name alone (include and exclude lists) — the planner's check; the
+    /// executor applies `select` to the server's list.
+    public func mayContain(_ name: String) -> Bool {
+        (include?.contains(name) ?? true) && !exclude.contains(name)
+    }
+
     public func select(_ boxes: [RemoteMailbox]) -> [RemoteMailbox] {
         var chosen = boxes.filter(\.selectable)
         if let include { chosen = chosen.filter { include.contains($0.name) } }

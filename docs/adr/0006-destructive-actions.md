@@ -45,6 +45,15 @@ APPEND, Proton rebuilds messages and ignores the APPEND date, Dovecot is textboo
    provider rewrites) and recorded as a location exactly like a sync. A claimed item is looked
    up again on resume; without a Message-ID its outcome cannot be checked and it fails with a
    hint rather than risk a duplicate.
+   *After review (4.4):* the executor checks every target again against the account's current
+   sync selection (`SyncPolicy.select` on the server's LIST) — a resumed job or an edited queue
+   file cannot write where MailKeeper does not look. "Already there" needs Message-ID *and*
+   sender/subject (the archive's identity rule). A server refusing an APPEND before the literal
+   (NO instead of `+`; seen live on Dovecot) makes swift-nio-imap drop reply and connection: it
+   fails that item and the executor reconnects. APPENDLIMIT is honoured up front; Gmail labels
+   that no longer exist are left out (STORE would create them); without SPECIAL-USE a name veto
+   keeps uploads out of "Trash"/"Junk". Client flags the server changed on the way in are put
+   back on that upload only (Proton marks uploads as read).
 6. **Models never act:** LLM output can propose a queue entry; only the user executes it.
    Rules may run unattended only for non-destructive actions (tags, labels in the archive).
 

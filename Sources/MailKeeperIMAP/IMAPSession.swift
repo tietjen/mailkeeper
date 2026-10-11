@@ -37,6 +37,9 @@ public enum IMAPError: Error, CustomStringConvertible, Equatable {
     case readOnlyViolation(String)
     case closed
     case protocolError(String)
+    /// The server answered an APPEND with NO before the message was sent; swift-nio-imap then
+    /// drops the reply (text lost) and the connection.
+    case refusedBeforeData
 
     public var description: String {
         switch self {
@@ -47,6 +50,7 @@ public enum IMAPError: Error, CustomStringConvertible, Equatable {
         case .readOnlyViolation(let c): "\(c) ist im Nur-Lese-Modus nicht erlaubt"
         case .closed: "Verbindung geschlossen oder Zeitüberschreitung"
         case .protocolError(let s): "Protokollfehler: \(s)"
+        case .refusedBeforeData: "vom Server abgelehnt, bevor die Mail gesendet wurde (zu groß, kein Platz oder keine Rechte?)"
         }
     }
 }
@@ -61,8 +65,9 @@ public enum IMAPAccess: Sendable, Equatable {
     /// message in the mailbox, including other clients'), never another destination.
     case moveToTrash
     /// Phase 4 restore (ADR-0006 §5): additionally SELECT, APPEND into an existing mailbox that is
-    /// neither Trash nor Junk (never CREATE), and — on Gmail — adding labels to a message
-    /// appended on this connection. Nothing that removes, moves or changes flags.
+    /// neither Trash nor Junk (never CREATE), and — only on messages appended on this connection —
+    /// adding Gmail labels and setting/clearing the four client system flags (a server that
+    /// changed them on the way in). Nothing that removes, moves, expunges or touches other mail.
     case restore
 }
 
@@ -383,11 +388,22 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
 
     // MARK: Restore (Phase 4, access .restore)
 
+    /// ESEARCH where offered: a plain `* SEARCH` line is capped at 8 KiB by the parser (see
+    /// `allUIDs`), and Gmail's header search is fuzzy enough to hit many messages.
     public func search(messageID: String) async throws -> [UInt32] {
-        let result = try await run(.uidSearch(key: .header("Message-ID", ByteBuffer(string: messageID))))
+        let esearch = serverCapabilities.contains("ESEARCH")
+        let result = try await run(.uidSearch(key: .header("Message-ID", ByteBuffer(string: messageID)), charset: nil,
+                                              returnOptions: esearch ? [.all] : []))
         return result.untagged.flatMap { payload -> [UInt32] in
-            if case .mailboxData(.search(let ids, _)) = payload { return ids.map { UInt32($0.rawValue) } }
-            return []
+            switch payload {
+            case .mailboxData(.search(let ids, _)): return ids.map { UInt32($0.rawValue) }
+            case .mailboxData(.extendedSearch(let response)):
+                return response.returnData.flatMap { data -> [UInt32] in
+                    if case .all(.set(let set)) = data { return set.set.map { UInt32($0.rawValue) } }
+                    return []
+                }
+            default: return []
+            }
         }
     }
 
@@ -396,9 +412,22 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         if mailboxNames[mailbox] == nil { _ = try await mailboxes() }
         guard let name = mailboxNames[mailbox] else { throw IMAPError.protocolError("unbekanntes Postfach \(mailbox)") }
         guard (mailboxUses[mailbox] ?? []).isDisjoint(with: [.trash, .junk]) else { throw IMAPError.readOnlyViolation("APPEND \(mailbox)") }
+        // Without SPECIAL-USE roles a name veto (never a positive guess): no writing into "Trash".
+        let roles = mailboxUses.values.contains { !$0.isDisjoint(with: [.trash, .junk]) }
+        if !roles, Self.looksLikeTrashOrJunk(mailbox) { throw IMAPError.readOnlyViolation("APPEND \(mailbox)") }
+        if let limit = Self.appendLimit(serverCapabilities), data.count > limit {
+            throw ServerRefusal("größer als die Grenze des Servers (\(limit / 1_048_576) MB)")
+        }
         guard data.count <= Self.maxMessageBytes else { throw ServerRefusal("Nachricht zu groß") }
         let options = AppendOptions(flagList: RestoreTarget.restorableFlags(flags).map { Flag($0) },
                                     internalDate: internalDate.flatMap(Self.serverDate), extensions: [:])
+        guard let appended = try await sendAppend(data, to: name, options: options) else { return nil }
+        appendedUIDs[mailbox, default: []].insert(appended.uid)
+        return appended
+    }
+
+    /// The APPEND itself, refusals mapped (tests use it to provoke a refusal).
+    func sendAppend(_ data: Data, to name: MailboxName, options: AppendOptions) async throws -> AppendedMessage? {
         let result: Result
         do {
             result = try await perform(name: "APPEND") { tag in [
@@ -410,24 +439,55 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
             ] }
         } catch IMAPError.command(_, let message) {
             throw ServerRefusal(message)
+        } catch IMAPError.refusedBeforeData {
+            throw ServerRefusal(IMAPError.refusedBeforeData.description, connectionClosed: true)
         }
         guard case .uidAppend(let code)? = result.code, let uid = code.uids.set.first else { return nil }
-        let appended = AppendedMessage(uidValidity: UInt32(code.uidValidity), uid: UInt32(uid.rawValue))
-        appendedUIDs[mailbox, default: []].insert(appended.uid)
-        return appended
+        return AppendedMessage(uidValidity: UInt32(code.uidValidity), uid: UInt32(uid.rawValue))
+    }
+
+    /// RFC 7889 APPENDLIMIT=<bytes> (Gmail announces 35 651 584).
+    static func appendLimit(_ capabilities: [String]) -> Int? {
+        capabilities.lazy.compactMap { c in c.hasPrefix("APPENDLIMIT=") ? Int(c.dropFirst("APPENDLIMIT=".count)) : nil }.first
+    }
+
+    static func looksLikeTrashOrJunk(_ mailbox: String) -> Bool {
+        let last = (mailbox.split(whereSeparator: { $0 == "/" || $0 == "." }).last.map(String.init) ?? mailbox).lowercased()
+        return ["trash", "junk", "spam", "deleted items", "deleted messages", "papierkorb", "gelöschte elemente",
+                "gelöschte objekte", "junk-e-mail", "bin"].contains(last)
+    }
+
+    /// Only a message this connection appended, in the selected mailbox.
+    private func requireOwn(_ uid: UInt32, _ what: String) throws {
+        guard access == .restore, let mailbox = selectedMailbox, appendedUIDs[mailbox]?.contains(uid) == true else {
+            throw IMAPError.readOnlyViolation("\(what) auf eine fremde Mail")
+        }
+    }
+
+    public func correctFlags(add: [String], remove: [String], uid: UInt32) async throws {
+        try requireOwn(uid, "STORE FLAGS")
+        let add = RestoreTarget.restorableFlags(add).map { Flag($0) }, remove = RestoreTarget.restorableFlags(remove).map { Flag($0) }
+        do {
+            if !add.isEmpty { try await run(.uidStore(Self.uidSet([uid]), [], .flags(.add(silent: true, list: add)))) }
+            if !remove.isEmpty { try await run(.uidStore(Self.uidSet([uid]), [], .flags(.remove(silent: true, list: remove)))) }
+        } catch IMAPError.command(_, let message) {
+            throw ServerRefusal(message)
+        }
     }
 
     public func addLabels(_ labels: [String], uid: UInt32) async throws {
-        guard access == .restore, gmail else { throw IMAPError.readOnlyViolation("STORE X-GM-LABELS") }
-        guard let mailbox = selectedMailbox, appendedUIDs[mailbox]?.contains(uid) == true else {
-            throw IMAPError.readOnlyViolation("STORE X-GM-LABELS auf eine fremde Mail")
-        }
+        guard gmail else { throw IMAPError.readOnlyViolation("STORE X-GM-LABELS") }
+        try requireOwn(uid, "STORE X-GM-LABELS")
         let encoded = try RestoreTarget.restorableLabels(labels).map { label in
             label.hasPrefix("\\") ? GmailLabel(ByteBuffer(string: label))
                                   : GmailLabel(mailboxName: try MailboxPath.makeRootMailbox(displayName: label).name)
         }
         guard !encoded.isEmpty else { return }
-        try await run(.uidStore(Self.uidSet([uid]), [], .gmailLabels(.add(silent: true, gmailLabels: encoded))))
+        do {
+            try await run(.uidStore(Self.uidSet([uid]), [], .gmailLabels(.add(silent: true, gmailLabels: encoded))))
+        } catch IMAPError.command(_, let message) {
+            throw ServerRefusal(message)
+        }
     }
 
     /// APPEND's date argument, in UTC.
@@ -481,7 +541,9 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
     }
 
     /// Phase 4: the few changes a `.moveToTrash` connection may make (only toward \Trash), and
-    /// those of a `.restore` connection (SELECT, adding Gmail labels; APPEND has its own checks).
+    /// those of a `.restore` connection (SELECT, adding Gmail labels, setting/clearing client
+    /// system flags — never \Deleted; `requireOwn` limits both to its own uploads; APPEND has its
+    /// own checks).
     static func isAllowedChange(_ command: Command, access: IMAPAccess, trash: MailboxName?) -> Bool {
         switch (access, command) {
         case (.moveToTrash, .select(_, let params)), (.restore, .select(_, let params)):
@@ -494,6 +556,9 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
             return true  // explicit UIDs only (UIDPLUS); bare EXPUNGE and CLOSE stay refused
         case (.restore, .uidStore(_, let modifiers, .gmailLabels(let store))):
             return modifiers.isEmpty && store.operation == .add
+        case (.restore, .uidStore(_, let modifiers, .flags(let store))):
+            let client: Set<Flag> = [.seen, .answered, .flagged, .draft]
+            return modifiers.isEmpty && store.operation != .replace && !store.flags.isEmpty && Set(store.flags).isSubset(of: client)
         default:
             return false
         }
@@ -518,7 +583,21 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         defer { busy = false }
         tag += 1
         let t = "M\(tag)"
-        let writes = parts(t).map { channel.write(IMAPClientHandler.Message.part($0)) }
+        let stream = parts(t)
+        // Every part passes a check here as well: commands the allowlist, APPEND only on .restore.
+        for part in stream {
+            switch part {
+            case .tagged(let tagged):
+                guard Self.isReadOnly(tagged.command) || Self.isAllowedChange(tagged.command, access: access, trash: trash) else {
+                    throw IMAPError.readOnlyViolation(Self.name(of: tagged.command))
+                }
+            case .append:
+                guard access == .restore else { throw IMAPError.readOnlyViolation("APPEND") }
+            default:
+                throw IMAPError.readOnlyViolation("\(part)".prefix(40).description)
+            }
+        }
+        let writes = stream.map { channel.write(IMAPClientHandler.Message.part($0)) }
         channel.flush()
         let result = try await collect(tag: t, name: name, isLogin: isLogin, failure: failure)
         for w in writes {
@@ -605,6 +684,7 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
     /// Stream errors keep their cause (parser limits, TLS, NIO); `.closed` only for a plain end.
     static func mapped(_ error: Error) -> IMAPError {
         if let e = error as? IMAPError { return e }
+        if let u = error as? UnexpectedResponse, u.kind == .appendNotWaitingForTaggedResponse { return .refusedBeforeData }
         return .protocolError(clean("\(error)"))
     }
 

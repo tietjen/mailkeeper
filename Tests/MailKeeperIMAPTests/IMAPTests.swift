@@ -71,17 +71,32 @@ struct ReadOnlyGuardTests {
             #expect(IMAPSession.isAllowedChange(c, access: .restore, trash: nil), "\(c)")
             #expect(!IMAPSession.isAllowedChange(c, access: .readOnly, trash: nil), "\(c)")
         }
+        // client flags a server changed on the way in may be put back (requireOwn: own uploads only)
+        for c: Command in [.uidStore(one, [], .flags(.add(silent: true, list: [.seen, .answered]))),
+                           .uidStore(one, [], .flags(.remove(silent: true, list: [.seen])))] {
+            #expect(IMAPSession.isAllowedChange(c, access: .restore, trash: nil), "\(c)")
+        }
         let refused: [Command] = [
             .uidStore(one, [], .gmailLabels(.remove(silent: true, gmailLabels: [label]))),  // never takes labels away
             .uidStore(one, [], .gmailLabels(.replace(silent: true, gmailLabels: [label]))),
             .uidStore(one, [], .flags(.add(silent: true, list: [.deleted]))),
-            .uidStore(one, [], .flags(.add(silent: true, list: [.seen]))),
+            .uidStore(one, [], .flags(.add(silent: true, list: [.seen, .deleted]))),
+            .uidStore(one, [], .flags(.replace(silent: true, list: [.seen]))),
+            .uidStore(one, [], .flags(.add(silent: true, list: [Flag("$Junk")]))),
             .uidMove(one, trash), .uidCopy(one, trash), .uidExpunge(one), .expunge, .close,
             .create(inbox, []), .delete(inbox), .rename(from: inbox, to: trash, parameters: [:]),
         ]
         for c in refused { #expect(!IMAPSession.isAllowedChange(c, access: .restore, trash: trash), "\(c)") }
         // and a delete connection cannot label
         #expect(!IMAPSession.isAllowedChange(allowed[1], access: .moveToTrash, trash: trash))
+    }
+
+    @Test func appendLimitAndTrashNameVeto() {
+        #expect(IMAPSession.appendLimit(["IMAP4REV1", "APPENDLIMIT=35651584"]) == 35_651_584)
+        #expect(IMAPSession.appendLimit(["IMAP4REV1"]) == nil)
+        #expect(IMAPSession.looksLikeTrashOrJunk("INBOX/Trash") && IMAPSession.looksLikeTrashOrJunk("Papierkorb")
+                && IMAPSession.looksLikeTrashOrJunk("INBOX.Spam"))
+        #expect(!IMAPSession.looksLikeTrashOrJunk("Spam-Archiv") && !IMAPSession.looksLikeTrashOrJunk("INBOX"))
     }
 
     @Test("APPEND dates go out in UTC") func appendDate() throws {
@@ -173,7 +188,7 @@ struct IntegrationTests {
         let (layout, first, second) = try await run("gmail", endpoint: IMAPEndpoint(host: a.host, port: a.port, security: .tls),
                                                     policy: SyncPolicy(mode: .gmail))
         #expect(first.failures.isEmpty, "\(first.failures)")
-        #expect(first.mailboxes == 1 && first.newMessages >= 5)
+        #expect(first.mailboxes == 1 && first.newMessages >= 5, "\(first)")
         #expect(second.fetched == 0)
         let loc = try #require(try fixtureLocation(layout))
         #expect(loc.mailbox.hasPrefix("[Gmail]/"))
@@ -188,7 +203,7 @@ struct IntegrationTests {
                                                     endpoint: IMAPEndpoint(host: a.host, port: a.port, security: .startTLSPinned(fingerprint: pin)),
                                                     policy: SyncPolicy(mode: .protonBridge, include: ["Folders/MailKeeper-Test"]))
         #expect(first.failures.isEmpty, "\(first.failures)")
-        #expect(first.mailboxes == 1 && first.newMessages >= 5)
+        #expect(first.mailboxes == 1 && first.newMessages >= 5, "\(first)")
         #expect(second.fetched == 0)
         let boxes = try ArchiveReader(layout: layout).accounts().flatMap(\.mailboxes).map(\.name)
         #expect(boxes == ["Folders/MailKeeper-Test"])
@@ -288,7 +303,7 @@ struct IntegrationTests {
         let (restore, summary) = try reader.planRestore(MessageFilter(ids: ids), title: "test", accounts: [config], options: RestoreOptions())
         #expect(summary.perAccount == ["mailcow › \(folder)": ids.count], "\(restore.reasons)")
         try store.create(restore)
-        let restored = try await RestoreExecutor(writer: writer, store: store, audit: audit).run(restore.id) { _ in
+        let restored = try await RestoreExecutor(writer: writer, store: store, audit: audit).run(restore.id, accounts: [config]) { _ in
             try await IMAPSession.connect(endpoint, username: a.username, password: pw, access: .restore)
         }
         #expect(restored.count(.done) == ids.count, "\(restored.reasons)")
@@ -310,6 +325,25 @@ struct IntegrationTests {
         #expect(try reader.count(MessageFilter(text: "folder:\(folder) on:server ")) == ids.count)
         let (again, _) = try reader.planRestore(MessageFilter(ids: ids), title: "again", accounts: [config], options: RestoreOptions())
         #expect(again.count(.planned) == 0)
+    }
+
+    /// Review B1: a server that refuses an APPEND before the literal (here: no such mailbox,
+    /// TRYCREATE) must cost one item, not the job. MailKeeper never creates the mailbox.
+    @Test func mailcowRefusedAppendIsARefusal() async throws {
+        let a = try account("mailcow")
+        let endpoint = IMAPEndpoint(host: a.host, port: a.port, security: .tls)
+        let pw = try password(a)
+        let missing = "MailKeeper-DoesNotExist-\(UUID().uuidString.prefix(8))"
+        let session = try await IMAPSession.connect(endpoint, username: a.username, password: pw, access: .restore)
+        let refusal = await #expect(throws: ServerRefusal.self) {
+            _ = try await session.sendAppend(Data("Subject: x\r\n\r\nx\r\n".utf8), to: MailboxName(ByteBuffer(string: missing)),
+                                             options: AppendOptions(flagList: [], internalDate: nil, extensions: [:]))
+        }
+        print("refusal: \(refusal?.message ?? "-"), connection closed: \(refusal?.connectionClosed ?? false)")
+        await session.close()
+        let check = try await IMAPSession.connect(endpoint, username: a.username, password: pw)
+        #expect(try await !check.mailboxes().contains { $0.name == missing })
+        await check.close()
     }
 
     @Test func protonWrongPinIsRefused() async throws {

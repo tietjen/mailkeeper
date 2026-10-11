@@ -62,7 +62,7 @@ public enum SyncCoordinator {
                                        credentials: CredentialStore = CredentialStore(), audit: AuditLog = AuditLog(),
                                        progress: @escaping @Sendable (ServerDeleteProgress) -> Void = { _ in }) async throws -> ActionJob {
         let executor = RestoreExecutor(writer: writer, store: ActionStore(layout: writer.layout), audit: audit)
-        return try await executor.run(jobID, connect: { id in
+        return try await executor.run(jobID, accounts: accounts, connect: { id in
             guard let account = accounts.first(where: { $0.id == id }) else { throw SyncError.unknownAccount(id) }
             if case .startTLSPinned(nil) = account.security { throw SyncError.unconfirmedCertificate(id) }
             guard let password = try credentials.password(for: account) else { throw SyncError.noPassword(id) }

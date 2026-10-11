@@ -190,7 +190,15 @@ struct ResultSheet: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Gründe").font(.caption).foregroundStyle(.secondary)
                     ForEach(job.reasons, id: \.reason) { reason, count in
-                        Text("\(count.formatted()) × \(reason)").font(.callout)
+                        Text("\(count.formatted()) × \(DisplayText.safe(reason))").font(.callout)
+                    }
+                }
+            }
+            if !job.notes.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Hinweise zu Erledigten").font(.caption).foregroundStyle(.secondary)
+                    ForEach(job.notes, id: \.reason) { reason, count in
+                        Text("\(count.formatted()) × \(DisplayText.safe(reason))").font(.callout)
                     }
                 }
             }

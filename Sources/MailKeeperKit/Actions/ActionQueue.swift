@@ -161,10 +161,17 @@ public struct ActionJob: Codable, Sendable, Identifiable {
 
     /// Skip and failure reasons with counts, most common first.
     public var reasons: [(reason: String, count: Int)] {
+        Self.tally(items.filter { $0.state == .skipped || $0.state == .failed }.map { $0.reason ?? "—" })
+    }
+
+    /// Remarks on items that were done ("lag bereits dort", labels that no longer exist).
+    public var notes: [(reason: String, count: Int)] {
+        Self.tally(items.filter { $0.state == .done }.compactMap(\.reason))
+    }
+
+    private static func tally(_ reasons: [String]) -> [(reason: String, count: Int)] {
         var counts: [String: Int] = [:]
-        for item in items where item.state == .skipped || item.state == .failed {
-            counts[item.reason ?? "—", default: 0] += 1
-        }
+        for r in reasons { counts[r, default: 0] += 1 }
         return counts.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.map { ($0.key, $0.value) }
     }
 }
@@ -322,11 +329,13 @@ public struct AuditLog: Sendable {
             .appending(path: "Logs/MailKeeper/audit.jsonl")
     }
 
-    public func append(job: ActionJob, item: ActionItem) throws {
+    /// `location`: where a restore put the message (its new UID), for the record.
+    public func append(job: ActionJob, item: ActionItem, at location: ServerLocation? = nil) throws {
+        let place = location ?? item.location
         let entry = Entry(time: Date().timeIntervalSince1970, job: job.id, action: job.kind, result: item.state,
-                          account: item.location?.account ?? item.target?.account,
-                          mailbox: item.location?.mailbox ?? item.target?.mailbox,
-                          uidValidity: item.location?.uidValidity, uid: item.location?.uid,
+                          account: place?.account ?? item.target?.account,
+                          mailbox: place?.mailbox ?? item.target?.mailbox,
+                          uidValidity: place?.uidValidity, uid: place?.uid,
                           sha256: item.sha256, reason: item.reason)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
