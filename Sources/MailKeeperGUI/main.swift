@@ -30,6 +30,14 @@ struct MailKeeperApp: App {
                 }
             }
             HistoryCommands(model: model)
+            CommandGroup(after: .pasteboard) {
+                Divider()
+                Button("Aus dem Archiv löschen …") { model.planSelection(.archiveDelete) }
+                    .keyboardShortcut(.delete, modifiers: .command)
+                    .disabled(model.actionSelection.isEmpty || model.sidebarSelection == .trash)
+                Button("Auf dem Server löschen …") { model.planSelection(.serverDelete) }
+                    .disabled(model.actionSelection.isEmpty || model.sidebarSelection == .trash)
+            }
             CommandGroup(after: .toolbar) {
                 Button("Aktualisieren") { model.refresh() }
                     .keyboardShortcut("r")

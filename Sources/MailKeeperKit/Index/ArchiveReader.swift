@@ -109,13 +109,16 @@ public struct MessageFilter: Sendable, Equatable {
     public var also: [String] = []
     /// Messages in the archive trash are hidden unless asked for (the trash view).
     public var trash: TrashScope = .exclude
+    /// Exactly these messages (a selection in the list), AND-ed with the rest.
+    public var ids: [Int64]?
 
     public enum TrashScope: Sendable, Equatable { case exclude, only }
     /// Reference time for relative dates ("30d").
     public var now: Date
 
     public init(account: String? = nil, mailbox: String? = nil, text: String? = nil, base: String? = nil,
-                also: [String] = [], trash: TrashScope = .exclude, now: Date = Date()) {
+                also: [String] = [], trash: TrashScope = .exclude, ids: [Int64]? = nil, now: Date = Date()) {
+        self.ids = ids
         self.account = account
         self.mailbox = mailbox
         self.text = text
@@ -215,6 +218,18 @@ public final class ArchiveReader {
                                  params) { $0.text(3) ?? "" }
     }
 
+    /// Archive identities of message rows (stable keys for trash and purge).
+    public func identities(of ids: [Int64]) throws -> [String] {
+        guard !ids.isEmpty else { return [] }
+        let marks = Array(repeating: "?", count: ids.count).joined(separator: ",")
+        return try self.db.query("SELECT identity FROM messages WHERE id IN (\(marks))", ids.map { .int($0) }) { $0.text(0) ?? "" }
+    }
+
+    /// Identities of everything in the archive trash.
+    public func trashedIdentities() throws -> [String] {
+        try self.db.query("SELECT identity FROM messages WHERE trashed IS NOT NULL") { $0.text(0) ?? "" }
+    }
+
     /// Number of messages matching a filter (sidebar badges of saved searches).
     public func count(_ filter: MessageFilter) throws -> Int {
         let (whereClause, params) = try Self.whereClause(filter)
@@ -274,6 +289,10 @@ public final class ArchiveReader {
     static func whereClause(_ filter: MessageFilter) throws -> (String, [SQLValue]) {
         var conditions: [String] = [filter.trash == .only ? "m.trashed IS NOT NULL" : "m.trashed IS NULL"]
         var params: [SQLValue] = []
+        if let ids = filter.ids {
+            conditions.append(ids.isEmpty ? "0" : "m.id IN (" + Array(repeating: "?", count: ids.count).joined(separator: ",") + ")")
+            params += ids.map { .int($0) }
+        }
         // Uncorrelated IN, evaluated once. A correlated EXISTS let SQLite pick the (account,
         // mailbox) index per message: 60 s for a 39k INBOX (43k × 39k rows).
         if let account = filter.account {

@@ -8,6 +8,12 @@ public struct ActionPlanSummary: Sendable, Equatable {
     public var archiveOnly: Int
     /// Items that will run, per account.
     public var perAccount: [String: Int]
+
+    public init(messages: Int, archiveOnly: Int, perAccount: [String: Int]) {
+        self.messages = messages
+        self.archiveOnly = archiveOnly
+        self.perAccount = perAccount
+    }
 }
 
 extension ArchiveReader {

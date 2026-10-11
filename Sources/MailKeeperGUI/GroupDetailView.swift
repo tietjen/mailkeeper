@@ -198,9 +198,13 @@ struct GroupDetailView: View {
             if detail.unsubscribe != nil {
                 Button("Abmelden …") { confirmingUnsubscribe = true }
             }
-            Button("Aufräumen …") {}
-                .disabled(true)
-                .help("Löschen auf dem Server mit Schonfrist kommt in Phase 4")
+            Menu("Aufräumen …") {
+                Button("Auf dem Server löschen …") { model.planGroup(.serverDelete, group) }
+                Button("Aus dem Archiv löschen …") { model.planGroup(.archiveDelete, group) }
+            }
+            .fixedSize()
+            .disabled(model.actionRunning)
+            .help("Alle Mails dieser Gruppe – mit Plan und Rückfrage")
         }
         .controlSize(.regular)
     }

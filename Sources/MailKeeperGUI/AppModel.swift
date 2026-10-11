@@ -1,4 +1,5 @@
 import AppKit
+import LocalAuthentication
 import MailKeeperIMAP
 import MailKeeperKit
 import Observation
@@ -42,6 +43,26 @@ enum SidebarItem: Hashable {
     case account(String)
     case mailbox(account: String, name: String)
     case saved(UUID)
+    /// The archive trash (Phase 4.3).
+    case trash
+}
+
+/// A planned job waiting for the user's go (plan sheet).
+struct PlannedAction: Identifiable {
+    var id = UUID()
+    var job: ActionJob
+    var summary: ActionPlanSummary
+    var filter: MessageFilter
+    var examples: [MessageSummary]
+    /// Already stored in the queue (resume, retry of a stored job): run without creating it.
+    var stored = false
+}
+
+struct ActionRunProgress: Equatable {
+    var title: String
+    var done: Int
+    var total: Int
+    var failed: Int
 }
 
 enum ImportKind: String, CaseIterable, Identifiable {
@@ -101,6 +122,16 @@ final class AppModel {
     private(set) var labels: [String] = []
     var viewMode: ViewMode = .messages { didSet { if viewMode != oldValue, !batching { reloadList() } } }
     private(set) var groups: [MessageGroup] = []
+    /// Phase 4: the table's selection (several rows), the plan waiting for a go, the running job.
+    var selectedMessageIDs: Set<Int64> = []
+    var pendingPlan: PlannedAction?
+    var actionResult: ActionJob?
+    var actionError: String?
+    private(set) var actionProgress: ActionRunProgress?
+    private(set) var actionRunning = false
+    private(set) var unfinishedJobs: [ActionJob] = []
+    private var actionTask: Task<Void, Never>?
+    private let audit = AuditLog()
     /// Cleanup view, right-hand pane: the selected group's details, else an overview.
     var selectedGroupID: String? {
         didSet {
@@ -213,6 +244,7 @@ final class AppModel {
             openError = nil
             selectedMessageID = nil
             refresh()
+            reloadUnfinishedJobs()
             startTextIndexing()
             return true
         } catch {
@@ -264,6 +296,7 @@ final class AppModel {
         case .account(let a): MessageFilter(account: a)
         case .mailbox(let a, let m): MessageFilter(account: a, mailbox: m)
         case .saved(let id): MessageFilter(base: savedSearches.first { $0.id == id }?.query)
+        case .trash: MessageFilter(trash: .only)
         case .all, nil: MessageFilter()
         }
     }
@@ -320,6 +353,8 @@ final class AppModel {
         }
         listGeneration += 1
         if let sel = selectedMessageID, !messageIDs.contains(sel) { selectedMessageID = nil }
+        // The table keeps only the open message selected after a reload: so does the model.
+        selectedMessageIDs = selectedMessageID.map { [$0] } ?? []
         if listError == nil { recordNavigation() }
     }
 
@@ -395,6 +430,7 @@ final class AppModel {
         case .account(let a): parts.append(accounts.first { $0.id == a }?.name ?? a)
         case .mailbox(_, let m): parts.append(m)
         case .saved(let id): if let name = savedSearches.first(where: { $0.id == id })?.name { parts.append(name) }
+        case .trash: parts.append(String(localized: "Papierkorb"))
         case .all, nil: break
         }
         let search = e.searchText.trimmingCharacters(in: .whitespaces)
@@ -539,7 +575,7 @@ final class AppModel {
         case .account(let a): SavedSearchStore.query(account: a, text: text)
         case .mailbox(let a, let m): SavedSearchStore.query(account: a, mailbox: m, text: text)
         case .saved(let id): SavedSearchStore.query(base: savedSearches.first { $0.id == id }?.query, text: text)
-        case .all, nil: SavedSearchStore.query(text: text)
+        case .all, .trash, nil: SavedSearchStore.query(text: text)
         }
         return SavedSearch(name: group.name ?? group.key, query: query)
     }
@@ -566,7 +602,7 @@ final class AppModel {
         case .account(let a): SavedSearchStore.query(account: a, text: searchText)
         case .mailbox(let a, let m): SavedSearchStore.query(account: a, mailbox: m, text: searchText)
         case .saved(let id): SavedSearchStore.query(base: savedSearches.first { $0.id == id }?.query, text: searchText)
-        case .all, nil: SavedSearchStore.query(text: searchText)
+        case .all, .trash, nil: SavedSearchStore.query(text: searchText)
         }
     }
 
@@ -652,7 +688,7 @@ final class AppModel {
     // MARK: Import
 
     func startImport(_ kind: ImportKind) {
-        guard let root = archiveRoot, reader != nil, !importRunning, !syncRunning else { return }
+        guard let root = archiveRoot, reader != nil, !importRunning, !syncRunning, !actionRunning else { return }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = kind != .mbox
         panel.canChooseFiles = kind == .mbox
@@ -706,20 +742,224 @@ final class AppModel {
         importStatus = nil
     }
 
+    // MARK: Actions (Phase 4, ADR-0006: plan -> execute -> verify -> audit)
+
+    /// The selected rows, or the open message when only one is selected.
+    var actionSelection: [Int64] {
+        selectedMessageIDs.count > 1 ? Array(selectedMessageIDs) : (selectedMessageID.map { [$0] } ?? [])
+    }
+
+    func planSelection(_ kind: ActionKind) {
+        let ids = actionSelection
+        guard !ids.isEmpty else { return }
+        plan(kind, filter: MessageFilter(ids: ids), title: ids.count == 1 ? String(localized: "1 ausgewählte Mail")
+                                                                        : String(localized: "\(ids.count) ausgewählte Mails"))
+    }
+
+    func planGroup(_ kind: ActionKind, _ group: MessageGroup) {
+        guard var filter = lastFilter else { return }
+        filter.also.append(group.query)
+        plan(kind, filter: filter, title: group.name ?? group.key)
+    }
+
+    func plan(_ kind: ActionKind, filter: MessageFilter, title: String, graceDays: Int = 30) {
+        guard let reader else { return }
+        do {
+            let planned: (ActionJob, ActionPlanSummary)
+            switch kind {
+            case .serverDelete: planned = try reader.planServerDelete(filter, title: title, accounts: accountConfigs, graceDays: graceDays)
+            case .archiveDelete: planned = try reader.planArchiveDelete(filter, title: title)
+            case .restore, .export: return
+            }
+            let examples = try reader.summaries(Array(try reader.messageIDs(filter).prefix(5)))
+            pendingPlan = PlannedAction(job: planned.0, summary: planned.1, filter: filter, examples: examples)
+        } catch {
+            actionError = "\(error)"
+        }
+    }
+
+    /// Plan sheet: another grace period, same selection.
+    func replan(_ plan: PlannedAction, graceDays: Int) {
+        self.plan(plan.job.kind, filter: plan.filter, title: plan.job.title, graceDays: graceDays)
+        pendingPlan?.id = plan.id  // same sheet, new numbers
+    }
+
+    /// The user's go: store the job, run it in the background (the PDF queue pauses, like for
+    /// import and sync), show the result.
+    func execute(_ plan: PlannedAction) {
+        guard let root = archiveRoot, !actionRunning, !syncRunning, !importRunning else { return }
+        pendingPlan = nil
+        let job = plan.job, stored = plan.stored
+        let accounts = accountConfigs, credentials = self.credentials, audit = self.audit
+        actionRunning = true
+        actionProgress = ActionRunProgress(title: Self.actionTitle(job.kind), done: 0, total: job.open.count, failed: 0)
+        let indexing = pauseTextIndexing()
+        actionTask = Task.detached { [weak self] in
+            await indexing?.value  // the queue holds the writer until it has stopped
+            var result: ActionJob?
+            var problem: String?
+            do {
+                let layout = try ArchiveLayout.open(at: root, create: false)
+                if !stored { try ActionStore(layout: layout).create(job) }
+                result = try await Self.run(job.id, kind: job.kind, layout: layout, accounts: accounts, credentials: credentials,
+                                            audit: audit) { done, total, failed in
+                    Task { @MainActor in self?.actionProgress?.done = done; self?.actionProgress?.total = total; self?.actionProgress?.failed = failed }
+                }
+            } catch is CancellationError {
+                problem = String(localized: "Abgebrochen. Erledigtes bleibt erledigt; der Rest lässt sich fortsetzen.")
+            } catch {
+                problem = "\(error)"
+            }
+            await MainActor.run {
+                guard let self else { return }
+                self.actionRunning = false
+                self.actionProgress = nil
+                self.actionTask = nil
+                if let result { self.actionResult = result }
+                if let problem { self.actionError = problem }
+                self.refresh()
+                self.reloadUnfinishedJobs()
+                self.startTextIndexing()
+            }
+        }
+    }
+
+    private nonisolated static func run(_ id: UUID, kind: ActionKind, layout: ArchiveLayout, accounts: [AccountConfig],
+                                        credentials: CredentialStore, audit: AuditLog,
+                                        progress: @escaping @Sendable (Int, Int, Int) -> Void) async throws -> ActionJob {
+        let writer = try ArchiveWriter(layout: layout)
+        switch kind {
+        case .serverDelete:
+            return try await SyncCoordinator.deleteOnServer(id, writer: writer, accounts: accounts, credentials: credentials,
+                                                            audit: audit) { p in progress(p.done + p.failed + p.skipped, p.total, p.failed) }
+        case .archiveDelete:
+            return try await ArchiveDeleteExecutor(writer: writer, store: ActionStore(layout: layout), audit: audit).run(id) { d, t in
+                progress(d, t, 0)
+            }
+        case .restore, .export:
+            return try ActionStore(layout: layout).load(id)
+        }
+    }
+
+    func cancelAction() { actionTask?.cancel() }
+
+    /// The failed items as a new job, through the plan sheet again.
+    func retryFailed(_ job: ActionJob) {
+        let failed = job.items.filter { $0.state == .failed }
+        guard !failed.isEmpty else { return }
+        let items = failed.enumerated().map { n, item -> ActionItem in
+            var i = item
+            i.id = n
+            i.state = .planned
+            i.reason = nil
+            return i
+        }
+        var retry = ActionJob(kind: job.kind, title: job.title, query: job.query, graceDays: job.graceDays, items: items)
+        retry.title = String(localized: "\(job.title) – erneut")
+        actionResult = nil
+        var perAccount: [String: Int] = [:]
+        for i in items { if let a = i.location?.account { perAccount[a, default: 0] += 1 } }
+        pendingPlan = PlannedAction(job: retry, summary: ActionPlanSummary(messages: items.count, archiveOnly: 0, perAccount: perAccount),
+                                    filter: MessageFilter(ids: []), examples: [])
+    }
+
+    /// Jobs a crash or quit interrupted (planned or claimed items left).
+    func reloadUnfinishedJobs() {
+        guard let layout = reader?.layout else { unfinishedJobs = []; return }
+        unfinishedJobs = ActionStore(layout: layout).load().jobs.filter { !$0.isFinished }
+    }
+
+    func resume(_ job: ActionJob) {
+        var perAccount: [String: Int] = [:]
+        for i in job.open { if let a = i.location?.account { perAccount[a, default: 0] += 1 } }
+        pendingPlan = PlannedAction(job: job, summary: ActionPlanSummary(messages: job.open.count, archiveOnly: 0, perAccount: perAccount),
+                                    filter: MessageFilter(ids: []), examples: [], stored: true)
+    }
+
+    func discard(_ job: ActionJob) {
+        guard let layout = reader?.layout else { return }
+        try? ActionStore(layout: layout).cancel(job: job.id)
+        reloadUnfinishedJobs()
+    }
+
+    static func actionTitle(_ kind: ActionKind) -> String {
+        switch kind {
+        case .serverDelete: String(localized: "Auf dem Server löschen")
+        case .archiveDelete: String(localized: "Aus dem Archiv löschen")
+        case .restore: String(localized: "Zurückspielen")
+        case .export: String(localized: "Exportieren")
+        }
+    }
+
+    // MARK: Archive trash
+
+    /// Back from the trash (not destructive: no queue, no confirmation).
+    func restoreSelection() {
+        guard let reader, let identities = try? reader.identities(of: actionSelection), !identities.isEmpty else { return }
+        withWriter { _ = try await $0.untrash(identities) }
+    }
+
+    /// Deleting for good asks for Touch ID or the password first (ADR-0006).
+    func purgeSelection() async {
+        guard let reader, let identities = try? reader.identities(of: actionSelection), !identities.isEmpty else { return }
+        guard await authenticate(String(localized: "\(identities.count) Mails endgültig aus dem Archiv löschen")) else { return }
+        withWriter { _ = try await $0.purge(identities) }
+    }
+
+    func emptyTrash() async {
+        guard let reader, let identities = try? reader.trashedIdentities(), !identities.isEmpty else { return }
+        guard await authenticate(String(localized: "Den Papierkorb des Archivs leeren (\(identities.count) Mails)")) else { return }
+        withWriter { _ = try await $0.purge(identities) }
+    }
+
+    private func authenticate(_ reason: String) async -> Bool {
+        let context = LAContext()
+        var error: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
+            actionError = String(localized: "Ohne Touch ID oder Passwort kann nicht endgültig gelöscht werden.")
+            return false
+        }
+        return (try? await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) ?? false
+    }
+
+    /// A short writer job (trash, untrash, purge): pauses the PDF queue, refreshes afterwards.
+    private func withWriter(_ work: @escaping @Sendable (ArchiveWriter) async throws -> Void) {
+        guard let root = archiveRoot, !actionRunning, !syncRunning, !importRunning else { return }
+        actionRunning = true
+        let indexing = pauseTextIndexing()
+        Task.detached { [weak self] in
+            await indexing?.value
+            var problem: String?
+            do { try await work(try ArchiveWriter(layout: try ArchiveLayout.open(at: root, create: false))) } catch {
+                problem = "\(error)"
+            }
+            await MainActor.run {
+                guard let self else { return }
+                self.actionRunning = false
+                if let problem { self.actionError = problem }
+                self.selectedMessageIDs = []
+                self.refresh()
+                self.startTextIndexing()
+            }
+        }
+    }
+
     // MARK: PDF text (ADR-0009)
 
     /// Runs the background queue when there is work and the writer is free (no import, no
     /// sync, no mkctl holding the archive — then it simply tries again next time).
     func startTextIndexing() {
-        guard let root = archiveRoot, let reader, textIndexTask == nil, !syncRunning, !importRunning else { return }
+        guard let root = archiveRoot, let reader, textIndexTask == nil, !syncRunning, !importRunning, !actionRunning else { return }
         textStats = try? reader.attachmentTextStats()
-        guard (textStats?.pending ?? 0) > 0, PDFTextClient.isBundled else { return }
+        let expired = (stats?.trashed ?? 0) > 0  // may hold mail older than 30 days to purge
+        guard (textStats?.pending ?? 0) > 0 || expired, PDFTextClient.isBundled || expired else { return }
         let extractor = pdfText
         let token = UUID()
         textIndexToken = token
         textIndexTask = Task.detached(priority: .utility) { [weak self] in
             do {
                 let writer = try ArchiveWriter(layout: try ArchiveLayout.open(at: root, create: false))
+                _ = try await writer.purgeExpired(days: 30)  // archive trash: 30 days, then for good (ADR-0006)
                 _ = try await AttachmentIndexer(writer: writer, extractor: extractor).run { p in
                     Task { @MainActor in if self?.textIndexToken == token { self?.textIndexProgress = p } }
                 }
@@ -784,7 +1024,7 @@ final class AppModel {
 
     /// Fetches new mail from all configured accounts, one after another, read-only.
     func syncAll() {
-        guard let root = archiveRoot, reader != nil, !syncRunning, !importRunning, !accountConfigs.isEmpty else { return }
+        guard let root = archiveRoot, reader != nil, !syncRunning, !importRunning, !actionRunning, !accountConfigs.isEmpty else { return }
         let accounts = accountConfigs
         let credentials = self.credentials
         syncRunning = true

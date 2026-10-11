@@ -61,7 +61,12 @@ struct ContentView: View {
                         }
                     }
                 }
-                .safeAreaInset(edge: .top, spacing: 0) { QueryBar(model: model) }
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    VStack(spacing: 0) {
+                        if model.sidebarSelection == .trash { TrashBar(model: model) }
+                        QueryBar(model: model)
+                    }
+                }
         } detail: {
             if model.viewMode != .messages {
                 if let detail = model.groupDetail {
@@ -69,6 +74,8 @@ struct ContentView: View {
                 } else {
                     CleanupOverviewView(model: model)
                 }
+            } else if model.actionSelection.count > 1 {
+                SelectionSummaryView(model: model)
             } else if let id = model.selectedMessageID {
                 ReaderView(model: model, messageID: id)
             } else {
@@ -122,6 +129,13 @@ struct ContentView: View {
             }
         }
         .safeAreaInset(edge: .bottom) { StatusBar(model: model) }
+        .sheet(item: $model.pendingPlan) { PlanSheet(model: model, plan: $0) }
+        .sheet(item: $model.actionResult) { ResultSheet(model: model, job: $0) }
+        .alert("Aktion", isPresented: Binding(get: { model.actionError != nil }, set: { if !$0 { model.actionError = nil } })) {
+            Button("OK") { model.actionError = nil }
+        } message: {
+            Text(model.actionError ?? "")
+        }
         .sheet(isPresented: Binding(get: { model.importStatus != nil }, set: { if !$0 { model.dismissImportStatus() } })) {
             if let status = model.importStatus { ImportSheet(model: model, status: status) }
         }
@@ -150,6 +164,11 @@ struct Sidebar: View {
                             }
                     }
                 }
+            }
+            Section("Archiv") {
+                Label("Papierkorb", systemImage: "trash")
+                    .badge(model.stats?.trashed ?? 0)
+                    .tag(SidebarItem.trash)
             }
             ForEach(model.accounts, id: \.id) { account in
                 Section(account.name) {
@@ -302,6 +321,23 @@ struct StatusBar: View {
                     .lineLimit(1)
                     .help(message)
                     .onTapGesture { model.syncMessage = nil }
+            }
+            if let p = model.actionProgress {
+                ProgressView(value: Double(min(p.done, p.total)), total: Double(max(p.total, 1)))
+                    .frame(width: 70)
+                    .controlSize(.mini)
+                Text("\(p.title): \(p.done.formatted()) von \(p.total.formatted())" + (p.failed > 0 ? " · \(p.failed) fehlgeschlagen" : ""))
+                Button { model.cancelAction() } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain)
+                    .help("Nach dem laufenden Stapel anhalten; der Rest lässt sich fortsetzen")
+            } else if let job = model.unfinishedJobs.first {
+                Button {
+                    model.resume(job)
+                } label: {
+                    Label("Unterbrochener Auftrag: \(AppModel.actionTitle(job.kind)) (\(job.open.count) offen) – fortsetzen …",
+                          systemImage: "exclamationmark.arrow.circlepath")
+                }
+                .buttonStyle(.link)
             }
             if let p = model.textIndexProgress, p.total > 0 {
                 ProgressView(value: Double(min(p.done, p.total)), total: Double(p.total))

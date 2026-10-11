@@ -13,7 +13,7 @@ struct MessageTable: NSViewRepresentable {
         let table = NSTableView()
         table.style = .inset
         table.usesAlternatingRowBackgroundColors = true
-        table.allowsMultipleSelection = false
+        table.allowsMultipleSelection = true  // Phase 4: act on several messages at once
         table.rowSizeStyle = .medium
         // Only "Von" and "Betreff" absorb width changes of the table; the others keep their width
         // (and stay user-resizable). Without minimum widths the uniform autoresizing squeezed the
@@ -48,6 +48,9 @@ struct MessageTable: NSViewRepresentable {
         table.sortDescriptors = [NSSortDescriptor(key: MessageSort.date.rawValue, ascending: false)]
         table.dataSource = context.coordinator
         table.delegate = context.coordinator
+        let menu = NSMenu()
+        menu.delegate = context.coordinator
+        table.menu = menu
         context.coordinator.table = table
         let scroll = NSScrollView()
         scroll.documentView = table
@@ -60,7 +63,7 @@ struct MessageTable: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
         let model: AppModel
         weak var table: NSTableView?
         private var generation = -1
@@ -163,8 +166,41 @@ struct MessageTable: NSViewRepresentable {
         func tableViewSelectionDidChange(_ notification: Notification) {
             guard let table, !applyingSelection else { return }
             let row = table.selectedRow
+            model.selectedMessageIDs = Set(table.selectedRowIndexes.compactMap { $0 < ids.count ? ids[$0] : nil })
             model.selectedMessageID = row >= 0 && row < ids.count ? ids[row] : nil
         }
+
+        // MARK: Context menu (Phase 4)
+
+        func menuNeedsUpdate(_ menu: NSMenu) {
+            menu.removeAllItems()
+            guard let table else { return }
+            // A right-click outside the selection acts on the clicked row, like Mail and Finder.
+            let clicked = table.clickedRow
+            if clicked >= 0, !table.selectedRowIndexes.contains(clicked) {
+                table.selectRowIndexes([clicked], byExtendingSelection: false)
+            }
+            guard !model.actionSelection.isEmpty else { return }
+            let count = model.actionSelection.count
+            if model.sidebarSelection == .trash {
+                add(menu, count == 1 ? String(localized: "Wiederherstellen") : String(localized: "\(count) Mails wiederherstellen"), #selector(restore))
+                add(menu, String(localized: "Endgültig löschen …"), #selector(purge))
+            } else {
+                add(menu, String(localized: "Auf dem Server löschen …"), #selector(deleteOnServer))
+                add(menu, String(localized: "Aus dem Archiv löschen …"), #selector(deleteFromArchive))
+            }
+        }
+
+        private func add(_ menu: NSMenu, _ title: String, _ action: Selector) {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
+
+        @objc private func deleteOnServer() { model.planSelection(.serverDelete) }
+        @objc private func deleteFromArchive() { model.planSelection(.archiveDelete) }
+        @objc private func restore() { model.restoreSelection() }
+        @objc private func purge() { Task { await model.purgeSelection() } }
 
         func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
             guard let d = tableView.sortDescriptors.first, let key = d.key.flatMap(MessageSort.init(rawValue:)) else { return }
