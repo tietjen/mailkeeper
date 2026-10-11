@@ -335,6 +335,7 @@ struct ReaderView: View {
                     ConversationList(model: model, current: d.summary.id, thread: thread)
                 }
             }
+            if model.aiConfig.enabled { SummaryRow(model: model, messageID: d.summary.id, thread: thread) }
             let files = m.attachments.filter { !$0.isInline }
             if !files.isEmpty {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {

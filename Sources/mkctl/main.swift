@@ -48,6 +48,7 @@ usage: mkctl [--archive <dir>] <command>
   classify [--ai [--limit n] <query…>]        categories: rules for all messages; --ai asks the model about open ones
   embed                                       vectors for semantic search (endpoint), then categories from similar mails
   similar <id> [--limit n] | meaning <text…>  mails like a message / by meaning (needs embed)
+  summarize <id> [--thread]                   KI: summary of a message or its whole conversation
   ai status | test                            KI settings of the archive; connection test (endpoint, on-device)
   ai config [--on|--off] [--endpoint <url>] [--model <task>=<alias>]… [--on-device on|off]
                                               tasks: search classify summarize embed
@@ -424,6 +425,24 @@ func summarize(_ p: ImportProgress, start: Date) {
             guard let m = byID[h.id] else { continue }
             print(String(format: "%.3f  %6lld  ", h.score, h.id) + "\(m.date.map { $0.formatted(date: .numeric, time: .omitted) } ?? "—")  \(clean(m.fromDisplay).prefix(28))  \(clean(m.subject ?? "").prefix(60))")
         }
+
+    case "summarize":
+        let thread = args.contains("--thread")
+        args.removeAll { $0 == "--thread" }
+        guard let id = args.first.flatMap({ Int64($0) }) else { throw CLIError(description: "summarize <id> [--thread]") }
+        let layout = try ArchiveLayout.open(at: root, create: false)
+        let config = AIConfigStore(layout: layout).load()
+        guard config.enabled else { throw CLIError(description: "KI ist aus: mkctl ai config --on --endpoint <url>") }
+        let key = config.secretKey.flatMap { try? CredentialStore().secret(key: $0) }
+        let reader = try ArchiveReader(layout: layout)
+        let ids = thread ? try reader.thread(of: id).map(\.id) : [id]
+        let input = try MailSummarizer.messages(ids, reader: reader)
+        let s = try await MailSummarizer(router: AIRouter(config: config, apiKey: key)).summarize(input.messages, total: input.total, flagged: input.flagged)
+        print(clean(s.summary))
+        if let caution = s.caution { print("⚠︎ \(clean(caution))") }
+        for p in s.points { print("  • \(clean(p))") }
+        for t in s.todo { print("  ☐ \(clean(t))") }
+        print("— \(s.path == .onDevice ? "Modell auf diesem Mac" : s.model), \(String(format: "%.1f", s.seconds)) s, \(s.covered) von \(s.total) Nachrichten")
 
     case "ask":
         let text = args.joined(separator: " ")

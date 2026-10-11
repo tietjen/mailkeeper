@@ -391,6 +391,10 @@ final class AppModel {
             rankedMode = nil
             rankedIDs = []
             embedFailed = false
+            for (_, running) in summaryTasks { running.task.cancel() }
+            summaryTasks = [:]
+            summaries = [:]
+            summaryOrder = []
         }
         textIndexTask?.cancel()  // belongs to the previous archive
         textIndexTask = nil
@@ -1517,6 +1521,88 @@ final class AppModel {
                 self.startTextIndexing()
             }
         }
+    }
+
+    // MARK: Summaries (5.8)
+
+    /// What a summary is of: one message, or a conversation — named by its oldest message, so
+    /// every message of it shows the same summary.
+    enum SummaryScope: Hashable {
+        case mail(Int64)
+        case thread(Int64)
+    }
+
+    enum SummaryState: Equatable {
+        case running(since: Date)
+        case done(MailSummary)
+        case failed(String)
+    }
+
+    /// This session's summaries: asked for, read, never stored (ADR-0004 as built 5.8).
+    private(set) var summaries: [SummaryScope: SummaryState] = [:]
+    private var summaryTasks: [SummaryScope: (token: UUID, task: Task<Void, Never>)] = [:]
+    private var summaryOrder: [SummaryScope] = []
+    static let keptSummaries = 50
+
+    /// `ids` oldest first: the message itself, or its conversation (the newest 25 go in).
+    func summarize(_ scope: SummaryScope, ids: [Int64]) {
+        guard let root = archiveRoot, !ids.isEmpty else { return }
+        guard let router = aiRouter() else {
+            actionError = String(localized: "Die KI ist nicht eingerichtet (Einstellungen › KI).")
+            return
+        }
+        summaryTasks[scope]?.task.cancel()
+        summaries[scope] = .running(since: .now)
+        summaryOrder.removeAll { $0 == scope }
+        summaryOrder.append(scope)
+        while summaryOrder.count > Self.keptSummaries {
+            let old = summaryOrder.removeFirst()
+            summaryTasks[old]?.task.cancel()
+            summaryTasks[old] = nil
+            summaries[old] = nil
+        }
+        let token = UUID()
+        let task = Task.detached(priority: .userInitiated) { [weak self] in
+            let state: SummaryState
+            do {
+                let reader = try ArchiveReader(layout: try ArchiveLayout.open(at: root, create: false))
+                let input = try MailSummarizer.messages(ids, reader: reader)
+                let summary = try await MailSummarizer(router: router).summarize(input.messages, total: input.total, flagged: input.flagged)
+                state = .done(summary)
+            } catch is CancellationError {
+                return
+            } catch {
+                state = .failed("\(error)")
+            }
+            await MainActor.run {
+                // a newer request for the same scope, a close or another archive: not ours to show
+                guard let self, self.summaryTasks[scope]?.token == token else { return }
+                self.summaries[scope] = state
+                self.summaryTasks[scope] = nil
+            }
+        }
+        summaryTasks[scope] = (token, task)
+    }
+
+    /// The menu: the shown message, or its conversation.
+    func summarizeSelected(conversation: Bool) {
+        guard let id = selectedMessageID else { return }
+        let ids = conversation ? thread(of: id).map(\.id) : [id]
+        guard let first = ids.first else { return }
+        summarize(conversation && ids.count > 1 ? .thread(first) : .mail(id), ids: ids)
+    }
+
+    /// Stops a running summary or puts a finished one away.
+    func closeSummary(_ scope: SummaryScope) {
+        summaryTasks[scope]?.task.cancel()
+        summaryTasks[scope] = nil
+        summaries[scope] = nil
+        summaryOrder.removeAll { $0 == scope }
+    }
+
+    func copySummary(_ summary: MailSummary) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(summary.plainText, forType: .string)
     }
 
     // MARK: Spam review (5.5)

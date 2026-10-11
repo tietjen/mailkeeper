@@ -56,6 +56,12 @@ struct MailKeeperApp: App {
                     .disabled(!model.canTranslateSearch)
                 Button("Offene Mails der Liste mit KI einordnen") { model.classifyOpenInList() }
                     .disabled(!model.aiConfig.enabled || model.actionRunning)
+                Button("Mail zusammenfassen") { model.summarizeSelected(conversation: false) }
+                    .keyboardShortcut("s", modifiers: [.command, .option])
+                    .disabled(!model.aiConfig.enabled || model.selectedMessageID == nil)
+                Button("Konversation zusammenfassen") { model.summarizeSelected(conversation: true) }
+                    .keyboardShortcut("s", modifiers: [.command, .option, .shift])
+                    .disabled(!model.aiConfig.enabled || model.selectedMessageID == nil)
             }
             CommandGroup(after: .toolbar) {
                 Button("Aktualisieren") { model.refresh() }

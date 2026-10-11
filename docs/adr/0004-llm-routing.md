@@ -52,6 +52,15 @@ mail takes the category its labelled neighbours agree on (≥ 4 neighbours with 
 a label for others, never decides phishing, and a model answer replaces it. "Ähnliche Mails"
 and search by meaning ("~ text") rank by cosine. No on-device embeddings yet (other vector space).
 
+*As built (5.8):* summaries on request only — a mail, or its conversation (the newest 25
+messages, oldest first, replies without the mail they quote: a line scanner, no regex). The
+endpoint gets up to 24,000 characters of mail text, the on-device model a compact 5,000 (its
+context holds about 4,000 tokens) — the request carries both, the router picks. Answer: two to
+five sentences, up to six facts, up to three to-dos, and a scam verdict as a choice
+(nein/verdacht/ja — the on-device model filled a free optional field with "no warning signs").
+A scam verdict, or MailKeeper's own phishing flag, empties the to-dos: what a lure asks for is
+no task. Summaries live for the session only (at most 50), are never stored and never indexed.
+
 ## Consequences
 
 - Backfills over 100k mails cannot be LLM-bound; throughput comes from steps 1–2.

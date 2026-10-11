@@ -106,8 +106,10 @@ public actor AIRouter {
             }
         }
         if let onDevice {
+            var small = request
+            if let compact = request.compactUser { small.user = compact }
             return try await logged(request.task, .onDevice, "apple-on-device") {
-                try await onDevice.chat(request, model: "apple-on-device", attempt: 1)
+                try await onDevice.chat(small, model: "apple-on-device", attempt: 1)
             }
         }
         throw failure
