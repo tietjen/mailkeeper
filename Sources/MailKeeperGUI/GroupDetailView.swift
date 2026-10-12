@@ -9,6 +9,7 @@ struct GroupDetailView: View {
     let detail: GroupDetail
     @State private var saving: SavedSearch?
     @State private var confirmingUnsubscribe = false
+    @State private var ruleDraft: RuleDraft?
 
     private var group: MessageGroup { detail.group }
 
@@ -27,6 +28,7 @@ struct GroupDetailView: View {
             .frame(maxWidth: 560, alignment: .leading)
         }
         .sheet(item: $saving) { SavedSearchSheet(model: model, search: $0) }
+        .sheet(item: $ruleDraft) { d in RuleEditor(model: model, draft: d) { _ in ruleDraft = nil } }
         .confirmationDialog(unsubscribeTitle, isPresented: $confirmingUnsubscribe, titleVisibility: .visible) {
             if let https = detail.unsubscribe?.https {
                 Button("Abmeldeseite im Browser öffnen") { NSWorkspace.shared.open(https) }
@@ -205,6 +207,8 @@ struct GroupDetailView: View {
             .fixedSize()
             .disabled(model.actionRunning)
             .help("Alle Mails dieser Gruppe – mit Plan und Rückfrage")
+            Button("Regel …") { ruleDraft = RuleDraft(query: group.query, name: group.name ?? group.key) }
+                .help("Für diese Gruppe künftig: Art festlegen, nach Tagen vom Server löschen oder in den Spam-Ordner")
         }
         .controlSize(.regular)
     }
@@ -252,6 +256,36 @@ struct GroupDetailView: View {
 /// Cleanup view without a selection: where cleaning up pays off in the current scope.
 struct CleanupOverviewView: View {
     let model: AppModel
+    @State private var ruleDraft: RuleDraft?
+    @State private var ruleMessage: String?
+
+    /// 6.5b: destructive rules with mails ready, and rules suggested from repeated decisions.
+    @ViewBuilder private var ruleCards: some View {
+        let ready = model.mailRules.filter { $0.active && $0.action.isDestructive && (model.ruleReady[$0.id] ?? 0) > 0 }
+        if !ready.isEmpty || !model.ruleSuggestions.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Regeln").font(.headline)
+                ForEach(ready) { r in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(DisplayText.safe(r.name)).fontWeight(.semibold)
+                            Text("\(model.ruleReady[r.id] ?? 0) Mails bereit · \(r.action.label)").foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Ausführen …") { model.runRule(r) }.controlSize(.small).disabled(model.actionRunning)
+                    }
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 8).stroke(.separator))
+                }
+                ForEach(model.ruleSuggestions.prefix(3)) { s in
+                    RuleSuggestionRow(model: model, suggestion: s, edit: { ruleDraft = RuleDraft(s) }, message: $ruleMessage)
+                }
+                if model.ruleSuggestions.count > 3 {
+                    Text("Weitere Vorschläge: Einstellungen › Regeln").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
 
     /// 6.5a: what MailKeeper suggests, archive-wide — counts, a reason, and the usual plan sheet.
     @ViewBuilder private var suggestions: some View {
@@ -335,6 +369,7 @@ struct CleanupOverviewView: View {
                     Text("Wähle links eine Gruppe für Details. Ein Bereich grenzt die Gruppen ein; es ist immer nur einer aktiv, ein zweiter Klick hebt ihn auf.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
+                ruleCards
                 suggestions
                 if let buckets = model.cleanupOverview?.buckets {
                     VStack(spacing: 0) {
@@ -372,6 +407,7 @@ struct CleanupOverviewView: View {
             .padding(16)
             .frame(maxWidth: 560, alignment: .leading)
         }
-        .onAppear { model.reloadSuggestions() }
+        .onAppear { model.reloadSuggestions(); model.reloadRules() }
+        .sheet(item: $ruleDraft) { d in RuleEditor(model: model, draft: d) { _ in ruleDraft = nil } }
     }
 }

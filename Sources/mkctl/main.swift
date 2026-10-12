@@ -50,7 +50,8 @@ usage: mkctl [--archive <dir>] <command>
   similar <id> [--limit n] | meaning <text…>  mails like a message / by meaning (needs embed)
   summarize <id> [--thread]                   KI: summary of a message or its whole conversation
   relations [list | suggest]                   relationship register: confirmed ones, or suggestions from the history
-  cleanup                                     cleanup suggestions: where deleting on the server pays off (read-only)
+  cleanup                                     cleanup suggestions: where deleting pays off (read-only)
+  rules [list | suggest]                      the user's rules (with what is ready), or suggestions from repeated decisions
   memory [list | note <text…> | term <text…> | forget <id>… | export [file] | import <file>]
                                               what MailKeeper learned: notes, terms, examples from your decisions
   ai status | test                            KI settings of the archive; connection test (endpoint, on-device)
@@ -432,6 +433,19 @@ func summarize(_ p: ImportProgress, start: Date) {
         for h in hits {
             guard let m = byID[h.id] else { continue }
             print(String(format: "%.3f  %6lld  ", h.score, h.id) + "\(m.date.map { $0.formatted(date: .numeric, time: .omitted) } ?? "—")  \(clean(m.fromDisplay).prefix(28))  \(clean(m.subject ?? "").prefix(60))")
+        }
+
+    case "rules":
+        let reader = try ArchiveReader(layout: try ArchiveLayout.open(at: root, create: false))
+        if args.first == "suggest" {
+            for s in try reader.ruleSuggestions(audit: AuditLog().entries()) {
+                print("\(clean(s.name))  —  \(s.evidence), \(s.matches) Mails passen  [\(s.query) → \(s.action.raw)]")
+            }
+        } else {
+            for r in try reader.rules() {
+                let ready = r.action.isDestructive ? " · \(try reader.ready(r)) bereit" : ""
+                print("\(clean(r.name))  —  \(r.query) → \(r.action.label)\(ready)")
+            }
         }
 
     case "cleanup":

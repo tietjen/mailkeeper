@@ -23,6 +23,8 @@ struct MailKeeperApp: App {
                     .tabItem { Label("Gedächtnis", systemImage: "brain") }
                 RelationSettings(model: model)
                     .tabItem { Label("Beziehungen", systemImage: "building.2") }
+                RuleSettings(model: model)
+                    .tabItem { Label("Regeln", systemImage: "list.bullet.rectangle") }
             }
         }
         .commands {

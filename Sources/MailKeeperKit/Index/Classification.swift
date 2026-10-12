@@ -97,6 +97,9 @@ public enum ClassificationSource: String, Codable, Sendable {
     case user
     /// Similar mails agreed (5.7, embeddings) — a model answer replaces it.
     case similar
+    /// A rule the user accepted (6.5b): over rules, similarity and models, under the user's
+    /// decision on a single mail; `rule` holds the rule's id.
+    case rule = "user-rule"
 }
 
 public struct Classification: Sendable, Equatable {

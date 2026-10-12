@@ -14,6 +14,8 @@ public enum MemoryKind: String, Codable, Sendable, CaseIterable {
     case vocabulary
     /// A real relationship (ADR-0010 §6): a bank, school, shop — with the domains it really used.
     case relation
+    /// A rule the user accepted (6.5b): a query and what happens to its mails.
+    case rule
 
     public var label: String {
         switch self {
@@ -22,6 +24,7 @@ public enum MemoryKind: String, Codable, Sendable, CaseIterable {
         case .senderProfile: String(localized: "Absenderprofil")
         case .vocabulary: String(localized: "Begriff")
         case .relation: String(localized: "Beziehung")
+        case .rule: String(localized: "Regel")
         }
     }
 }
@@ -56,10 +59,15 @@ public struct MemoryContent: Codable, Sendable, Equatable {
     public var domains: [String]?
     public var since: Double?
     public var until: Double?
+    /// A rule: its query (search language) and action ("category:<raw>", "serverDelete:<days>", "moveToJunk").
+    public var query: String?
+    public var action: String?
 
     public init(text: String? = nil, category: String? = nil, verdict: String? = nil, sender: String? = nil, domain: String? = nil,
                 list: String? = nil, subject: String? = nil, name: String? = nil, domains: [String]? = nil, since: Double? = nil,
-                until: Double? = nil) {
+                until: Double? = nil, query: String? = nil, action: String? = nil) {
+        self.query = query
+        self.action = action
         self.name = name
         self.domains = domains
         self.since = since
@@ -102,6 +110,8 @@ public struct MemoryItem: Sendable, Equatable, Identifiable {
             return "\(what) – \(content.subject ?? "")"
         case .relation:
             return "\(content.name ?? "") (\((content.domains ?? []).joined(separator: ", ")))"
+        case .rule:
+            return "\(content.name ?? "") – \(content.query ?? "")"
         default:
             return content.text ?? ""
         }

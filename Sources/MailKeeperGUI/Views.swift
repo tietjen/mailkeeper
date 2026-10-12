@@ -476,6 +476,7 @@ struct ReaderView: View {
         case .onDevice: return String(localized: "Modell auf diesem Mac: \(c.reason ?? "")")
         case .user: return String(localized: "deine Entscheidung")
         case .similar: return c.reason ?? String(localized: "ähnliche Mails")
+        case .rule: return String(localized: "deine Regel: \(c.reason ?? "")")
         }
     }
 

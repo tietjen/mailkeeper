@@ -806,6 +806,86 @@ final class AppModel {
         viewMode = .messages
     }
 
+    // MARK: Rules (6.5b)
+
+    private(set) var mailRules: [MailRule] = []
+    private(set) var ruleReady: [String: Int] = [:]
+    private(set) var ruleSuggestions: [RuleSuggestion] = []
+    private(set) var loadingRules = false
+
+    /// Rules, what the destructive ones would act on now, and suggestions from repeated decisions.
+    func reloadRules() {
+        guard let layout = reader?.layout, !loadingRules else { return }
+        loadingRules = true
+        Task {
+            let result = await Task.detached(priority: .utility) { () -> ([MailRule], [String: Int], [RuleSuggestion])? in
+                guard let r = try? ArchiveReader(layout: layout) else { return nil }
+                let rules = (try? r.rules(includeRejected: true)) ?? []
+                var ready: [String: Int] = [:]
+                for rule in rules where rule.active && rule.action.isDestructive { ready[rule.id] = (try? r.ready(rule)) ?? 0 }
+                return (rules, ready, (try? r.ruleSuggestions(audit: AuditLog().entries())) ?? [])
+            }.value
+            loadingRules = false
+            guard reader?.layout.root == layout.root, let result else { return }
+            (mailRules, ruleReady, ruleSuggestions) = result
+        }
+    }
+
+    func saveRule(id: String?, name: String, query: String, action: MailRule.Action) async -> String? {
+        let problem = await writeNow { writer in
+            try await writer.saveRule(id: id, name: name, query: query, action: action)
+            _ = try await writer.applyCategoryRules()
+        }
+        reloadRules()
+        contentGeneration += 1
+        return problem
+    }
+
+    /// After a sync: destructive rules with mails ready are mentioned in the status line.
+    func noteReadyRules() {
+        guard let reader else { return }
+        let ready = ((try? reader.rules()) ?? []).filter(\.action.isDestructive).map { (try? reader.ready($0)) ?? 0 }.reduce(0, +)
+        guard ready > 0 else { return }
+        syncMessage = [syncMessage, String(localized: "Regeln: \(ready) Mails bereit (Aufräumen › Vorschläge oder Einstellungen › Regeln)")]
+            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
+        reloadRules()
+    }
+
+    func rejectRule(_ s: RuleSuggestion) async -> String? {
+        let problem = await writeNow { writer in try await writer.rejectRule(name: s.name, query: s.query, action: s.action) }
+        reloadRules()
+        return problem
+    }
+
+    func forgetRule(_ id: String) async -> String? {
+        let problem = await writeNow { writer in
+            try await writer.forgetMemory([id])
+            _ = try await writer.applyCategoryRules()
+        }
+        reloadRules()
+        contentGeneration += 1
+        return problem
+    }
+
+    /// A destructive rule: its mails through the plan sheet (ADR-0006) — never by itself.
+    func runRule(_ rule: MailRule) {
+        switch rule.action {
+        case .category: return
+        case .serverDelete(let days):
+            plan(.serverDelete, filter: MessageFilter(text: rule.query + " "), title: rule.name, graceDays: days)
+        case .moveToJunk:
+            plan(.moveToJunk, filter: MessageFilter(text: rule.query + " -is:junk "), title: rule.name)
+        }
+    }
+
+    /// For the rule editor: how many mails a query covers (nil: not valid search language).
+    func ruleMatches(_ query: String) -> Int? {
+        guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return try? reader?.count(MessageFilter(text: query + " "))
+    }
+
+    var rulesReadyTotal: Int { ruleReady.values.reduce(0, +) }
+
     // MARK: Cleanup suggestions (6.5a)
 
     private(set) var cleanupSuggestions: [CleanupSuggestion] = []
@@ -1637,12 +1717,13 @@ final class AppModel {
         let expired = (stats?.trashed ?? 0) > 0  // may hold mail older than 30 days to purge
         let rules = ((try? reader.heuristicPendingCount()) ?? 0) > 0  // categories by rule (5.4)
         let headers = ((try? reader.headerFieldsPending()) ?? 0) > 0  // authentication and delivery (6.3)
+        let categoryRules = ((try? reader.rules()) ?? []).contains { !$0.action.isDestructive }  // the user's rules (6.5b)
         let pdfs = (textStats?.pending ?? 0) > 0 && PDFTextClient.isBundled
         // vectors for semantic search (5.7): only with an endpoint, never on the Mac's model
         let router = aiConfig.enabled && aiConfig.endpoint != nil && !embedFailed ? aiRouter() : nil
         let embeds = router != nil && ((try? reader.embeddingCounts(model: aiConfig.model(for: .embed))).map { $0.done < $0.total } ?? false)
         let similarDue = router != nil && ((try? reader.staleSimilarCount()) ?? 0) > 0  // a stricter vote decides again
-        guard pdfs || expired || rules || headers || embeds || similarDue else { return }
+        guard pdfs || expired || rules || headers || categoryRules || embeds || similarDue else { return }
         let extractor = pdfText
         let token = UUID()
         textIndexToken = token
@@ -1657,6 +1738,9 @@ final class AppModel {
                 }
                 if headers {  // reads only each mail's header: a minute or two for 40k
                     while try await writer.indexHeaderFields() > 0 { try Task.checkCancellation() }
+                }
+                if categoryRules || rules, try await writer.applyCategoryRules() > 0 {  // after the rules: the user's rules win
+                    await MainActor.run { self?.contentGeneration += 1 }
                 }
                 if pdfs {
                     _ = try await AttachmentIndexer(writer: writer, extractor: extractor).run { p in
@@ -2360,6 +2444,7 @@ final class AppModel {
                 // new mail: the model looks at what is new in checked spam folders (5.5) and at the
                 // suspicious part of what is new elsewhere (6.4) — quietly
                 self?.screenNewMail()
+                self?.noteReadyRules()
             }
         }
     }

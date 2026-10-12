@@ -21,21 +21,22 @@ extension ArchiveReader {
         let publics = try publicAddresses()
         let ordinary = "NOT \(QuerySQL.junkLocation) AND NOT \(QuerySQL.sentLocation) AND NOT \(QuerySQL.trashLocation)"
         let rows = try db.query("""
-            SELECT m.id, c.category FROM messages m JOIN classifications c ON c.message_id = m.id
-            WHERE m.trashed IS NULL AND m.date >= ? AND c.source IN ('heuristic', 'similar') AND c.verdict IS NULL
+            SELECT m.id, c.category, c.source = 'user-rule' FROM messages m JOIN classifications c ON c.message_id = m.id
+            WHERE m.trashed IS NULL AND m.date >= ? AND c.source IN ('heuristic', 'similar', 'user-rule') AND c.verdict IS NULL
               AND \(again ? "1" : "c.screened IS NULL")
               AND m.id IN (SELECT l.message_id FROM locations l WHERE \(ordinary))
               AND m.id NOT IN (SELECT l.message_id FROM locations l WHERE \(QuerySQL.junkLocation) OR \(QuerySQL.sentLocation))
             ORDER BY m.date DESC LIMIT ?
-            """, [.double(since.timeIntervalSince1970), .int(Int64(limit))]) { ($0.int(0), $0.text(1).flatMap(MailCategory.init(rawValue:))) }
+            """, [.double(since.timeIntervalSince1970), .int(Int64(limit))]) { ($0.int(0), $0.text(1).flatMap(MailCategory.init(rawValue:)), $0.bool(2)) }
         let phishingProne: Set<MailCategory> = [.invoice, .orderShipping, .notification, .accountSecurity]
-        return try rows.map { id, category in
+        return try rows.map { id, category, byRule in
             let check = try relationCheck(of: id, relations: relations, servers: servers, publicAddresses: publics)
             var warning: String?
             if check.lookAlike != nil { warning = "lookalike" } else if case .failed = check.server { warning = "serverfail" }
             let trusted: Bool = { if case .passed = check.server { return check.known != nil && !(check.known?.ended ?? false) }; return false }()
-            let needsModel = warning != nil || check.firstContactAt != nil || category == nil
-                || (category.map(phishingProne.contains) ?? false && !trusted)
+            // a user's rule settled the category; a From line can still be forged: warnings count
+            let needsModel = warning != nil || check.firstContactAt != nil
+                || (!byRule && (category == nil || (category.map(phishingProne.contains) ?? false && !trusted)))
             return ScreeningCandidate(id: id, warning: warning, needsModel: needsModel)
         }
     }

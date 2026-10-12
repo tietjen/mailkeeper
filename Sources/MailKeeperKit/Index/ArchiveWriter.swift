@@ -712,8 +712,14 @@ public actor ArchiveWriter {
             INSERT INTO classifications(message_id, category, source, rule, model, reason, version, created, phishing, phishing_reason)
             SELECT id, ?, ?, NULL, ?, ?, 0, ?, ?, ? FROM messages
             WHERE id = ? AND id NOT IN (SELECT message_id FROM classifications WHERE source = 'user')
-            ON CONFLICT(message_id) DO UPDATE SET category = excluded.category, source = excluded.source, rule = NULL,
-                model = excluded.model, reason = excluded.reason, version = 0, created = excluded.created,
+            ON CONFLICT(message_id) DO UPDATE SET
+                -- a user's rule keeps its category (6.5b); the model's phishing view still counts
+                category = CASE WHEN classifications.source = 'user-rule' THEN classifications.category ELSE excluded.category END,
+                source = CASE WHEN classifications.source = 'user-rule' THEN 'user-rule' ELSE excluded.source END,
+                rule = CASE WHEN classifications.source = 'user-rule' THEN classifications.rule ELSE NULL END,
+                model = CASE WHEN classifications.source = 'user-rule' THEN classifications.model ELSE excluded.model END,
+                reason = CASE WHEN classifications.source = 'user-rule' THEN classifications.reason ELSE excluded.reason END,
+                version = 0, created = excluded.created,
                 phishing = CASE WHEN classifications.verdict = 'ham' THEN NULL ELSE excluded.phishing END,
                 phishing_reason = CASE WHEN classifications.verdict = 'ham' THEN NULL ELSE excluded.phishing_reason END
             """, [.text(category.rawValue), .text(source.rawValue), .optional(model), .optional(reason),
@@ -1043,5 +1049,81 @@ extension ArchiveWriter {
                 }
             }
         }
+    }
+}
+
+// MARK: - Rules (6.5b)
+
+extension ArchiveWriter {
+    /// A rule the user accepted or wrote: journalled. The query must be valid search language and
+    /// not empty (a rule over everything is no rule). Returns its id.
+    @discardableResult
+    public func saveRule(id: String? = nil, name: String, query: String, action: MailRule.Action) throws -> String {
+        let record = try Self.ruleRecord(id: id, name: name, query: query, action: action, active: true)
+        let time = Date().timeIntervalSince1970
+        try journal.append(.memory(record, time: time))
+        try journal.sync()
+        try applyMemory(record, time: time)
+        return record.id
+    }
+
+    /// "Ablehnen": this suggestion does not come again (an inactive rule, journalled).
+    public func rejectRule(name: String, query: String, action: MailRule.Action) throws {
+        let record = try Self.ruleRecord(id: nil, name: name, query: query, action: action, active: false)
+        let time = Date().timeIntervalSince1970
+        try journal.append(.memory(record, time: time))
+        try journal.sync()
+        try applyMemory(record, time: time)
+    }
+
+    static func ruleRecord(id: String?, name: String, query: String, action: MailRule.Action, active: Bool) throws -> JournalEvent.MemoryRecord {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (try? QueryParser.parse(q + " ").root) != nil else { throw ArchiveError.invalid("Die Regel braucht eine gültige, nicht leere Suche, z. B. sender:news@shop.de") }
+        let clean = Memory.cleanText(name).replacingOccurrences(of: "\n", with: " ")
+        return JournalEvent.MemoryRecord(id: id ?? "rule:" + UUID().uuidString.lowercased(), kind: MemoryKind.rule.rawValue, scope: "",
+                                         subject: "rule", active: active,
+                                         content: MemoryContent(name: String((clean.isEmpty ? q : clean).prefix(160)), query: String(q.prefix(600)),
+                                                                action: action.raw))
+    }
+
+    /// Category rules label their mails (derived, re-applied after a rebuild): over the rules'
+    /// own categories, similarity and models, never over the user's decision on a single mail.
+    /// Mails of a rule that is gone or changed go back to the rules. Returns how many changed.
+    @discardableResult
+    public func applyCategoryRules() throws -> Int {
+        let reader = try ArchiveReader(layout: layout)
+        let rules = try reader.rules().filter { if case .category = $0.action { $0.active } else { false } }
+        var changed = 0
+        try db.transaction {
+            // stale: a rule forgotten, or its query no longer matches
+            let ids = rules.map(\.id)
+            let marks = ids.isEmpty ? "''" : Array(repeating: "?", count: ids.count).joined(separator: ",")
+            try db.run("""
+                UPDATE classifications SET category = NULL, source = 'heuristic', rule = NULL, reason = NULL, version = 0
+                WHERE source = 'user-rule' AND coalesce(rule, '') NOT IN (\(marks))
+                """, ids.map { .text($0) })
+            changed += db.changes
+            for rule in rules {
+                guard case .category(let category) = rule.action else { continue }
+                let matching = Set(try reader.messageIDs(MessageFilter(text: rule.query + " ")))
+                // no longer matching: back to the rules
+                var gone: [Int64] = []
+                try db.forEach("SELECT message_id FROM classifications WHERE source = 'user-rule' AND rule = ?", [.text(rule.id)]) { r in
+                    if !matching.contains(r.int(0)) { gone.append(r.int(0)) }
+                }
+                for id in gone {
+                    try db.run("UPDATE classifications SET category = NULL, source = 'heuristic', rule = NULL, reason = NULL, version = 0 WHERE message_id = ?", [.int(id)])
+                    changed += 1
+                }
+                for id in matching {
+                    try db.run("""
+                        UPDATE classifications SET category = ?, source = 'user-rule', rule = ?, reason = ?, model = NULL
+                        WHERE message_id = ? AND source != 'user' AND NOT (source = 'user-rule' AND rule = ? AND category = ?)
+                        """, [.text(category.rawValue), .text(rule.id), .text(rule.name), .int(id), .text(rule.id), .text(category.rawValue)])
+                    changed += db.changes
+                }
+            }
+        }
+        return changed
     }
 }

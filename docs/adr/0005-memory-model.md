@@ -67,6 +67,20 @@ profile as of now), each memory item with "Vergessen". The user's terms go into 
 translation too. Live: a club mail with notes and examples → personal; a look-alike of a bank
 with examples of the real one → phishing "ja" (wrong domain, dmarc=fail, link text).
 
+*As built (6.5):* cleanup suggestions are deterministic (unread newsletters by sender — a mail
+service gives every campaign its own List-Id —, old notifications, large old mails with a warning
+that an archive delete is final after 30 days, confirmed spam), each counting what is still on a
+server and what lies only in the archive, acted on only through the plan sheets. Rules are memory
+items of kind `rule` (a query in the search language and an action), journalled; suggested from
+repeated decisions — the same category for ≥ 3 mails of a sender, "Ist Spam" for ≥ 2, deleted on
+the server ≥ 3 times (audit log shas → messages) — and never a rule until the user accepts it
+(rejected suggestions stay inactive). A category rule labels its mails by itself (source
+`user-rule`: over rules, similarity and models — a model may still flag phishing — under the
+user's decision on a single mail; re-applied after a rebuild, undone when the rule goes); a rule
+that deletes on the server after N days or moves into the spam folder never acts by itself — it
+shows how many mails are ready and opens the plan sheet. Rule-labelled mail still goes through the
+register's and the own server's check.
+
 ## Consequences
 
 - Memory never leaves the Mac except as prompt context to the configured local endpoint.
