@@ -55,11 +55,16 @@ struct ContentView: View {
                             }
                         } else if model.viewMode != .messages ? model.groups.isEmpty : model.messageIDs.isEmpty {
                             let searching = !model.searchText.allSatisfy(\.isWhitespace)
+                            let suspicious = model.sidebarSelection == .suspicious && model.viewMode == .messages
                             ContentUnavailableView {
-                                Label(searching ? "Keine Treffer" : (model.viewMode == .messages ? "Keine Nachrichten" : "Nichts zum Aufräumen"),
-                                      systemImage: searching ? "magnifyingglass" : (model.viewMode == .messages ? "tray" : "sparkles"))
+                                Label(searching ? "Keine Treffer"
+                                      : suspicious ? "Nichts Verdächtiges"
+                                      : (model.viewMode == .messages ? "Keine Nachrichten" : "Nichts zum Aufräumen"),
+                                      systemImage: searching ? "magnifyingglass" : suspicious ? "checkmark.shield" : (model.viewMode == .messages ? "tray" : "sparkles"))
                             } description: {
-                                if searching {
+                                if suspicious, !searching {
+                                    Text("Keine Mail außerhalb der Spam-Ordner sieht gerade nach Phishing oder Spam aus. Neue Mails prüft MailKeeper nach jedem Abruf; ältere mit „Posteingang prüfen“.")
+                                } else if searching {
                                     VStack(spacing: 10) {
                                         Text("Die Suche lässt hier nichts übrig. Alle Begriffe müssen zutreffen.")
                                         if !model.archiveKnowsServers {
@@ -111,6 +116,7 @@ struct ContentView: View {
             StatusBar(model: model)  // below, not an inset: the AppKit table ignores insets (last row was hidden)
         }
         .navigationTitle(model.currentArchiveName)
+        .navigationSubtitle(model.placeName)
         .toolbarTitleMenu { ArchiveMenuItems(model: model) }  // click the title: switch archives (TJ)
         .searchable(text: $model.searchText, placement: .toolbar, prompt: "Suchen, z. B. from:amazon has:pdf")
         .searchSuggestions {
@@ -654,7 +660,7 @@ struct StatusBar: View {
                     .help("Läuft im Hintergrund in einem abgeschotteten Prozess ohne Netz- und Dateizugriff. Import und Abruf haben Vorrang.")
             }
             if let stats = model.stats {
-                Text("\(model.messageIDs.count) von \(stats.messages) Nachrichten")
+                Text(model.countText)
                 Text(ByteCountFormatter.string(fromByteCount: stats.blobBytes, countStyle: .file))
             }
             if model.volumeEncrypted == false {

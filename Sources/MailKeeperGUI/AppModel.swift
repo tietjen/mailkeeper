@@ -682,6 +682,36 @@ final class AppModel {
         return DisplayText.safe(parts.joined(separator: " · "))
     }
 
+    /// Where the user is (window subtitle, status line): the sidebar's place.
+    var placeName: String {
+        switch sidebarSelection {
+        case .account(let a): accounts.first { $0.id == a }?.name ?? a
+        case .mailbox(let a, let m): "\(accounts.first { $0.id == a }?.name ?? a) › \(m)"
+        case .saved(let id): savedSearches.first { $0.id == id }?.name ?? String(localized: "Gespeicherte Suche")
+        case .trash: String(localized: "Papierkorb")
+        case .spamReview: String(localized: "Spam-Prüfung")
+        case .suspicious: String(localized: "Verdächtig")
+        case .all, nil: String(localized: "Alle Nachrichten")
+        }
+    }
+
+    /// The status line's count, in the words of the place (TJ: "0 von 41.046 Nachrichten" in an
+    /// empty "Verdächtig" read like an empty archive).
+    var countText: String {
+        let n = messageIDs.count
+        let searching = !searchText.allSatisfy(\.isWhitespace)
+        switch sidebarSelection {
+        case .suspicious where !searching:
+            return n == 0 ? String(localized: "Keine verdächtigen Mails") : n == 1 ? String(localized: "1 verdächtige Mail") : String(localized: "\(n) verdächtige Mails")
+        case .spamReview where !searching:
+            return String(localized: "\(n) im Spam-Ordner")
+        case .trash where !searching:
+            return String(localized: "\(n) im Papierkorb")
+        default:
+            return String(localized: "\(n) von \(stats?.messages ?? 0) Nachrichten")
+        }
+    }
+
     // MARK: Query helpers
 
     var suggestions: [QueryCompletion.Suggestion] {
