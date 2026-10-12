@@ -261,7 +261,15 @@ struct ReaderView: View {
     @State private var hovered: LinkCheck?
     @State private var relation: RelationCheck?
     @State private var movableToJunk = false
-    @State private var correcting = false
+    @State private var correcting: CorrectionTarget?
+
+    /// What the correction sheet works on — hosted at the reader's root: the button that opens it
+    /// is gone once the mail is genuine, and a sheet on a vanishing view garbled the window (TJ).
+    struct CorrectionTarget: Identifiable {
+        var id: Int64
+        var message: ParsedMessage
+        var classification: Classification?
+    }
 
     /// Phishing or spam by a model, or a warning of the register or the own server.
     private var looksSuspicious: Bool {
@@ -285,6 +293,9 @@ struct ReaderView: View {
             } else {
                 ProgressView()
             }
+        }
+        .sheet(item: $correcting) { target in
+            VerdictCorrectionSheet(model: model, messageID: target.id, message: target.message, classification: target.classification) { correcting = nil }
         }
         .task(id: "\(messageID)-\(model.contentGeneration)") {
             failed = false
@@ -477,12 +488,9 @@ struct ReaderView: View {
                         Label("Spam laut KI", systemImage: "exclamationmark.shield").foregroundStyle(.orange)
                     }
                     if (level == .suspicious || level == .likely || modelSpam), category?.verdict != "ham" {
-                        Button("Einschätzung korrigieren …") { correcting = true }
+                        Button("Einschätzung korrigieren …") { correcting = CorrectionTarget(id: messageID, message: m, classification: category) }
                             .controlSize(.small)
                             .help("Die Mail ist echt: dein Urteil, auf Wunsch eine Regel (Beziehung) und ein Hinweis für die KI – und gleichartige Mails werden neu eingeordnet")
-                            .sheet(isPresented: $correcting) {
-                                VerdictCorrectionSheet(model: model, messageID: messageID, message: m, classification: category) { correcting = false }
-                            }
                     }
                     if !lures.isEmpty {
                         Text(lures.count == 1 ? "1 auffälliger Link" : "\(lures.count) auffällige Links").foregroundStyle(.orange)

@@ -104,24 +104,26 @@ struct VerdictCorrectionSheet: View {
     }
 
     private func prefill() {
-        let domains = [senderDomain, replyDomain].compactMap { $0 }
+        // the sender's domain, the sister domains its name used with a passing check, the Reply-To
+        let proposal = model.proposedRelation(for: messageID, replyTo: message.replyTo.first?.address)
+        let domains = proposal.domains.isEmpty ? [senderDomain].compactMap { $0 } : proposal.domains
         if let existing {
             relationName = existing.name
             relationDomains = Array(NSOrderedSet(array: existing.domains + domains)).compactMap { $0 as? String }.joined(separator: ", ")
             saveRelation = !Set(domains).isSubset(of: Set(existing.domains))  // nothing to add: off
         } else {
-            let name = message.from.first?.name.map(DisplayText.safe) ?? ""
-            relationName = name.isEmpty || name.contains("@") ? (senderDomain ?? "") : name
-            relationDomains = Array(NSOrderedSet(array: domains)).compactMap { $0 as? String }.joined(separator: ", ")
+            relationName = proposal.name.isEmpty ? (senderDomain ?? "") : DisplayText.safe(proposal.name)
+            relationDomains = domains.joined(separator: ", ")
         }
         if let s = senderDomain {
-            note = replyDomain.map { $0 != s ? "Mails von \(s) mit Antwortadresse bei \($0) sind echt." : "Mails von \(s) sind echt." }
-                ?? "Mails von \(s) sind echt."
+            let others = domains.filter { $0 != s }
+            note = others.isEmpty ? "Mails von \(s) sind echt."
+                : "Mails von \(s) und \(others.joined(separator: ", ")) gehören zusammen und sind echt."
         } else {
             saveNote = false
         }
         let all = Set(domains + (existing?.domains ?? []))
-        alike = model.modelFlagged(fromDomains: all, excluding: messageID)
+        alike = model.modelFlagged(fromDomains: all, name: message.from.first?.name, excluding: messageID)
     }
 
     private func apply() {

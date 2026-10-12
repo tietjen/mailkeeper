@@ -159,4 +159,25 @@ struct VerdictCorrectionTests {
         try await writer.confirmNotSpam(identity: try #require(try r.identities(of: [try id("b3")]).first))
         #expect(try r.modelFlagged(fromDomains: ["sparkasse.example", "s-online.example"]) == [try id("b1")])  // the user's word ends it
     }
+
+    @Test("TJ's school: one sender name, two domains — both proposed, both rechecked; never the user's own domain")
+    func sisterDomainsOfOneSender() async throws {
+        let (_, writer, r) = try await RelationTests.archive()
+        let school = "Gymnasium Bonn via Schulmanager Online"
+        let pass = { (d: String) in "mail.own.test; dmarc=pass header.from=\(d)" }
+        _ = try await writer.ingest([
+            (RelationTests.mail("s1", from: "\(school) <mail@schulmanager-mail1.example>", subject: "Neue Nachricht", auth: pass("schulmanager-mail1.example")),
+             LocationInfo(account: "x", mailbox: "INBOX", providerID: "s1")),
+            (RelationTests.mail("s2", from: "\(school) <mail@schulmanager-cdn.example>", subject: "Neue Nachricht", auth: pass("schulmanager-cdn.example")),
+             LocationInfo(account: "x", mailbox: "INBOX", providerID: "s2")),
+            (RelationTests.mail("s3", from: "\(school) <mail@schulmanager-fake.example>", subject: "Neue Nachricht", auth: "evil.example; dmarc=pass"),
+             LocationInfo(account: "x", mailbox: "INBOX", providerID: "s3")),
+        ])
+        let id = { (key: String) in try #require(try r.messageIDs(MessageFilter(text: "msgid:\(key)@t.test ")).first) }
+        let proposal = try r.proposedRelation(for: try id("s1"), replyTo: "eltern@own.test")
+        #expect(proposal.name == school && proposal.domains == ["schulmanager-mail1.example", "schulmanager-cdn.example"])  // not the forged one, not own.test
+        #expect(try r.proposedRelation(for: try id("b1"), replyTo: "service@sparkasse-bank.example").domains == ["sparkasse.example", "s-online.example", "sparkasse-bank.example"])  // its sister domain too
+        try await writer.setClassification(messageID: try id("s2"), category: .notification, source: .endpoint, model: "m", reason: "r", phishing: .suspicious)
+        #expect(try r.modelFlagged(fromDomains: ["schulmanager-mail1.example"], orName: school, excluding: try id("s1")) == [try id("s2")])
+    }
 }

@@ -1423,8 +1423,12 @@ final class AppModel {
     }
 
     /// Other mails of these domains a model holds for phishing or spam (for "Einschätzung korrigieren").
-    func modelFlagged(fromDomains domains: Set<String>, excluding id: Int64) -> [Int64] {
-        (try? reader?.modelFlagged(fromDomains: domains, excluding: id)) ?? []
+    func modelFlagged(fromDomains domains: Set<String>, name: String?, excluding id: Int64) -> [Int64] {
+        (try? reader?.modelFlagged(fromDomains: domains, orName: name, excluding: id)) ?? []
+    }
+
+    func proposedRelation(for id: Int64, replyTo: String?) -> (name: String, domains: [String]) {
+        (try? reader?.proposedRelation(for: id, replyTo: replyTo)) ?? ("", [])
     }
 
     /// "Einschätzung korrigieren" (6.4b, TJ): the user's word that the mail is genuine

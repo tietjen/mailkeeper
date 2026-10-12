@@ -414,3 +414,66 @@ extension ArchiveReader {
         return out
     }
 }
+
+extension ArchiveReader {
+    /// What "Einschätzung korrigieren" proposes as the relation for a sender (6.4b): its domain,
+    /// the "sister" domains the same sender name wrote from with a passing check of the own server
+    /// (TJ: a school writing via schulmanager-mail1.de and schulmanager-cdn.de), and a Reply-To
+    /// domain — never freemail or the user's own. Named like a suggestion: after the sender only
+    /// when that name stands for most of the domain's mail and is not generic, else the domain.
+    public func proposedRelation(for messageID: Int64, replyTo: String? = nil) throws -> (name: String, domains: [String]) {
+        guard let row = try db.queryOne("SELECT lower(from_addr), from_name FROM messages WHERE id = ?", [.int(messageID)], { ($0.text(0), $0.text(1)) }),
+              let address = row.0, let at = address.lastIndex(of: "@") else { return ("", []) }
+        let domain = LinkCheck.registrableDomain(String(address[address.index(after: at)...]))
+        let servers = Set(try ownAuthServers().values)
+        let own = try ownDomains()
+        var domains = [domain]
+        let name = row.1?.trimmingCharacters(in: .whitespaces) ?? ""
+        if !name.isEmpty, !Relations.isGeneric(name), !servers.isEmpty {
+            let list = servers.map { "'" + $0.replacingOccurrences(of: "'", with: "''") + "'" }.joined(separator: ",")
+            try db.forEach("""
+                SELECT DISTINCT lower(from_addr) FROM messages
+                WHERE from_name = ? AND auth_dmarc = 'pass' AND auth_server IN (\(list)) AND trashed IS NULL LIMIT 200
+                """, [.text(name)]) { r in
+                guard let a = r.text(0), let i = a.lastIndex(of: "@") else { return }
+                let d = LinkCheck.registrableDomain(String(a[a.index(after: i)...]))
+                if !domains.contains(d), domains.count < 6, !Relations.freemail.contains(d), !own.contains(d) { domains.append(d) }
+            }
+        }
+        if let reply = replyTo?.lowercased(), let i = reply.lastIndex(of: "@") {
+            let d = LinkCheck.registrableDomain(String(reply[reply.index(after: i)...]))
+            if !domains.contains(d), !Relations.freemail.contains(d), !own.contains(d) { domains.append(d) }
+        }
+        // the name: the sender's only if it stands for most of the domain's mail
+        var total = 0, same = 0
+        try db.forEach("SELECT from_name FROM messages WHERE lower(from_addr) LIKE ? AND trashed IS NULL", [.text("%@%" + domain)]) { r in
+            total += 1
+            if r.text(0) == row.1 { same += 1 }
+        }
+        let usable = !name.isEmpty && !name.contains("@") && !Relations.isGeneric(name) && same * 2 >= total
+        return (usable ? String(name.prefix(120)) : domain, domains)
+    }
+
+    /// Mails a model flagged that come from these domains or carry this sender name — the
+    /// "alike" ones after a correction.
+    public func modelFlagged(fromDomains domains: Set<String>, orName name: String?, excluding: Int64? = nil, limit: Int = 500) throws -> [Int64] {
+        var out = Set(try modelFlagged(fromDomains: domains, excluding: excluding, limit: limit))
+        if let name, !name.isEmpty, !Relations.isGeneric(name) {
+            try db.forEach("""
+                SELECT m.id FROM messages m JOIN classifications c ON c.message_id = m.id
+                WHERE m.from_name = ? AND m.trashed IS NULL AND c.verdict IS NULL AND c.source IN ('endpoint', 'on-device')
+                  AND (c.phishing IN ('verdacht', 'ja') OR c.category = 'spam') LIMIT ?
+                """, [.text(name), .int(Int64(limit))]) { r in if r.int(0) != excluding { out.insert(r.int(0)) } }
+        }
+        return Array(out).sorted(by: >)
+    }
+
+    /// The domains the user writes from (sent mail).
+    func ownDomains() throws -> Set<String> {
+        var out: Set<String> = []
+        try db.forEach("SELECT DISTINCT lower(m.from_addr) FROM messages m WHERE m.id IN (SELECT l.message_id FROM locations l WHERE \(QuerySQL.sentLocation))") { r in
+            if let a = r.text(0), let i = a.lastIndex(of: "@") { out.insert(LinkCheck.registrableDomain(String(a[a.index(after: i)...]))) }
+        }
+        return out
+    }
+}
