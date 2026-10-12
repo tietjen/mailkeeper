@@ -38,7 +38,7 @@ struct QuoteTests {
         """
         #expect(QuotedText.newPart(of: outlook) == "Anbei die Unterlagen.")
         #expect(QuotedText.newPart(of: "Ok.\n\n-----Ursprüngliche Nachricht-----\nVon: x") == "Ok.")
-        #expect(QuotedText.newPart(of: "Ok.\n-- \nJan Tietjen\nTel. 0228") == "Ok.")
+        #expect(QuotedText.newPart(of: "Ok.\n-- \nMax Muster\nTel. 0123") == "Ok.")
         // "Von:" without the block below it is just text
         #expect(QuotedText.newPart(of: "Hallo\nVon: Berlin nach Bonn fahre ich morgen.\nBis dann") == "Hallo\nVon: Berlin nach Bonn fahre ich morgen.\nBis dann")
     }

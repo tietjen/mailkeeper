@@ -19,11 +19,28 @@ struct EmbeddingTests {
     }
 
     @Test func similarMailsDecideOnlyWhenTheyClearlyAgree() {
-        let n = { (c: MailCategory, s: Float) in (category: c, score: s) }
-        #expect(SimilarVote.decide([n(.newsletter, 0.95), n(.newsletter, 0.9), n(.newsletter, 0.88), n(.newsletter, 0.85), n(.invoice, 0.82)])?.category == .newsletter)
-        #expect(SimilarVote.decide([n(.newsletter, 0.95), n(.newsletter, 0.9), n(.invoice, 0.9), n(.invoice, 0.88)]) == nil)  // split
-        #expect(SimilarVote.decide([n(.newsletter, 0.95), n(.newsletter, 0.9), n(.newsletter, 0.7), n(.newsletter, 0.6)]) == nil)  // too few close ones
-        #expect(SimilarVote.decide([]) == nil)
+        let n = { (c: MailCategory, s: Float) in (category: c, score: s, domain: Optional("news.example")) }
+        let decide = { (v: [(category: MailCategory, score: Float, domain: String?)]) in SimilarVote.decide(v, domain: "other.example") }
+        #expect(decide([n(.newsletter, 0.95), n(.newsletter, 0.9), n(.newsletter, 0.88), n(.newsletter, 0.85), n(.invoice, 0.82)])?.category == .newsletter)
+        #expect(decide([n(.newsletter, 0.95), n(.newsletter, 0.9), n(.invoice, 0.9), n(.invoice, 0.88)]) == nil)  // split
+        #expect(decide([n(.newsletter, 0.95), n(.newsletter, 0.9), n(.newsletter, 0.7), n(.newsletter, 0.6)]) == nil)  // too few close ones
+        #expect(decide([]) == nil)
+    }
+
+    @Test("Review 5.9 S3: similarity lends no lure credibility")
+    func similarityNeverVouchesForALookAlike() {
+        let n = { (c: MailCategory, d: String) in (category: c, score: Float(0.9), domain: Optional(d)) }
+        // a phishing mail near real security mails: never "Konto/Sicherheit" (nor personal, work, spam)
+        for c in [MailCategory.accountSecurity, .personal, .work, .spam] {
+            #expect(SimilarVote.decide(Array(repeating: n(c, "bank.example"), count: 6), domain: "bank.example") == nil, "\(c)")
+        }
+        // an invoice look-alike from another domain stays open; from the senders' own domain it is decided
+        let invoices = [n(.invoice, "stadtwerke.example"), n(.invoice, "stadtwerke.example"), n(.invoice, "stadtwerke.example"), n(.invoice, "other.example")]
+        #expect(SimilarVote.decide(invoices, domain: "stadtwerke-rechnung.example") == nil)
+        #expect(SimilarVote.decide(invoices, domain: nil) == nil)
+        #expect(SimilarVote.decide(invoices, domain: "stadtwerke.example")?.category == .invoice)
+        // newsletters need no sender match: the label vouches for nothing
+        #expect(SimilarVote.decide(Array(repeating: n(.newsletter, "a.example"), count: 4), domain: "b.example")?.category == .newsletter)
     }
 
     @Test func storedVectorsAndSimilarityNeverOverrideDecisions() async throws {
@@ -47,5 +64,18 @@ struct EmbeddingTests {
         #expect(try r.classification(of: ids[0])?.source == .similar && r.classification(of: ids[0])?.category == .newsletter)
         #expect(try r.classification(of: ids[1])?.category == .personal)  // a model's answer stays
         #expect(try r.labelledCategories()[ids[0]] == nil)  // similarity is never a label itself
+
+        // an older vote is decided again; a rule change looks at the row again (review 5.9 S3, N5)
+        #expect(try r.staleSimilarCount() == 0)
+        let raw = try Database(path: layout.indexURL.path)
+        try raw.run("UPDATE classifications SET rule = 'similar-v1' WHERE message_id = ?", [.int(ids[0])])
+        #expect(try r.staleSimilarCount() == 1)
+        #expect(try await writer.reopenStaleSimilar() == 1)
+        #expect(try r.classification(of: ids[0])?.category == nil && r.openMessageIDs().contains(ids[0]))
+        try await writer.setSimilarClassification([(ids[0], .newsletter, "4 von 4")])
+        try raw.run("UPDATE classifications SET version = 1 WHERE message_id = ?", [.int(ids[0])])
+        #expect(try r.heuristicPendingCount() == 1)
+        _ = try await writer.classifyHeuristically()
+        #expect(try r.classification(of: ids[0])?.source == .heuristic)
     }
 }

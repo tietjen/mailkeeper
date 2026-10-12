@@ -210,7 +210,7 @@ extension ArchiveReader {
     public func heuristicPendingCount() throws -> Int {
         Int(try db.queryOne("""
             SELECT count(*) FROM messages m LEFT JOIN classifications c ON c.message_id = m.id
-            WHERE c.message_id IS NULL OR (c.source = 'heuristic' AND c.version < ?)
+            WHERE c.message_id IS NULL OR (c.source IN ('heuristic', 'similar') AND c.version < ?)
             """, [.int(Int64(Heuristics.version))]) { $0.int(0) } ?? 0)
     }
 

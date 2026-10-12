@@ -96,6 +96,8 @@ public struct QueryTranslator: Sendable {
         after:30d  before:1y           relativ: d Tage, w Wochen, m Monate, y Jahre; date:heute, date:gestern
         account:x  folder:x  folder:Archiv/*  label:x
         is:unread|read|flagged|answered|list|sent   on:server   only:archive   (is:sent = selbst gesendete Mails)
+        is:junk  is:phishing           im Spam-Ordner; von der KI als Phishing(-Verdacht) bewertet
+        kategorie:newsletter|benachrichtigung|rechnung|bestellung|konto|persönlich|arbeit|reise|spam|offen   Art der Mail
         -wort  -from:x                 Ausschluss
         a OR b   ( … )                 Alternativen und Klammern; Leerzeichen heißt UND
 
@@ -104,7 +106,9 @@ public struct QueryTranslator: Sendable {
         „letztes Jahr“ → date:\(calendar.component(.year, from: now) - 1), „seit März“ → after:\(calendar.component(.year, from: now))-03, \
         „letzte Woche“ → after:7d, „älter als zwei Jahre“ → before:2y.
         - Firmen und Personen als from:name (ein Wort, klein), sender: oder domain: nur bei genannter Adresse/Domain.
-        - Begriffe für Mailarten als Wörter mit Alternativen, z. B. Rechnungen → (rechnung OR invoice OR beleg).
+        - Begriffe für Mailarten als Wörter mit Alternativen, z. B. Rechnungen → (rechnung OR invoice OR beleg). \
+        kategorie: nur, wenn ausdrücklich nach der Einordnung gefragt ist („alle Newsletter“, „noch nicht eingeordnet“ → \
+        kategorie:offen) – es findet nur bereits eingeordnete Mails. Phishing → is:phishing, Spam-Ordner → is:junk.
         - Füllwörter (von, mit, alle, Mails, zeig mir) lässt du weg. Keine Felder erfinden, keine Erklärungen in die Abfrage.
         - Konten: \(accounts.isEmpty ? "—" : accounts)
         - Ordner: \(folders.isEmpty ? "—" : folders)

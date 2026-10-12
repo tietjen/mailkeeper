@@ -163,3 +163,23 @@ struct SpamReviewTests {
         #expect(done.items.first?.reason == "vom Server abgelehnt: [NOPERM] nein")
     }
 }
+
+@Suite("Review 5.9 C6: the user's 'kein Spam' clears a phishing flag")
+struct HamClearsPhishingTests {
+    @Test func hamClearsTheFlagAndAModelDoesNotSetItAgain() async throws {
+        let layout = try ArchiveLayout.open(at: tempDir().appending(path: "ham"), create: true)
+        let writer = try ArchiveWriter(layout: layout)
+        _ = try await writer.ingest([(sampleMessage(id: "<p@t.test>", subject: "Ihr Konto"), LocationInfo(account: "x", mailbox: "Junk", providerID: "1"))])
+        let r = try ArchiveReader(layout: layout)
+        let id = try #require(try r.messageIDs(MessageFilter()).first)
+        try await writer.setClassification(messageID: id, category: .accountSecurity, source: .endpoint, model: "m", reason: "r",
+                                           phishing: .likely, phishingReason: "Link passt nicht")
+        #expect(try r.count(MessageFilter(text: "is:phishing ")) == 1)
+        try await writer.confirmNotSpam(identity: try #require(try r.identities(of: [id]).first))
+        #expect(try r.classification(of: id)?.phishing == nil && r.classification(of: id)?.verdict == "ham")
+        #expect(try r.count(MessageFilter(text: "is:phishing ")) == 0)
+        try await writer.setClassification(messageID: id, category: .accountSecurity, source: .endpoint, model: "m", reason: "r",
+                                           phishing: .likely, phishingReason: "Link passt nicht")
+        #expect(try r.classification(of: id)?.phishing == nil)  // the user's word stands
+    }
+}

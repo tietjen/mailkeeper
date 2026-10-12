@@ -28,4 +28,39 @@ struct LinkTests {
         let t = ContinuousClock().measure { _ = LinkExtractor.links(html: hostile, text: "") }
         #expect(t < .seconds(2))
     }
+
+    @Test("Review 5.9 B1: an href inside another attribute's value is no target")
+    func decoyAttributesDoNotPoseAsTheTarget() {
+        let decoys = [
+            #"<a data-x="href=https://www.sparkasse.de/" href="https://evil.example/login">www.sparkasse.de</a>"#,
+            #"<a title='href=https://www.sparkasse.de/' href=https://evil.example/login>www.sparkasse.de</a>"#,
+            #"<a title="a > b" href="https://evil.example/login">www.sparkasse.de</a>"#,  // ">" inside a quoted value
+            #"<a x'y href="https://evil.example/login">www.sparkasse.de</a>"#,  // a stray quote opens no value
+            #"<a href="https://evil.example/login" href="https://www.sparkasse.de/">www.sparkasse.de</a>"#,  // first wins
+        ]
+        for html in decoys {
+            let links = LinkExtractor.links(html: html, text: "")
+            #expect(links.map(\.href) == ["https://evil.example/login"], "\(html)")
+            let check = LinkCheck(href: links.first?.href ?? "", text: links.first?.text)
+            #expect(check.findings.first == .textShowsOtherDomain, "\(html)")
+        }
+        // character references and control characters cannot hide a scheme
+        for html in [#"<a href="javascript&#58;alert(1)">x</a>"#, #"<a href="java&#x09;script:alert(1)">x</a>"#,
+                     "<a href=\"java\tscript:alert(1)\">x</a>", #"<a href="javascript&colon;alert(1)">x</a>"#] {
+            let href = LinkExtractor.links(html: html, text: "").first?.href ?? ""
+            #expect(LinkCheck(href: href, text: "x").findings.contains(.unusualScheme), "\(html) → \(href)")
+        }
+        // nested tags in the text, an anchor left open, "<" as text
+        let links = LinkExtractor.links(html: "<a href=https://a.example><b>Shop</b> a < b<a href=https://b.example>B</a>", text: "")
+        #expect(links.map(\.href) == ["https://a.example", "https://b.example"] && links.first?.text == "Shop a < b")
+    }
+
+    @Test("Review 5.9 C3: one pass, also for tags that never close")
+    func unclosedTagsStayLinear() {
+        for hostile in [String(repeating: "<a ", count: 350_000), String(repeating: "<a title='", count: 100_000),
+                        String(repeating: "<b x=", count: 200_000)] {
+            let t = ContinuousClock().measure { _ = LinkExtractor.links(html: hostile, text: "") }
+            #expect(t < .milliseconds(300), "\(hostile.prefix(12))")
+        }
+    }
 }

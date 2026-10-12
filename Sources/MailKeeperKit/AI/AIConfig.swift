@@ -19,7 +19,7 @@ public enum AITask: String, Codable, Sendable, CaseIterable {
 /// Apple's on-device model as the fallback. MailKeeper never ships a cloud default.
 public struct AIConfig: Codable, Sendable, Equatable {
     public var enabled = false
-    /// Base URL of an OpenAI-compatible API, e.g. `http://litellm.rk1.ziti:4000/v1`.
+    /// Base URL of an OpenAI-compatible API, e.g. `http://llm.example.ziti:4000/v1`.
     public var endpoint: URL?
     /// Model alias per task (by `AITask.rawValue`, readable JSON); missing tasks use `fallbackModel`.
     public var models: [String: String] = [:]
@@ -62,7 +62,6 @@ public struct AIConfig: Codable, Sendable, Equatable {
         guard let host = url.host()?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]")) else { return false }
         if ["localhost", "::1"].contains(host) { return true }
         if [".local", ".lan", ".internal", ".home.arpa", ".ziti", ".localhost"].contains(where: { host.hasSuffix($0) }) { return true }
-        if host.contains(".lan.") { return true }
         let parts = host.split(separator: ".").compactMap { Int($0) }
         if parts.count == 4 {
             switch (parts[0], parts[1]) {

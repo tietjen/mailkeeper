@@ -91,14 +91,18 @@ public struct LinkCheck: Sendable, Equatable {
 }
 
 /// The links of a mail: anchors of the HTML part (target and visible text) and bare URLs in the
-/// text — bounded, deduplicated by target. A linear byte scanner, no regex: hostile HTML (an
-/// endless run of "<a href=") must not cost more than a pass over the bytes.
+/// text — bounded, deduplicated by target. One pass over the bytes, no regex: hostile HTML (an
+/// endless run of "<a href=") must not cost more than that. Tags are read the way a browser
+/// tokenizes them — attribute names, then values; quotes open a value only after "=" — so an
+/// "href=" inside another attribute's value cannot pose as the target (review 5.9 B1).
 public enum LinkExtractor {
     public static func links(html: String?, text: String, limit: Int = 40) -> [(href: String, text: String?)] {
         var out: [(String, String?)] = []
         var seen = Set<String>()
         func add(_ href: String, _ shown: String?) {
-            let h = href.trimmingCharacters(in: .whitespacesAndNewlines)
+            // browsers drop tabs and newlines inside a URL ("java\tscript:") and trim the ends
+            let h = String(String.UnicodeScalarView(href.unicodeScalars.filter { $0 != "\t" && $0 != "\n" && $0 != "\r" }))
+                .trimmingCharacters(in: .whitespaces)
             guard !h.isEmpty, !h.hasPrefix("#"), !h.lowercased().hasPrefix("cid:"), h.count < 4_000, out.count < limit,
                   seen.insert(h).inserted else { return }
             out.append((h, shown))
@@ -108,74 +112,94 @@ public enum LinkExtractor {
         return out
     }
 
-    private static let lt = UInt8(ascii: "<"), gt = UInt8(ascii: ">")
+    private static let lt = UInt8(ascii: "<"), gt = UInt8(ascii: ">"), slash = UInt8(ascii: "/"), eq = UInt8(ascii: "=")
+    private static let dq = UInt8(ascii: "\""), sq = UInt8(ascii: "'")
 
     private static func lower(_ b: UInt8) -> UInt8 { b >= 65 && b <= 90 ? b + 32 : b }
     private static func isSpace(_ b: UInt8) -> Bool { b == 32 || b == 9 || b == 10 || b == 13 || b == 12 }
+    private static func isLetter(_ b: UInt8) -> Bool { (65...90).contains(b) || (97...122).contains(b) }
 
-    /// `<a … href=… …>text</a>`: the tag up to 4 KB, the text up to 4 KB, tags inside the text dropped.
+    /// `<a … href=… …>text</a>`: the first href of the tag (as browsers take it), the visible
+    /// text up to 4 KB with tags inside it as spaces. An anchor left open ends at the next one.
     static func anchors(_ b: [UInt8], _ add: (String, String?) -> Void) {
         let n = b.count
         var i = 0
-        while i + 2 < n {
-            guard b[i] == lt, lower(b[i + 1]) == UInt8(ascii: "a"), isSpace(b[i + 2]) else { i += 1; continue }
-            var end = i + 2
-            let tagLimit = min(n, i + 4_096)
-            while end < tagLimit, b[end] != gt { end += 1 }
-            guard end < tagLimit else { i += 2; continue }  // no tag end nearby: not a usable anchor
-            guard let href = attribute("href", in: b[(i + 2)..<end]) else { i = end + 1; continue }
-            var textEnd = end + 1
-            let textLimit = min(n, end + 1 + 4_096)
-            while textEnd + 2 < textLimit,
-                  !(b[textEnd] == lt && b[textEnd + 1] == UInt8(ascii: "/") && lower(b[textEnd + 2]) == UInt8(ascii: "a")) {
-                textEnd += 1
-            }
-            let shown = stripTags(b[(end + 1)..<min(textEnd, textLimit)])
-            add(decodeEntities(href), collapseWhitespace(decodeEntities(shown)))
-            i = max(textEnd, end + 1)
+        var open: String?
+        var shown: [UInt8] = []
+        func finish() {
+            if let href = open { add(decodeEntities(href), collapseWhitespace(decodeEntities(String(decoding: shown, as: UTF8.self)))) }
+            open = nil
+            shown = []
         }
+        while i < n {
+            guard b[i] == lt, i + 1 < n else {
+                if open != nil, shown.count < 4_096 { shown.append(b[i]) }
+                i += 1
+                continue
+            }
+            let next = b[i + 1]
+            if next == slash || isLetter(next) {
+                let closing = next == slash
+                var j = i + (closing ? 2 : 1)
+                let nameStart = j
+                while j < n, !isSpace(b[j]), b[j] != gt, b[j] != slash { j += 1 }
+                let isAnchor = j - nameStart == 1 && lower(b[nameStart]) == UInt8(ascii: "a")
+                let (end, href) = tag(b, from: j, wantHref: isAnchor && !closing)
+                if isAnchor {
+                    finish()
+                    if !closing, let href { open = href }
+                } else if open != nil, shown.count < 4_096 {
+                    shown.append(32)
+                }
+                i = end
+            } else {
+                if open != nil, shown.count < 4_096 { shown.append(b[i]) }  // "<" as text ("a < b")
+                i += 1
+            }
+        }
+        finish()
     }
 
-    /// The value of one attribute in a tag's bytes (quoted or not), case-insensitive name.
-    static func attribute(_ name: String, in tag: ArraySlice<UInt8>) -> String? {
-        let key = Array(name.utf8)
-        var i = tag.startIndex
-        while i + key.count < tag.endIndex {
-            let before = i == tag.startIndex ? UInt8(32) : tag[i - 1]
-            if isSpace(before) || before == UInt8(ascii: "\"") || before == UInt8(ascii: "'"),
-               (0..<key.count).allSatisfy({ lower(tag[i + $0]) == key[$0] }) {
-                var j = i + key.count
-                while j < tag.endIndex, isSpace(tag[j]) { j += 1 }
-                if j < tag.endIndex, tag[j] == UInt8(ascii: "=") {
-                    j += 1
-                    while j < tag.endIndex, isSpace(tag[j]) { j += 1 }
-                    guard j < tag.endIndex else { return nil }
-                    let quote = tag[j]
-                    if quote == UInt8(ascii: "\"") || quote == UInt8(ascii: "'") {
-                        var k = j + 1
-                        while k < tag.endIndex, tag[k] != quote { k += 1 }
-                        return String(decoding: tag[(j + 1)..<k], as: UTF8.self)
-                    }
-                    var k = j
-                    while k < tag.endIndex, !isSpace(tag[k]), tag[k] != gt { k += 1 }
-                    return String(decoding: tag[j..<k], as: UTF8.self)
+    /// Reads a tag's attributes from `start` (just after its name) to after its closing ">" —
+    /// quoted values may hold ">" — and returns that position and, if asked, the first href.
+    static func tag(_ b: [UInt8], from start: Int, wantHref: Bool) -> (end: Int, href: String?) {
+        let n = b.count
+        var i = start
+        var href: String?
+        while i < n {
+            while i < n, isSpace(b[i]) || b[i] == slash { i += 1 }
+            guard i < n else { break }
+            if b[i] == gt { return (i + 1, href) }
+            // attribute name: anything up to space, "=", ">" or "/" (a stray quote belongs to the name)
+            let nameStart = i
+            i += 1
+            while i < n, !isSpace(b[i]), b[i] != eq, b[i] != gt, b[i] != slash { i += 1 }
+            let nameEnd = i
+            while i < n, isSpace(b[i]) { i += 1 }
+            var value: Range<Int>?
+            if i < n, b[i] == eq {
+                i += 1
+                while i < n, isSpace(b[i]) { i += 1 }
+                if i < n, b[i] == dq || b[i] == sq {
+                    let quote = b[i]
+                    let valueStart = i + 1
+                    i = valueStart
+                    while i < n, b[i] != quote { i += 1 }
+                    value = valueStart..<i
+                    if i < n { i += 1 }
+                } else {
+                    let valueStart = i
+                    while i < n, !isSpace(b[i]), b[i] != gt { i += 1 }
+                    value = valueStart..<i
                 }
             }
-            i += 1
+            if wantHref, href == nil, nameEnd - nameStart == 4,
+               lower(b[nameStart]) == UInt8(ascii: "h"), lower(b[nameStart + 1]) == UInt8(ascii: "r"),
+               lower(b[nameStart + 2]) == UInt8(ascii: "e"), lower(b[nameStart + 3]) == UInt8(ascii: "f") {
+                href = value.map { String(decoding: b[$0], as: UTF8.self) } ?? ""
+            }
         }
-        return nil
-    }
-
-    static func stripTags(_ b: ArraySlice<UInt8>) -> String {
-        var out: [UInt8] = []
-        out.reserveCapacity(b.count)
-        var inTag = false
-        for c in b {
-            if c == lt { inTag = true; out.append(32); continue }
-            if c == gt { inTag = false; continue }
-            if !inTag { out.append(c) }
-        }
-        return String(decoding: out, as: UTF8.self)
+        return (n, href)
     }
 
     /// `http://` or `https://` up to whitespace, quotes or brackets.
@@ -196,9 +220,38 @@ public enum LinkExtractor {
         }
     }
 
+    /// Character references as a browser resolves them in an attribute or text: the common named
+    /// ones and numeric ones (`javascript&#58;` is `javascript:`). One pass; unknown ones stay.
     static func decodeEntities(_ s: String) -> String {
         guard s.contains("&") else { return s }
-        return s.replacingOccurrences(of: "&amp;", with: "&").replacingOccurrences(of: "&quot;", with: "\"")
-            .replacingOccurrences(of: "&#39;", with: "'").replacingOccurrences(of: "&lt;", with: "<").replacingOccurrences(of: "&gt;", with: ">")
+        let named: [String: String] = ["amp": "&", "quot": "\"", "apos": "'", "lt": "<", "gt": ">", "nbsp": " ",
+                                       "colon": ":", "sol": "/", "period": ".", "commat": "@", "tab": "\t", "newline": "\n"]
+        var out = ""
+        out.reserveCapacity(s.utf8.count)
+        var rest = Substring(s)
+        while let amp = rest.firstIndex(of: "&") {
+            out += rest[..<amp]
+            let after = rest[rest.index(after: amp)...]
+            if let semi = after.prefix(12).firstIndex(of: ";") {
+                let name = after[..<semi]
+                var replacement: String?
+                if name.hasPrefix("#x") || name.hasPrefix("#X") {
+                    replacement = UInt32(name.dropFirst(2), radix: 16).flatMap(Unicode.Scalar.init).map { String(Character($0)) }
+                } else if name.hasPrefix("#") {
+                    replacement = UInt32(name.dropFirst(1)).flatMap(Unicode.Scalar.init).map { String(Character($0)) }
+                } else {
+                    replacement = named[String(name).lowercased()]
+                }
+                if let replacement {
+                    out += replacement
+                    rest = after[after.index(after: semi)...]
+                    continue
+                }
+            }
+            out += "&"
+            rest = after
+        }
+        out += rest
+        return out
     }
 }

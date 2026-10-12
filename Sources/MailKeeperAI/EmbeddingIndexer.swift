@@ -53,11 +53,13 @@ public struct EmbeddingIndexer: Sendable {
         return added
     }
 
-    /// Open mails take the category their similar, labelled neighbours agree on (SimilarVote).
+    /// Open mails take the category their similar, labelled neighbours agree on (SimilarVote);
+    /// rows of an older vote are opened and decided again first.
     @discardableResult
     public func decideOpenBySimilarity() async throws -> Int {
         let model = router.config.model(for: .embed)
         let reader = try ArchiveReader(layout: writer.layout)
+        _ = try await writer.reopenStaleSimilar()
         let open = Set(try reader.openMessageIDs())
         guard !open.isEmpty else { return 0 }
         let labels = try reader.labelledCategories()
@@ -66,10 +68,11 @@ public struct EmbeddingIndexer: Sendable {
         let labelled = index.subset { labels[$0] != nil }
         let queries = index.subset { open.contains($0) }
         guard labelled.count > 0, queries.count > 0 else { return 0 }
+        let domains = try reader.senderDomains()
         var decided: [(id: Int64, category: MailCategory, reason: String)] = []
         for (id, neighbours) in labelled.nearestBatch(queries, k: 10) {
-            let votes = neighbours.compactMap { n in labels[n.id].map { (category: $0, score: n.score) } }
-            if let d = SimilarVote.decide(votes) {
+            let votes = neighbours.compactMap { n in labels[n.id].map { (category: $0, score: n.score, domain: domains[n.id]) } }
+            if let d = SimilarVote.decide(votes, domain: domains[id]) {
                 decided.append((id, d.category, String(localized: "\(d.agree) von \(d.of) ähnlichen Mails: \(d.category.label)")))
             }
         }

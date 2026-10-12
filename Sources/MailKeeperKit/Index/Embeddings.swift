@@ -72,6 +72,24 @@ extension ArchiveReader {
         return out
     }
 
+    /// Each message's registrable sender domain ("bank.example" for "info@mail.bank.example").
+    public func senderDomains() throws -> [Int64: String] {
+        var out: [Int64: String] = [:]
+        try db.forEach("SELECT id, from_addr FROM messages WHERE trashed IS NULL AND from_addr LIKE '%@%'") { r in
+            if let addr = r.text(1), let at = addr.lastIndex(of: "@") {
+                let host = addr[addr.index(after: at)...].trimmingCharacters(in: CharacterSet(charactersIn: " >")).lowercased()
+                if !host.isEmpty { out[r.int(0)] = LinkCheck.registrableDomain(host) }
+            }
+        }
+        return out
+    }
+
+    /// Rows "similar mails" decided under an older vote.
+    public func staleSimilarCount() throws -> Int {
+        Int(try db.queryOne("SELECT count(*) FROM classifications WHERE source = 'similar' AND coalesce(rule, '') != ?",
+                            [.text(SimilarVote.ruleTag)]) { $0.int(0) } ?? 0)
+    }
+
     /// Messages the rules left open and no model or user has decided.
     public func openMessageIDs() throws -> [Int64] {
         try db.query("""
@@ -176,13 +194,23 @@ public enum VectorMath {
 
 /// "Similar mails" decide an open mail's category when they agree clearly (ADR-0004 §1, step 2):
 /// at least `minNeighbours` labelled neighbours above `minScore`, and one category with
-/// `minShare` of their weight. Never phishing — that stays with a model.
+/// `minShare` of their weight. Never phishing — that stays with a model. And never what would
+/// lend a lure credibility (review 5.9 S3, like the rules): account/security, personal, work and
+/// spam stay with a model; notifications, invoices, orders and travel only when the mail comes
+/// from the sender domain most of the agreeing neighbours come from — it extends a known
+/// sender's pattern instead of vouching for a look-alike.
 public enum SimilarVote {
     public static let minScore: Float = 0.80
     public static let minShare: Float = 0.70
     public static let minNeighbours = 4
+    /// Stored as the row's `rule`: rows of an older vote are decided again.
+    public static let version = 2
+    public static var ruleTag: String { "similar-v\(version)" }
+    public static let allowed: Set<MailCategory> = [.newsletter, .notification, .invoice, .orderShipping, .travel]
+    public static let needsSameSender: Set<MailCategory> = [.notification, .invoice, .orderShipping, .travel]
 
-    public static func decide(_ neighbours: [(category: MailCategory, score: Float)]) -> (category: MailCategory, agree: Int, of: Int)? {
+    public static func decide(_ neighbours: [(category: MailCategory, score: Float, domain: String?)], domain: String?)
+        -> (category: MailCategory, agree: Int, of: Int)? {
         let strong = neighbours.filter { $0.score >= minScore }
         guard strong.count >= minNeighbours else { return nil }
         var weight: [MailCategory: Float] = [:]
@@ -192,7 +220,12 @@ public enum SimilarVote {
             votes[n.category, default: 0] += 1
         }
         let total = weight.values.reduce(0, +)
-        guard let (best, w) = weight.max(by: { $0.value < $1.value }), total > 0, w / total >= minShare else { return nil }
+        guard let (best, w) = weight.max(by: { $0.value < $1.value }), total > 0, w / total >= minShare, allowed.contains(best) else { return nil }
+        if needsSameSender.contains(best) {
+            let agreeing = strong.filter { $0.category == best }
+            let same = agreeing.filter { $0.domain != nil && $0.domain == domain }.count
+            guard domain != nil, same * 2 > agreeing.count else { return nil }
+        }
         return (best, votes[best] ?? 0, strong.count)
     }
 }

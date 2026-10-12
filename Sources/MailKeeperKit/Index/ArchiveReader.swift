@@ -271,8 +271,8 @@ public final class ArchiveReader {
         }
         // A list is named by its newest message's sender (newsletters name themselves there; the
         // List-Id is often a machine id). A sender by the name it uses most, the newest on a tie —
-        // not max(): one's own address carries "Jan Tietjen" 2,217 times and "ownCloud" 3 times,
-        // and "o" sorts after "J" (TJ). A domain has many senders, so none.
+        // not max(): an own address may carry its owner's name 2,000 times and a notifier's ("ownCloud")
+        // 3 times, and "o" sorts after "M" (TJ). A domain has many senders, so none.
         let name = switch mode {
         case .sender: "max(n.name)"
         case .domain: "NULL"

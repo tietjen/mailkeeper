@@ -356,7 +356,13 @@ struct RankedBar: View {
                 case .semantic(let text):
                     Text("Nach Bedeutung: „\(DisplayText.safe(text))“").lineLimit(1)
                 }
-                Text("· \(model.messageIDs.count) · ähnlichste zuerst").foregroundStyle(.secondary)
+                if let order = model.rankedSort {
+                    Text("· \(model.messageIDs.count) · sortiert nach \(order.sort.label)").foregroundStyle(.secondary)
+                    Button("Ähnlichste zuerst") { model.sortRankedByScore() }.controlSize(.small)
+                } else {
+                    Text("· \(model.messageIDs.count) · ähnlichste zuerst").foregroundStyle(.secondary)
+                        .help("Ein Klick auf einen Spaltenkopf sortiert die Treffer nach dieser Spalte")
+                }
                 Spacer()
                 Button("Schließen") { model.closeRanked() }.controlSize(.small)
             }
@@ -385,5 +391,16 @@ struct MeaningButton: View {
         }
         .disabled(!model.aiConfig.enabled || model.aiConfig.endpoint == nil)
         .help("Sucht Mails, die inhaltlich passen, auch ohne die Wörter (Suchfeld mit „~“ am Anfang). Braucht Embeddings vom Endpoint.")
+    }
+}
+
+extension MessageSort {
+    var label: String {
+        switch self {
+        case .date: String(localized: "Datum")
+        case .from: String(localized: "Absender")
+        case .subject: String(localized: "Betreff")
+        case .size: String(localized: "Größe")
+        }
     }
 }

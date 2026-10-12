@@ -74,6 +74,7 @@ public actor AIRouter {
     let onDevice: (any ChatProvider)?
     let log: AICallLog
     private var endpointPausedUntil: ContinuousClock.Instant?
+    private var lastEndpointFailure: AIError?
 
     public init(config: AIConfig, apiKey: String?, log: AICallLog = AICallLog()) {
         self.config = config
@@ -95,14 +96,20 @@ public actor AIRouter {
     public func chat(_ request: ChatRequest) async throws -> ChatResult {
         guard config.enabled else { throw AIError.notConfigured }
         var failure: Error = AIError.notConfigured
-        if let endpoint, !endpointPaused {
-            do {
-                return try await logged(request.task, .endpoint, config.model(for: request.task)) {
-                    try await endpoint.chat(request, model: self.config.model(for: request.task), attempt: 1)
+        if let endpoint {
+            if endpointPaused {
+                // set up, but away a moment ago: say so — "not configured" would stop a whole run (review 5.9 S1)
+                failure = lastEndpointFailure ?? AIError.unavailable(String(localized: "Endpoint pausiert nach einem Fehler"))
+            } else {
+                do {
+                    return try await logged(request.task, .endpoint, config.model(for: request.task)) {
+                        try await endpoint.chat(request, model: self.config.model(for: request.task), attempt: 1)
+                    }
+                } catch let error as AIError where error.isUnreachable || error == .timeout(config.timeout) {
+                    endpointPausedUntil = .now + .seconds(60)
+                    lastEndpointFailure = error
+                    failure = error
                 }
-            } catch let error as AIError where error.isUnreachable || error == .timeout(config.timeout) {
-                endpointPausedUntil = .now + .seconds(60)
-                failure = error
             }
         }
         if let onDevice {
@@ -131,7 +138,7 @@ public actor AIRouter {
         }
     }
 
-    private var endpointPaused: Bool {
+    var endpointPaused: Bool {
         guard let until = endpointPausedUntil else { return false }
         if .now >= until { endpointPausedUntil = nil; return false }
         return true
@@ -142,7 +149,7 @@ public actor AIRouter {
         let start = ContinuousClock.now
         do {
             let result = try await call()
-            log.append(.init(time: Date().timeIntervalSince1970, task: task, path: path, model: result.model, seconds: result.seconds,
+            log.append(.init(time: Date().timeIntervalSince1970, task: task, path: path, model: String(result.model.prefix(80)), seconds: result.seconds,
                              promptTokens: result.promptTokens, completionTokens: result.completionTokens,
                              finish: result.finishReason, attempt: result.attempt, outcome: "ok"))
             return result

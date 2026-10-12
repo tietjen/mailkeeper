@@ -151,7 +151,7 @@ public struct OpenAICompatibleProvider: ChatProvider {
             throw finish == "length" ? AIError.truncated : AIError.badAnswer(String(localized: "Antwort ohne Inhalt"))
         }
         let usage = json["usage"] as? [String: Any]
-        return ChatResult(text: Self.stripFences(content), path: .endpoint, model: (json["model"] as? String) ?? model,
+        return ChatResult(text: Self.stripFences(content), path: .endpoint, model: (json["model"] as? String).map { PromptText.line($0, max: 80) } ?? model,
                           seconds: (ContinuousClock.now - start).seconds, finishReason: finish,
                           promptTokens: usage?["prompt_tokens"] as? Int, completionTokens: usage?["completion_tokens"] as? Int,
                           attempt: attempt)
@@ -210,15 +210,24 @@ public struct OpenAICompatibleProvider: ChatProvider {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let apiKey, !apiKey.isEmpty { req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization") }
         if let body { req.httpBody = try JSONSerialization.data(withJSONObject: body) }
-        let data: Data, response: URLResponse
+        // counted while it arrives: a misbehaving endpoint cannot fill the memory first (review 5.9 C4)
+        let tooLarge = AIError.badAnswer(String(localized: "Antwort zu groß"))
+        var data = Data()
+        let response: URLResponse
         do {
-            (data, response) = try await session.data(for: req)
+            let (stream, head) = try await session.bytes(for: req)
+            response = head
+            if head.expectedContentLength > Int64(limit) { throw tooLarge }
+            data.reserveCapacity(min(max(Int(head.expectedContentLength), 0), limit))
+            for try await byte in stream {
+                data.append(byte)
+                if data.count > limit { throw tooLarge }
+            }
         } catch let error as URLError {
             if error.code == .timedOut { throw AIError.timeout(timeout) }
             if error.code == .cancelled { throw CancellationError() }
             throw AIError.connection(error.localizedDescription)
         }
-        guard data.count <= limit else { throw AIError.badAnswer(String(localized: "Antwort zu groß")) }
         let status = (response as? HTTPURLResponse)?.statusCode ?? -1
         guard status == 200 else { throw AIError.server(status, Self.errorText(data)) }
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -299,12 +308,17 @@ public struct OnDeviceProvider: ChatProvider {
 func withHardTimeout<T: Sendable>(_ seconds: Double, _ op: @escaping @Sendable () async throws -> T) async throws -> T {
     try await withCheckedThrowingContinuation { (cont: CheckedContinuation<T, Error>) in
         let once = OnceFlag()
+        let timer = Mutex<Task<Void, Never>?>(nil)
         let work = Task {
             do { let v = try await op(); if once.claim() { cont.resume(returning: v) } } catch { if once.claim() { cont.resume(throwing: error) } }
+            timer.withLock { $0?.cancel() }  // no sleeping task left behind per request
         }
-        Task {
-            try? await Task.sleep(for: .seconds(seconds))
-            if once.claim() { work.cancel(); cont.resume(throwing: AIError.timeout(seconds)) }
+        timer.withLock {
+            $0 = Task {
+                try? await Task.sleep(for: .seconds(seconds))
+                guard !Task.isCancelled else { return }
+                if once.claim() { work.cancel(); cont.resume(throwing: AIError.timeout(seconds)) }
+            }
         }
     }
 }

@@ -89,7 +89,7 @@ struct SummaryTests {
 struct AILiveSummaryTests {
     static let thread = [
         SummaryMessage(SummaryTests.mail("info@stb-beispiel.example", "Unterlagen Jahresabschluss 2025",
-                                         "Hallo Herr Tietjen,\nfür den Jahresabschluss 2025 fehlen uns noch die Kontoauszüge Dezember und die Rechnung der Firma Müller über 1.240 €. Bitte senden Sie uns beides bis zum 15. Juni.\nViele Grüße\nAnna Berg", day: 2, name: "Anna Berg")),
+                                         "Hallo Herr Muster,\nfür den Jahresabschluss 2025 fehlen uns noch die Kontoauszüge Dezember und die Rechnung der Firma Müller über 1.240 €. Bitte senden Sie uns beides bis zum 15. Juni.\nViele Grüße\nAnna Berg", day: 2, name: "Anna Berg")),
         SummaryMessage(SummaryTests.mail("jan@own.test", "Re: Unterlagen Jahresabschluss 2025",
                                          "Hallo Frau Berg,\ndie Kontoauszüge kommen morgen, die Rechnung Müller suche ich noch raus.\nGruß Jan\n\nAm 2. Mai schrieb Anna Berg <info@stb-beispiel.example>:\n> für den Jahresabschluss 2025 fehlen uns noch", day: 3),
                        sentByUser: true),

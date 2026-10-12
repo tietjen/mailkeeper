@@ -89,6 +89,7 @@ struct MessageTable: NSViewRepresentable {
                 generation = model.listGeneration
                 ids = model.messageIDs
                 pages.removeAll()
+                applySortIndicator()
                 table?.reloadData()
                 applySelection(scroll: false)
             }
@@ -97,6 +98,17 @@ struct MessageTable: NSViewRepresentable {
                 applySelection(scroll: true)
             }
         }
+
+        /// The header shows the order the list really has — none for a ranked list by score.
+        private func applySortIndicator() {
+            guard let table else { return }
+            let wanted = model.tableSort.map { [NSSortDescriptor(key: $0.sort.rawValue, ascending: $0.ascending)] } ?? []
+            guard table.sortDescriptors != wanted else { return }
+            applyingSort = true
+            table.sortDescriptors = wanted
+            applyingSort = false
+        }
+        private var applyingSort = false
 
         /// Mirrors the model's selection; a message that is not listed deselects the table
         /// while the reader keeps showing it.
@@ -223,7 +235,7 @@ struct MessageTable: NSViewRepresentable {
         @objc private func purge() { Task { await model.purgeSelection() } }
 
         func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
-            guard let d = tableView.sortDescriptors.first, let key = d.key.flatMap(MessageSort.init(rawValue:)) else { return }
+            guard !applyingSort, let d = tableView.sortDescriptors.first, let key = d.key.flatMap(MessageSort.init(rawValue:)) else { return }
             model.setSort(key, ascending: d.ascending)
         }
     }

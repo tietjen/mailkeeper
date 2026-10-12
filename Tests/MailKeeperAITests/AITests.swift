@@ -53,7 +53,7 @@ func completion(_ content: String?, finish: String = "stop") -> String {
 
 @Suite("KI-Anbindung (ADR-0004)", .serialized)
 struct AITests {
-    let base = URL(string: "http://litellm.rk1.ziti:4000/v1")!
+    let base = URL(string: "http://llm.example.ziti:4000/v1")!
     var provider: OpenAICompatibleProvider { OpenAICompatibleProvider(baseURL: base, apiKey: "sk-test", timeout: 5, protocolClasses: [StubProtocol.self]) }
     let request = ChatRequest(task: .search, system: "sys", user: "Mailinhalt GEHEIM",
                               schema: .object(name: "q", properties: [.init("query", .string()), .init("why", .string(), optional: true)]))
@@ -67,15 +67,16 @@ struct AITests {
     }
 
     @Test func configKnowsLocalEndpointsAndTransport() throws {
-        #expect(AIConfig.isLocal(URL(string: "http://litellm.rk1.ziti:4000/v1")!))
+        #expect(AIConfig.isLocal(URL(string: "http://llm.example.ziti:4000/v1")!))
+        #expect(!AIConfig.isLocal(URL(string: "https://evil.lan.attacker.example/v1")!))  // review 5.9 N6
         #expect(AIConfig.isLocal(URL(string: "http://192.168.1.5:11434/v1")!) && AIConfig.isLocal(URL(string: "http://localhost:1234")!))
         #expect(!AIConfig.isLocal(URL(string: "https://api.openai.com/v1")!))
-        #expect(AIConfig.transportProblem(URL(string: "http://litellm.rk1.ziti:4000/v1")!) == nil)
+        #expect(AIConfig.transportProblem(URL(string: "http://llm.example.ziti:4000/v1")!) == nil)
         #expect(AIConfig.transportProblem(URL(string: "http://192.168.1.5:11434/v1")!) != nil)  // ATS: HTTPS needed
         var c = AIConfig(enabled: true, endpoint: base)
         #expect(c.model(for: .classify) == "llm-fast" && c.model(for: .embed) == "embedding")
         c.setModel(" classifier ", for: .classify)
-        #expect(c.model(for: .classify) == "classifier" && c.secretKey == "ai:litellm.rk1.ziti:4000")
+        #expect(c.model(for: .classify) == "classifier" && c.secretKey == "ai:llm.example.ziti:4000")
         let layout = try ArchiveLayout.open(at: tempDir().appending(path: "ai"), create: true)
         try AIConfigStore(layout: layout).save(c)
         #expect(AIConfigStore(layout: layout).load() == c)
@@ -209,9 +210,9 @@ struct EmbeddingIndexerTests {
         batch.append((sampleMessage(id: "<g@t.test>", subject: "Grillen am Samstag"), LocationInfo(account: "x", mailbox: "INBOX", providerID: "g")))
         _ = try await writer.ingest(batch)
         _ = try await writer.classifyHeuristically()
-        let provider = OpenAICompatibleProvider(baseURL: URL(string: "http://litellm.rk1.ziti:4000/v1")!, apiKey: "sk", timeout: 5,
+        let provider = OpenAICompatibleProvider(baseURL: URL(string: "http://llm.example.ziti:4000/v1")!, apiKey: "sk", timeout: 5,
                                                 protocolClasses: [EmbedStubProtocol.self])
-        let router = AIRouter(config: AIConfig(enabled: true, endpoint: URL(string: "http://litellm.rk1.ziti:4000/v1")!), endpoint: provider, onDevice: nil,
+        let router = AIRouter(config: AIConfig(enabled: true, endpoint: URL(string: "http://llm.example.ziti:4000/v1")!), endpoint: provider, onDevice: nil,
                               log: AICallLog(url: tempDir().appending(path: "l.jsonl")))
         var indexer = EmbeddingIndexer(router: router, writer: writer)
         indexer.batch = 3
@@ -233,7 +234,7 @@ struct EmbeddingRetryTests {
         _ = try await writer.ingest((1...4).map { n in
             (sampleMessage(id: "<r\(n)@t.test>", subject: "Mail \(n)"), LocationInfo(account: "x", mailbox: "INBOX", providerID: "r\(n)"))
         })
-        let base = URL(string: "http://litellm.rk1.ziti:4000/v1")!
+        let base = URL(string: "http://llm.example.ziti:4000/v1")!
         let provider = OpenAICompatibleProvider(baseURL: base, apiKey: "sk", timeout: 5, protocolClasses: [FlakyEmbedStubProtocol.self])
         let router = AIRouter(config: AIConfig(enabled: true, endpoint: base), endpoint: provider, onDevice: nil,
                               log: AICallLog(url: tempDir().appending(path: "l.jsonl")))
@@ -327,11 +328,56 @@ final class EmbedStubProtocol: URLProtocol, @unchecked Sendable {
 @Suite("Embeddings in Paketen", .serialized)
 struct EmbeddingBatchTests {
     @Test func moreThan32TextsGoInSeveralRequestsAndEmptyOnesAreReplaced() async throws {
-        let provider = OpenAICompatibleProvider(baseURL: URL(string: "http://litellm.rk1.ziti:4000/v1")!, apiKey: "sk", timeout: 5,
+        let provider = OpenAICompatibleProvider(baseURL: URL(string: "http://llm.example.ziti:4000/v1")!, apiKey: "sk", timeout: 5,
                                                 protocolClasses: [EmbedStubProtocol.self])
         let texts = (0..<70).map { $0 == 5 ? "  " : "Newsletter \($0)" }
         let vectors = try await provider.embed(texts, model: "embedding")
         #expect(vectors.count == 70)
         #expect(vectors[5] == [0, 0, 1])  // "(ohne Text)": no newsletter
     }
+}
+
+@Suite("Review 5.9: router and transport")
+struct RouterReviewTests {
+    @Test("S1: a paused endpoint is no 'not configured' — a run must not stop on it")
+    func aPausedEndpointSaysWhy() async throws {
+        let base = URL(string: "http://127.0.0.1:9/v1")!  // nothing listens: connection refused
+        let router = AIRouter(config: AIConfig(enabled: true, endpoint: base, onDevice: false),
+                              endpoint: OpenAICompatibleProvider(baseURL: base, apiKey: nil, timeout: 5), onDevice: nil,
+                              log: AICallLog(url: tempDir().appending(path: "l.jsonl")))
+        let request = ChatRequest(task: .classify, system: "s", user: "u")
+        for _ in 0..<2 {  // the first call pauses the endpoint, the second meets the pause
+            do {
+                _ = try await router.chat(request)
+                Issue.record("no error")
+            } catch let error as AIError {
+                #expect(error != .notConfigured, "\(error)")
+                if case .connection = error {} else { Issue.record("expected the connection error, got \(error)") }
+            }
+        }
+        #expect(await router.endpointPaused)
+    }
+
+    @Test("C4: an oversized answer is refused while it arrives")
+    func anOversizedAnswerIsRefused() async throws {
+        let base = URL(string: "http://litellm.example.ziti:4000/v1")!
+        let provider = OpenAICompatibleProvider(baseURL: base, apiKey: nil, timeout: 5, protocolClasses: [HugeStubProtocol.self])
+        await #expect(throws: AIError.badAnswer(String(localized: "Antwort zu groß"))) {
+            _ = try await provider.chat(ChatRequest(task: .classify, system: "s", user: "u"), model: "m", attempt: 1)
+        }
+    }
+}
+
+/// Streams an endless-looking answer (5 MiB, above the 4 MiB chat limit), without a length header.
+final class HugeStubProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                            cacheStoragePolicy: .notAllowed)
+        let chunk = Data(repeating: 0x20, count: 1 << 20)
+        for _ in 0..<5 { client?.urlProtocol(self, didLoad: chunk) }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }

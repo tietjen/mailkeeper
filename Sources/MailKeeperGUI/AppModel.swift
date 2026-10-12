@@ -391,6 +391,8 @@ final class AppModel {
             rankedMode = nil
             rankedIDs = []
             embedFailed = false
+            translationTask?.cancel()
+            translationTask = nil
             for (_, running) in summaryTasks { running.task.cancel() }
             summaryTasks = [:]
             summaries = [:]
@@ -496,8 +498,12 @@ final class AppModel {
         if rankedMode != nil {
             filter.ids = rankedIDs
             do {
-                let rank = Dictionary(uniqueKeysWithValues: rankedIDs.enumerated().map { ($1, $0) })
-                messageIDs = try reader.messageIDs(filter).sorted { (rank[$0] ?? .max) < (rank[$1] ?? .max) }
+                if let order = rankedSort {  // TJ: a column click sorts a ranked list too
+                    messageIDs = try reader.messageIDs(filter, sort: order.sort, ascending: order.ascending)
+                } else {
+                    let rank = Dictionary(uniqueKeysWithValues: rankedIDs.enumerated().map { ($1, $0) })
+                    messageIDs = try reader.messageIDs(filter).sorted { (rank[$0] ?? .max) < (rank[$1] ?? .max) }
+                }
                 listError = nil
             } catch {
                 messageIDs = []
@@ -873,9 +879,27 @@ final class AppModel {
     }
 
     func setSort(_ sort: MessageSort, ascending: Bool) {
+        if rankedMode != nil {  // a ranked list keeps its own order; the list behind it keeps its sort
+            guard rankedSort?.sort != sort || rankedSort?.ascending != ascending else { return }
+            rankedSort = (sort, ascending)
+            reloadList()
+            return
+        }
         guard sort != self.sort || ascending != self.ascending else { return }
         self.sort = sort
         self.ascending = ascending
+        reloadList()
+    }
+
+    /// The order the table header shows: a column, or none while a ranked list is by score.
+    var tableSort: (sort: MessageSort, ascending: Bool)? {
+        rankedMode != nil ? rankedSort : (sort, ascending)
+    }
+
+    /// Back to "most similar first".
+    func sortRankedByScore() {
+        guard rankedMode != nil, rankedSort != nil else { return }
+        rankedSort = nil
         reloadList()
     }
 
@@ -1334,7 +1358,8 @@ final class AppModel {
         // vectors for semantic search (5.7): only with an endpoint, never on the Mac's model
         let router = aiConfig.enabled && aiConfig.endpoint != nil && !embedFailed ? aiRouter() : nil
         let embeds = router != nil && ((try? reader.embeddingCounts(model: aiConfig.model(for: .embed))).map { $0.done < $0.total } ?? false)
-        guard pdfs || expired || rules || embeds else { return }
+        let similarDue = router != nil && ((try? reader.staleSimilarCount()) ?? 0) > 0  // a stricter vote decides again
+        guard pdfs || expired || rules || embeds || similarDue else { return }
         let extractor = pdfText
         let token = UUID()
         textIndexToken = token
@@ -1352,10 +1377,12 @@ final class AppModel {
                         Task { @MainActor in if self?.textIndexToken == token { self?.textIndexProgress = p } }
                     }
                 }
-                if embeds, let router {
+                if embeds || similarDue, let router {
                     let indexer = EmbeddingIndexer(router: router, writer: writer)
                     do {
-                        try await indexer.run { p in Task { @MainActor in if self?.textIndexToken == token { self?.embedProgress = p } } }
+                        if embeds {
+                            try await indexer.run { p in Task { @MainActor in if self?.textIndexToken == token { self?.embedProgress = p } } }
+                        }
                         if try await indexer.decideOpenBySimilarity() > 0 { await MainActor.run { self?.contentGeneration += 1 } }
                         await MainActor.run { self?.vectorCache = nil }  // new vectors: rebuilt on the next search
                     } catch is CancellationError {
@@ -1484,6 +1511,8 @@ final class AppModel {
                 for (n, id) in ids.enumerated() {
                     try Task.checkCancellation()
                     do {
+                        // the user decided this one: no model call, nothing would be written (review 5.9 N7)
+                        if try reader.classification(of: id)?.source == .user { continue }
                         guard let parsed = try reader.parsedMessage(id) else { continue }
                         let c = try await classifier.classify(MailSnapshot(parsed))
                         try await writer.setClassification(messageID: id, category: c.category,
@@ -1644,10 +1673,15 @@ final class AppModel {
 
     /// "Kein Spam → Posteingang": one mail at once (checked, queued, logged); several through the plan.
     func rescueSelection() {
-        guard let reader else { return }
-        let ids = actionSelection
-        guard !ids.isEmpty else { return }
+        guard let reader, !actionSelection.isEmpty else { return }
         do {
+            // only what lies in a spam folder: a mixed selection must not journal "kein Spam" for
+            // INBOX mail that was never judged (review 5.9 S2)
+            let ids = try reader.messageIDs(MessageFilter(text: "is:junk ", ids: actionSelection))
+            guard !ids.isEmpty else {
+                actionError = String(localized: "Keine der ausgewählten Mails liegt in einem Spam-Ordner.")
+                return
+            }
             let title = ids.count == 1 ? String(localized: "1 Mail aus dem Spam-Ordner") : String(localized: "\(ids.count) Mails aus dem Spam-Ordner")
             let (job, summary) = try reader.planRescue(MessageFilter(ids: ids), title: title, accounts: accountConfigs)
             // Mails with no spam folder on a server MailKeeper knows (imported): nothing to move,
@@ -1680,7 +1714,8 @@ final class AppModel {
 
     /// "Ist Spam": the user's decision (journalled).
     func markSpamSelection() {
-        guard let reader, let identities = try? reader.identities(of: actionSelection), !identities.isEmpty else { return }
+        guard let reader, let inJunk = try? reader.messageIDs(MessageFilter(text: "is:junk ", ids: actionSelection)),
+              let identities = try? reader.identities(of: inJunk), !identities.isEmpty else { return }
         withWriter { writer in
             for identity in identities { try await writer.setUserClassification(identity: identity, category: .spam) }
         }
@@ -1694,8 +1729,10 @@ final class AppModel {
         case semantic(String)
     }
 
-    private(set) var rankedMode: RankedMode?
+    private(set) var rankedMode: RankedMode? { didSet { if rankedMode != oldValue { rankedSort = nil } } }
     private var rankedIDs: [Int64] = []
+    /// A column order chosen in a ranked list; nil = by score (each new ranked list starts there).
+    private(set) var rankedSort: (sort: MessageSort, ascending: Bool)?
     private(set) var rankedSearching = false
     private var embedFailed = false
     private var vectorCache: VectorIndex?
@@ -1708,11 +1745,14 @@ final class AppModel {
         return rest.isEmpty ? nil : rest
     }
 
+    /// The archive's vectors (loaded once). Nil when the archive changed while loading — ids of
+    /// one archive mean nothing in another (review 5.9 C1).
     private func vectors() async -> VectorIndex? {
         if let vectorCache { return vectorCache }
-        guard let layout = reader?.layout else { return nil }
+        guard let layout = reader?.layout, let root = archiveRoot else { return nil }
         let model = aiConfig.model(for: .embed)
         let index = await Task.detached(priority: .userInitiated) { try? ArchiveReader(layout: layout).vectorIndex(model: model) }.value
+        guard archiveRoot == root else { return nil }
         vectorCache = (index?.count ?? 0) > 0 ? index : nil
         return vectorCache
     }
@@ -1720,8 +1760,10 @@ final class AppModel {
     /// Mails like this one, most similar first (reader: "Ähnliche Mails").
     func showSimilar(_ id: Int64) {
         let subject = summaries([id]).first?.subject ?? ""
+        let root = archiveRoot
         Task {
-            guard let index = await vectors(), let v = index.vector(of: id) else {
+            guard let index = await vectors(), archiveRoot == root else { return }
+            guard let v = index.vector(of: id) else {
                 actionError = String(localized: "Für diese Mail gibt es noch keinen Vektor – die Embeddings laufen im Hintergrund (Statusleiste).")
                 return
             }
@@ -1745,14 +1787,16 @@ final class AppModel {
             return
         }
         rankedSearching = true
+        let root = archiveRoot
         Task {
             defer { rankedSearching = false }
             do {
                 guard let index = await vectors() else {
-                    queryError = String(localized: "Noch keine Vektoren – die Embeddings laufen im Hintergrund (Statusleiste).")
+                    if archiveRoot == root { queryError = String(localized: "Noch keine Vektoren – die Embeddings laufen im Hintergrund (Statusleiste).") }
                     return
                 }
                 let q = VectorMath.normalized(try await router.embed([text]).first ?? [])
+                guard archiveRoot == root else { return }
                 guard semanticText == text else {  // typed on meanwhile: search the current text
                     rankedSearching = false
                     reloadList()

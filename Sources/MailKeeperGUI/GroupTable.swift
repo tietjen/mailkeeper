@@ -10,7 +10,7 @@ struct GroupTable: View {
     var body: some View {
         let selection = Binding<MessageGroup.ID?>(get: { model.selectedGroupID }, set: { model.selectedGroupID = $0 })
         Table(model.groups.sorted(using: sortOrder), selection: selection, sortOrder: $sortOrder) {
-            TableColumn(title, value: \.key) { g in
+            TableColumn(title, value: \.displaySort) { g in  // by what is shown: the name, else the key
                 VStack(alignment: .leading, spacing: 1) {
                     Text(DisplayText.safe(g.name ?? g.key)).lineLimit(1)
                     if g.name != nil {
@@ -97,4 +97,5 @@ extension MessageGroup {
     var unreadShare: Double { count > 0 ? Double(unread) / Double(count) : 0 }
     var newestSort: Date { newest ?? .distantPast }
     var oldestSort: Date { oldest ?? .distantPast }
+    var displaySort: String { (name ?? key).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
 }

@@ -51,6 +51,13 @@ mail takes the category its labelled neighbours agree on (≥ 4 neighbours with 
 ≥ 70 % of their weight), stored as source `similar` with the vote as reason; similarity is never
 a label for others, never decides phishing, and a model answer replaces it. "Ähnliche Mails"
 and search by meaning ("~ text") rank by cosine. No on-device embeddings yet (other vector space).
+Review 5.9: similarity never assigns account/security, personal, work or spam (like the rules — it
+would lend a lure credibility and take it out of the open set the model is asked about), and
+notification, invoice, order and travel only when the mail's registrable sender domain is the one
+most agreeing neighbours share; newsletters by vote alone. The vote is versioned (`rule` =
+`similar-v2`): rows of an older vote are reopened and decided again, and a rule change looks at
+similar rows again. A ranked list sorts by any column too ("Ähnlichste zuerst" goes back). The
+vector index stays Float32 in memory (≈ 170 MB at 42k mails); Float16 in memory if archives grow.
 
 *As built (5.8):* summaries on request only — a mail, or its conversation (the newest 25
 messages, oldest first, replies without the mail they quote: a line scanner, no regex). The

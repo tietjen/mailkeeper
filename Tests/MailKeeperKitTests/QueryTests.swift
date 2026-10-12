@@ -295,22 +295,22 @@ struct GroupTests {
         #expect(try r.groups(MessageFilter(text: "has:attachment"), by: .domain).map(\.key).sorted() == ["amazon.de", "example.org"])
     }
 
-    @Test("A sender is named by the name it uses most, not the one that sorts last (TJ: 'ownCloud')")
+    @Test("A sender is named by the name it uses most, not the one that sorts last (TJ: a notifier's name won)")
     func senderGroupTakesTheUsualName() async throws {
         let layout = try ArchiveLayout.open(at: tempDir().appending(path: "names"), create: true)
         let writer = try ArchiveWriter(layout: layout)
         try await writer.register(AccountInfo(id: "a", kind: "imap", name: "A"))
-        let names = ["Jan Tietjen", "Jan Tietjen", "Jan Tietjen", "ownCloud", "Parasec", "JTP"]
+        let names = ["Max Muster", "Max Muster", "Max Muster", "ownCloud", "Firma", "MM"]  // "o" sorts after "M"
         _ = try await writer.ingest(names.enumerated().map { n, name in
-            (sampleMessage(id: "<n\(n)@t.test>", subject: "M\(n)", from: "\(name) <jan@own.test>"),
+            (sampleMessage(id: "<n\(n)@t.test>", subject: "M\(n)", from: "\(name) <max@own.test>"),
              LocationInfo(account: "a", mailbox: "Sent", providerID: "\(n)"))
         } + [(sampleMessage(id: "<o@t.test>", subject: "Other", from: "zz <other@own.test>"), LocationInfo(account: "a", mailbox: "INBOX", providerID: "9"))])
         let r = try ArchiveReader(layout: layout)
         let senders = try r.groups(MessageFilter(), by: .sender)
-        #expect(senders.first { $0.key == "jan@own.test" }?.name == "Jan Tietjen")
+        #expect(senders.first { $0.key == "max@own.test" }?.name == "Max Muster")
         #expect(senders.first { $0.key == "other@own.test" }?.name == "zz")
         let domain = try #require(try r.groups(MessageFilter(), by: .domain).first)
-        #expect(try r.groupDetail(domain, within: MessageFilter()).members.first { $0.address == "jan@own.test" }?.name == "Jan Tietjen")
+        #expect(try r.groupDetail(domain, within: MessageFilter()).members.first { $0.address == "max@own.test" }?.name == "Max Muster")
     }
 
     @Test func exactFieldsDoNotMatchNeighbours() async throws {
@@ -562,30 +562,30 @@ struct MessageFilterTests {
     @Test func everyOfferedFilterMatchesItsMailAndExclusionDropsIt() async throws {
         let layout = try ArchiveLayout.open(at: tempDir().appending(path: "mf"), create: true)
         let writer = try ArchiveWriter(layout: layout)
-        try await writer.register(AccountInfo(id: "jan-tietjen", kind: "maildir", name: "Jan"))
+        try await writer.register(AccountInfo(id: "max-muster", kind: "maildir", name: "Max"))
         let mail = eml("""
-        From: Finom <no-reply@finom.me>
-        To: Jan Tietjen <jan.tietjen@parasec.de>
-        Cc: "Buchhaltung (intern)" <buchhaltung@parasec.de>
-        Subject: AW: Zahlung an PMPG (Lastschrift) "gesendet"
+        From: Bank <no-reply@bank.example>
+        To: Max Muster <max@muster.example>
+        Cc: "Buchhaltung (intern)" <buchhaltung@muster.example>
+        Subject: AW: Zahlung an Muster GmbH (Lastschrift) "gesendet"
         Date: Sat, 10 Oct 2026 02:26:00 +0200
-        Message-ID: <f1@finom.me>
-        List-Id: Finom Updates <updates.finom.me>
+        Message-ID: <f1@bank.example>
+        List-Id: Bank Updates <updates.bank.example>
 
         Ihre Zahlung wurde gesendet.
         """)
         _ = try await writer.ingest([
-            (mail, LocationInfo(account: "jan-tietjen", mailbox: "Mein Ordner*", providerID: "1")),
-            (sampleMessage(id: "<f2@finom.me>", subject: "Andere", from: "Support <support@finom.me>"),
-             LocationInfo(account: "jan-tietjen", mailbox: "INBOX", providerID: "2")),
+            (mail, LocationInfo(account: "max-muster", mailbox: "Mein Ordner*", providerID: "1")),
+            (sampleMessage(id: "<f2@bank.example>", subject: "Andere", from: "Support <support@bank.example>"),
+             LocationInfo(account: "max-muster", mailbox: "INBOX", providerID: "2")),
         ])
         let r = try ArchiveReader(layout: layout)
         let ids = { (q: String) in try r.messageIDs(MessageFilter(text: q + " ")) }
-        let target = try #require(try ids("msgid:f1@finom.me").first)
+        let target = try #require(try ids("msgid:f1@bank.example").first)
         let p = try #require(try r.parsedMessage(target))
         var options = MessageFilters.sender(p.from[0]) + MessageFilters.date(p.date!)
         options += (p.to + p.cc).flatMap(MessageFilters.recipient)
-        options += MessageFilters.place(account: "jan-tietjen", mailbox: "Mein Ordner*")
+        options += MessageFilters.place(account: "max-muster", mailbox: "Mein Ordner*")
         options += MessageFilters.list(p.listID!) + MessageFilters.subject(p.subject!)
         #expect(options.count == 14)
         for o in options {
@@ -596,8 +596,8 @@ struct MessageFilterTests {
         #expect(try ids(MessageFilters.sender(p.from[0])[0].query).count == 1)
         #expect(try ids(MessageFilters.sender(p.from[0])[1].query).count == 2)
         // TJ's edit: drop the local part of a sender chip → the whole domain
-        #expect(try ids("sender:@finom.me").count == 2)
-        #expect(try QueryParser.parse("sender:@finom.me").root == .predicate(.domain("finom.me")))
+        #expect(try ids("sender:@bank.example").count == 2)
+        #expect(try QueryParser.parse("sender:@bank.example").root == .predicate(.domain("bank.example")))
         #expect(throws: QueryError.self) { _ = try QueryParser.parse("sender:@") }
     }
 

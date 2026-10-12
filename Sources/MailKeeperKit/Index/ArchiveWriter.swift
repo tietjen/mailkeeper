@@ -674,7 +674,7 @@ public actor ArchiveWriter {
                    EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id AND a.is_inline = 0
                            AND (a.mime_type = 'application/pdf' OR a.filename LIKE '%.pdf'))
             FROM messages m LEFT JOIN classifications c ON c.message_id = m.id
-            WHERE c.message_id IS NULL OR (c.source = 'heuristic' AND c.version < ?)
+            WHERE c.message_id IS NULL OR (c.source IN ('heuristic', 'similar') AND c.version < ?)
             LIMIT ?
             """, [.int(Int64(Heuristics.version)), .int(Int64(batch))]) { r in
             (r.int(0), HeuristicFeatures(from: r.text(1), subject: r.text(2), listID: r.text(3), listUnsubscribe: r.bool(4),
@@ -709,7 +709,8 @@ public actor ArchiveWriter {
             WHERE id = ? AND id NOT IN (SELECT message_id FROM classifications WHERE source = 'user')
             ON CONFLICT(message_id) DO UPDATE SET category = excluded.category, source = excluded.source, rule = NULL,
                 model = excluded.model, reason = excluded.reason, version = 0, created = excluded.created,
-                phishing = excluded.phishing, phishing_reason = excluded.phishing_reason
+                phishing = CASE WHEN classifications.verdict = 'ham' THEN NULL ELSE excluded.phishing END,
+                phishing_reason = CASE WHEN classifications.verdict = 'ham' THEN NULL ELSE excluded.phishing_reason END
             """, [.text(category.rawValue), .text(source.rawValue), .optional(model), .optional(reason),
                   .double(Date().timeIntervalSince1970), .optional(phishing?.rawValue), .optional(phishingReason), .int(messageID)])
     }
@@ -746,6 +747,9 @@ public actor ArchiveWriter {
                 INSERT INTO classifications(message_id, category, source, rule, model, reason, version, created, verdict)
                 SELECT id, NULL, 'heuristic', NULL, NULL, NULL, 0, ?, ? FROM messages WHERE identity = ?
                 ON CONFLICT(message_id) DO UPDATE SET verdict = excluded.verdict,
+                    -- "kein Spam" is the user's word on phishing too: a model's flag goes (review 5.9 C6)
+                    phishing = CASE WHEN excluded.verdict = 'ham' THEN NULL ELSE classifications.phishing END,
+                    phishing_reason = CASE WHEN excluded.verdict = 'ham' THEN NULL ELSE classifications.phishing_reason END,
                     category = CASE WHEN classifications.source = 'user' AND classifications.category = 'spam' THEN NULL ELSE classifications.category END,
                     source = CASE WHEN classifications.source = 'user' AND classifications.category = 'spam' THEN 'heuristic' ELSE classifications.source END
                 """, [.double(time), .optional(verdict), .text(identity)])
@@ -767,17 +771,28 @@ public actor ArchiveWriter {
     }
 
     /// A category taken from similar mails: only where the rules left it open and neither a
-    /// model nor the user decided — a later model answer or rule change replaces it.
+    /// model nor the user decided. A model answer replaces it; so does a rule change (the row
+    /// keeps the rules' version, and `classifyHeuristically` looks at it again); a newer vote
+    /// (`SimilarVote.ruleTag` in `rule`) decides it again.
     public func setSimilarClassification(_ items: [(id: Int64, category: MailCategory, reason: String)]) throws {
         let now = Date().timeIntervalSince1970
         try db.transaction {
             for item in items {
                 try db.run("""
-                    UPDATE classifications SET category = ?, source = 'similar', reason = ?, rule = NULL, model = NULL, created = ?
+                    UPDATE classifications SET category = ?, source = 'similar', reason = ?, rule = ?, model = NULL, created = ?
                     WHERE message_id = ? AND category IS NULL AND verdict IS NULL AND source = 'heuristic'
-                    """, [.text(item.category.rawValue), .text(item.reason), .double(now), .int(item.id)])
+                    """, [.text(item.category.rawValue), .text(item.reason), .text(SimilarVote.ruleTag), .double(now), .int(item.id)])
             }
         }
+    }
+
+    /// Rows of an older vote go back to open, to be decided again under the current one.
+    public func reopenStaleSimilar() throws -> Int {
+        try db.run("""
+            UPDATE classifications SET category = NULL, source = 'heuristic', reason = NULL, rule = NULL
+            WHERE source = 'similar' AND coalesce(rule, '') != ?
+            """, [.text(SimilarVote.ruleTag)])
+        return db.changes
     }
 
     /// Locations marked gone that the server lists again (a mailbox missing from one LIST, a
