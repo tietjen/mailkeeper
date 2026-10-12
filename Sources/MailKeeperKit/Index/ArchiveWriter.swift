@@ -982,10 +982,11 @@ extension ArchiveWriter {
         let list = Relations.normalize(domains)
         guard !clean.isEmpty else { throw ArchiveError.invalid("Die Beziehung braucht einen Namen") }
         guard !list.isEmpty else { throw ArchiveError.invalid("Die Beziehung braucht mindestens eine Domain, z. B. sparkasse.de") }
+        var content = MemoryContent(name: String(clean.prefix(120)), domains: list,
+                                    since: since?.timeIntervalSince1970, until: until?.timeIntervalSince1970)
+        content.rejected = active ? nil : true  // "Ablehnen", not "Vergessen" (review 6 S3)
         return JournalEvent.MemoryRecord(id: id ?? "rel:" + UUID().uuidString.lowercased(), kind: MemoryKind.relation.rawValue, scope: "",
-                                         subject: "domain:" + list[0], active: active,
-                                         content: MemoryContent(name: String(clean.prefix(120)), domains: list,
-                                                                since: since?.timeIntervalSince1970, until: until?.timeIntervalSince1970))
+                                         subject: "domain:" + list[0], active: active, content: content)
     }
 
     /// The example of a decided message, after each decision (live and in a rebuild): a new
@@ -1035,6 +1036,27 @@ extension ArchiveWriter {
 extension ArchiveWriter {
     /// Marks messages as looked at by the screening, with the register's or the own server's
     /// warning (derived data, not journalled).
+    /// After the register changed (a relation confirmed, extended, ended, forgotten): the warnings
+    /// of screened mails are computed again — a domain added to a relation is no look-alike any
+    /// more, a new relation can make another mail one (review 6 S1). Returns how many changed.
+    @discardableResult
+    public func refreshWarnings() throws -> Int {
+        let reader = try ArchiveReader(layout: layout)
+        let relations = try reader.relations(), servers = try reader.ownAuthServers(), publics = try reader.publicAddresses()
+        let rows = try db.query("SELECT message_id, warning FROM classifications WHERE screened IS NOT NULL OR warning IS NOT NULL") { ($0.int(0), $0.text(1)) }
+        var updates: [(Int64, String?)] = []
+        for (id, old) in rows {
+            let check = try reader.relationCheck(of: id, relations: relations, servers: servers, publicAddresses: publics)
+            var warning: String?
+            if check.lookAlike != nil { warning = "lookalike" } else if case .failed = check.server { warning = "serverfail" }
+            if warning != old { updates.append((id, warning)) }
+        }
+        try db.transaction {
+            for (id, warning) in updates { try db.run("UPDATE classifications SET warning = ? WHERE message_id = ?", [.optional(warning), .int(id)]) }
+        }
+        return updates.count
+    }
+
     /// `markScreened: false` stores only the warning (a model's candidate is marked after its answer).
     public func setScreened(_ items: [ScreeningCandidate], markScreened: Bool = true) throws {
         guard !items.isEmpty else { return }

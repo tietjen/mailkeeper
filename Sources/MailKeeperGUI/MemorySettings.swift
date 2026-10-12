@@ -40,12 +40,12 @@ struct MemorySettings: View {
                     .width(min: 70, ideal: 80)
             }
             .contextMenu(forSelectionType: String.self) { ids in
-                if ids.count == 1, let item = model.memoryItems.first(where: { $0.id == ids.first }), item.provenance == .user {
+                if ids.count == 1, let item = model.memoryItems.first(where: { $0.id == ids.first }), Self.editable(item) {
                     Button("Bearbeiten …") { draft = NoteDraft(item) }
                 }
                 Button("Vergessen") { forget(ids) }
             } primaryAction: { ids in
-                if ids.count == 1, let item = model.memoryItems.first(where: { $0.id == ids.first }), item.provenance == .user { draft = NoteDraft(item) }
+                if ids.count == 1, let item = model.memoryItems.first(where: { $0.id == ids.first }), Self.editable(item) { draft = NoteDraft(item) }
             }
             HStack {
                 Button("Notiz …") { draft = NoteDraft(kind: .preference) }
@@ -59,7 +59,7 @@ struct MemorySettings: View {
                     .help("Alles hier als JSON-Datei sichern")
                 Button("Importieren …") { Task { message = await model.importMemory() } }
                     .help("Notizen und Begriffe aus einer exportierten Datei übernehmen; Beispiele gehören zum Archiv, aus dem sie stammen")
-                Button("Alles vergessen …") { confirmForgetAll = true }.disabled(model.memoryItems.isEmpty)
+                Button("Alles vergessen …") { confirmForgetAll = true }.disabled(forgettable.isEmpty)
             }
             if let message { Text(DisplayText.safe(message)).font(.callout).foregroundStyle(.secondary) }
         }
@@ -73,10 +73,20 @@ struct MemorySettings: View {
             }
         }
         .confirmationDialog("Alles vergessen?", isPresented: $confirmForgetAll) {
-            Button("\(model.memoryItems.count) Einträge vergessen", role: .destructive) { forget(Set(model.memoryItems.map(\.id))) }
+            Button("\(forgettable.count) Einträge vergessen", role: .destructive) { forget(Set(forgettable.map(\.id))) }
         } message: {
-            Text("Notizen, Begriffe und Beispiele werden nicht mehr verwendet. Deine Entscheidungen an den Mails bleiben; eine neue Entscheidung wird wieder ein Beispiel.")
+            Text("Notizen, Begriffe und Beispiele werden nicht mehr verwendet. Deine Entscheidungen an den Mails bleiben; eine neue Entscheidung wird wieder ein Beispiel. Beziehungen, Regeln und öffentliche Adressen bleiben – die verwaltest du in ihren eigenen Reitern.")
         }
+    }
+
+    /// "Alles vergessen" means notes, terms and examples — never relations, rules or public
+    /// addresses, which have their own tabs (review 6 S3).
+    private var forgettable: [MemoryItem] {
+        model.memoryItems.filter { ($0.kind == .preference || $0.kind == .vocabulary || $0.kind == .example) && !$0.subject.hasPrefix("public:") }
+    }
+
+    static func editable(_ item: MemoryItem) -> Bool {
+        item.provenance == .user && (item.kind == .preference || item.kind == .vocabulary) && !item.subject.hasPrefix("public:")
     }
 
     private func forget(_ ids: Set<String>) {

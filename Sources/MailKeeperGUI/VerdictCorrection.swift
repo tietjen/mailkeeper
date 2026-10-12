@@ -13,7 +13,11 @@ struct VerdictCorrectionSheet: View {
 
     @State private var saveRelation = true
     @State private var relationName = ""
-    @State private var relationDomains = ""
+    /// The relation's domains as the user leaves them: an existing relation's, this mail's, and
+    /// the options it ticked (pre-ticked only with evidence — review 6 S2).
+    @State private var fixedDomains: [String] = []
+    @State private var options: [ProposedRelation.Domain] = []
+    @State private var chosen: Set<String> = []
     @State private var saveNote = true
     @State private var note = ""
     @State private var recheck = true
@@ -59,14 +63,22 @@ struct VerdictCorrectionSheet: View {
                 }
             }
             if saveRelation {
-                Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 6) {
-                    GridRow {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
                         Text("Name").foregroundStyle(.secondary)
                         TextField("z. B. PayPal", text: $relationName).disabled(existing != nil)
                     }
-                    GridRow {
-                        Text("Domains").foregroundStyle(.secondary)
-                        TextField("paypal.de, paypal.com", text: $relationDomains)
+                    Text("Domains: \(fixedDomains.joined(separator: ", "))").font(.callout)
+                    if !options.isEmpty {
+                        Text("Auch dazu? Nur ankreuzen, wenn du sicher bist – vorgewählt ist, wofür es Belege gibt.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        ForEach(options, id: \.domain) { option in
+                            Toggle(isOn: Binding(get: { chosen.contains(option.domain) },
+                                                 set: { on in if on { chosen.insert(option.domain) } else { chosen.remove(option.domain) } })) {
+                                Text("\(option.domain) – \(option.mails) Mails · \(option.why)")
+                                    .foregroundStyle(option.why.hasPrefix("Warnung") ? .red : .primary)
+                            }
+                        }
                     }
                 }
                 .padding(.leading, 20)
@@ -91,7 +103,7 @@ struct VerdictCorrectionSheet: View {
                 Button("Abbrechen", action: done).keyboardShortcut(.cancelAction)
                 Button("Übernehmen") { apply() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(saving || (saveRelation && (relationName.trimmingCharacters(in: .whitespaces).isEmpty || relationDomains.isEmpty)))
+                    .disabled(saving || (saveRelation && (relationName.trimmingCharacters(in: .whitespaces).isEmpty || domainList.isEmpty)))
             }
         }
         .padding(20)
@@ -100,29 +112,29 @@ struct VerdictCorrectionSheet: View {
     }
 
     private var domainList: [String] {
-        relationDomains.split(whereSeparator: { $0 == "," || $0 == " " || $0 == "\n" }).map(String.init)
+        fixedDomains + options.map(\.domain).filter(chosen.contains)
     }
 
     private func prefill() {
-        // the sender's domain, the sister domains its name used with a passing check, the Reply-To
+        // the sender's domain, and as options the sister domains and the Reply-To (review 6 S2)
         let proposal = model.proposedRelation(for: messageID, replyTo: message.replyTo.first?.address)
-        let domains = proposal.domains.isEmpty ? [senderDomain].compactMap { $0 } : proposal.domains
+        let own = proposal.domains.first.map { [$0.domain] } ?? [senderDomain].compactMap { $0 }
+        let base = Array(NSOrderedSet(array: (existing?.domains ?? []) + own)).compactMap { $0 as? String }
+        fixedDomains = base
+        options = proposal.domains.dropFirst().filter { !base.contains($0.domain) }
+        chosen = Set(options.filter(\.evidence).map(\.domain))
         if let existing {
             relationName = existing.name
-            relationDomains = Array(NSOrderedSet(array: existing.domains + domains)).compactMap { $0 as? String }.joined(separator: ", ")
-            saveRelation = !Set(domains).isSubset(of: Set(existing.domains))  // nothing to add: off
+            saveRelation = !Set(own).isSubset(of: Set(existing.domains)) || !options.isEmpty
         } else {
             relationName = proposal.name.isEmpty ? (senderDomain ?? "") : DisplayText.safe(proposal.name)
-            relationDomains = domains.joined(separator: ", ")
         }
         if let s = senderDomain {
-            let others = domains.filter { $0 != s }
-            note = others.isEmpty ? "Mails von \(s) sind echt."
-                : "Mails von \(s) und \(others.joined(separator: ", ")) gehören zusammen und sind echt."
+            note = "Mails von \(s) sind echt."
         } else {
             saveNote = false
         }
-        let all = Set(domains + (existing?.domains ?? []))
+        let all = Set(base + options.map(\.domain))
         alike = model.modelFlagged(fromDomains: all, name: message.from.first?.name, excluding: messageID)
     }
 

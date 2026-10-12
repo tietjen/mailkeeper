@@ -25,7 +25,7 @@ struct RelationSettings: View {
     }
 
     private var confirmed: [Relation] { model.relations.filter(\.confirmed).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending } }
-    private var rejected: [Relation] { model.relations.filter { !$0.confirmed } }
+    private var rejected: [Relation] { model.relations.filter { !$0.confirmed && $0.rejected } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {

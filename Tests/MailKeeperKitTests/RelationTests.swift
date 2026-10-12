@@ -48,6 +48,8 @@ struct RelationTests {
         // a forged header: another server's results in a mail of this account
         add(mail("z1", from: "info@sparkasse.example", subject: "Konto gesperrt", auth: "evil.example; dmarc=pass header.from=sparkasse.example"))
         _ = try await writer.ingest(batch)
+        // the account's IMAP host shares the own server's domain (review 6 B1: host or majority)
+        try AccountStore(layout: layout).save([AccountConfig.imap(id: "x", username: "u", host: "imap.own.test")])
         let r = try ArchiveReader(layout: layout)
         let id = { (key: String) in try #require(try r.messageIDs(MessageFilter(text: "msgid:\(key)@t.test ")).first) }
         for key in ["b1", "b2", "b3", "b4"] { try await writer.setClassification(messageID: try id(key), category: .invoice, source: .heuristic, model: nil, reason: nil) }
@@ -57,7 +59,7 @@ struct RelationTests {
 
     @Test func theOwnServerIsLearnedAndOnlyItsResultsCount() async throws {
         let (_, _, r) = try await Self.archive()
-        #expect(try r.ownAuthServers() == ["x": "mail.own.test"])
+        #expect(try r.ownAuthServers() == ["x": ["mail.own.test"]])
         let real = try #require(try r.messageIDs(MessageFilter(text: "msgid:b1@t.test ")).first)
         let forged = try #require(try r.messageIDs(MessageFilter(text: "msgid:z1@t.test ")).first)
         #expect(try r.authentication(of: real)?.trusted == true && r.authentication(of: real)?.results.dmarc == "pass")
@@ -100,7 +102,7 @@ struct RelationTests {
         try raw.run("UPDATE messages SET auth_server = NULL, auth_dmarc = NULL, headers_v = NULL")
         #expect(try r.ownAuthServers().isEmpty)
         while try await writer.indexHeaderFields(batch: 5) > 0 {}
-        #expect(try r.ownAuthServers() == ["x": "mail.own.test"])
+        #expect(try r.ownAuthServers() == ["x": ["mail.own.test"]])
     }
 }
 
@@ -111,7 +113,7 @@ struct RelationCheckTests {
         let extra: [(String, String, String, String?)] = [
             ("l1", "Sparkasse Service <service@sparkasse-kundenportal.example>", "me@own.test", "mail.own.test; dmarc=pass header.from=sparkasse-kundenportal.example"),
             ("l2", "Kundenservice <info@secure-login.example>", "me@own.test", "mail.own.test; dmarc=none"),
-            ("m1", "Michelle Obama <michelle@foundation.example>", "me@own.test", "mail.own.test; dmarc=pass"),
+            ("m1", "Erika Beispiel <erika@foundation.example>", "me@own.test", "mail.own.test; dmarc=pass"),
             ("k1", "Erika Muster <erika@neu.example>", "kontakt@own.test", "mail.own.test; dmarc=pass"),
             ("f1", "info@sparkasse.example", "me@own.test", "mail.own.test; dkim=fail; spf=fail; dmarc=fail header.from=sparkasse.example"),
         ]
@@ -119,7 +121,7 @@ struct RelationCheckTests {
             (RelationTests.mail(m.0, from: m.1, to: m.2, subject: "Betreff", auth: m.3), LocationInfo(account: "x", mailbox: "INBOX", providerID: "e\(n)"))
         })
         try await writer.saveRelation(name: "Sparkasse KölnBonn", domains: ["sparkasse.example"], since: nil, until: nil)
-        try await writer.saveRelation(name: "Michelle Schindler", domains: ["pfandbrief.example"], since: nil, until: nil)
+        try await writer.saveRelation(name: "Erika Mustermann", domains: ["pfandbrief.example"], since: nil, until: nil)
         try await writer.saveNote(kind: .preference, text: "öffentlich", subject: "public:kontakt@own.test")
         let id = { (key: String) in try #require(try r.messageIDs(MessageFilter(text: "msgid:\(key)@t.test ")).first) }
 
@@ -131,7 +133,7 @@ struct RelationCheckTests {
         #expect(lookAlike.lookAlike?.name == "Sparkasse KölnBonn" && lookAlike.isWarning)
         #expect(lookAlike.lines.first?.hasPrefix("Gibt sich als „Sparkasse KölnBonn“ aus, kommt aber von sparkasse-kundenportal.example") == true)
         #expect(try r.relationCheck(of: try id("l2")).isEmpty)  // claims nothing known
-        #expect(try r.relationCheck(of: try id("m1")).lookAlike == nil)  // a Michelle is no "Michelle Schindler"
+        #expect(try r.relationCheck(of: try id("m1")).lookAlike == nil)  // an Erika is no "Erika Mustermann"
 
         let forged = try r.relationCheck(of: try id("z1"))  // another server's "dmarc=pass" in a mail of the bank's domain
         #expect(forged.known != nil && forged.server == .foreign && forged.lines.last == "Die Prüfergebnisse in der Mail stammen nicht von deinem Server und zählen nicht.")
@@ -163,21 +165,93 @@ struct VerdictCorrectionTests {
     @Test("TJ's school: one sender name, two domains — both proposed, both rechecked; never the user's own domain")
     func sisterDomainsOfOneSender() async throws {
         let (_, writer, r) = try await RelationTests.archive()
-        let school = "Gymnasium Bonn via Schulmanager Online"
+        let school = "Gymnasium Musterstadt via Schulportal"
         let pass = { (d: String) in "mail.own.test; dmarc=pass header.from=\(d)" }
         _ = try await writer.ingest([
-            (RelationTests.mail("s1", from: "\(school) <mail@schulmanager-mail1.example>", subject: "Neue Nachricht", auth: pass("schulmanager-mail1.example")),
+            (RelationTests.mail("s1", from: "\(school) <mail@schulportal-mail1.example>", subject: "Neue Nachricht", auth: pass("schulportal-mail1.example")),
              LocationInfo(account: "x", mailbox: "INBOX", providerID: "s1")),
-            (RelationTests.mail("s2", from: "\(school) <mail@schulmanager-cdn.example>", subject: "Neue Nachricht", auth: pass("schulmanager-cdn.example")),
+            (RelationTests.mail("s2", from: "\(school) <mail@schulportal-cdn.example>", subject: "Neue Nachricht", auth: pass("schulportal-cdn.example")),
              LocationInfo(account: "x", mailbox: "INBOX", providerID: "s2")),
-            (RelationTests.mail("s3", from: "\(school) <mail@schulmanager-fake.example>", subject: "Neue Nachricht", auth: "evil.example; dmarc=pass"),
+            (RelationTests.mail("s3", from: "\(school) <mail@schulportal-fake.example>", subject: "Neue Nachricht", auth: "evil.example; dmarc=pass"),
              LocationInfo(account: "x", mailbox: "INBOX", providerID: "s3")),
         ])
         let id = { (key: String) in try #require(try r.messageIDs(MessageFilter(text: "msgid:\(key)@t.test ")).first) }
         let proposal = try r.proposedRelation(for: try id("s1"), replyTo: "eltern@own.test")
-        #expect(proposal.name == school && proposal.domains == ["schulmanager-mail1.example", "schulmanager-cdn.example"])  // not the forged one, not own.test
-        #expect(try r.proposedRelation(for: try id("b1"), replyTo: "service@sparkasse-bank.example").domains == ["sparkasse.example", "s-online.example", "sparkasse-bank.example"])  // its sister domain too
+        #expect(proposal.name == school && proposal.domains.map(\.domain) == ["schulportal-mail1.example", "schulportal-cdn.example"])  // not the forged one, not own.test
+        #expect(proposal.domains.map(\.evidence) == [true, false])  // the sister domain is offered, not pre-selected (review 6 S2)
+        let bank = try r.proposedRelation(for: try id("b1"), replyTo: "service@sparkasse-bank.example")
+        #expect(bank.domains.map(\.domain) == ["sparkasse.example", "s-online.example", "sparkasse-bank.example"])
+        #expect(bank.domains.map(\.evidence) == [true, true, false])  // s-online: authenticated statements; the Reply-To: nothing
         try await writer.setClassification(messageID: try id("s2"), category: .notification, source: .endpoint, model: "m", reason: "r", phishing: .suspicious)
-        #expect(try r.modelFlagged(fromDomains: ["schulmanager-mail1.example"], orName: school, excluding: try id("s1")) == [try id("s2")])
+        #expect(try r.modelFlagged(fromDomains: ["schulportal-mail1.example"], orName: school, excluding: try id("s1")) == [try id("s2")])
+    }
+}
+
+
+@Suite("Review 6: own server, warnings, rejected vs forgotten, drafts")
+struct ReviewSixTests {
+    @Test("B1: five forged headers do not make a server 'own'; a majority or the host does; a move keeps both")
+    func theOwnServerCannotBeForged() async throws {
+        let layout = try ArchiveLayout.open(at: tempDir().appending(path: "own"), create: true)
+        let writer = try ArchiveWriter(layout: layout)
+        var batch: [(data: Data, location: LocationInfo)] = []
+        for n in 0..<40 { batch.append((RelationTests.mail("p\(n)", from: "a\(n)@plain.example", subject: "Hallo"), LocationInfo(account: "plain", mailbox: "INBOX", providerID: "p\(n)"))) }
+        for n in 0..<6 {
+            batch.append((RelationTests.mail("f\(n)", from: "info@bank.example", subject: "Konto", auth: "mx.evil.example; dmarc=pass header.from=bank.example"),
+                          LocationInfo(account: "plain", mailbox: "INBOX", providerID: "f\(n)")))
+        }
+        // an account that moved: 30 old mails from one server, 25 recent ones from another
+        for n in 0..<30 {
+            batch.append((RelationTests.mail("o\(n)", from: "x\(n)@a.example", subject: "Alt", auth: "mail.old.example; dmarc=pass", date: "14 Mar 2019"),
+                          LocationInfo(account: "moved", mailbox: "INBOX", providerID: "o\(n)")))
+        }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "dd MMM yyyy"
+        for n in 0..<25 {
+            batch.append((RelationTests.mail("r\(n)", from: "y\(n)@a.example", subject: "Neu", auth: "mail.new.example; dmarc=pass", date: f.string(from: .now.addingTimeInterval(-86_400))),
+                          LocationInfo(account: "moved", mailbox: "INBOX", providerID: "r\(n)")))
+        }
+        _ = try await writer.ingest(batch)
+        let r = try ArchiveReader(layout: layout)
+        let own = try r.ownAuthServers()
+        #expect(own["plain"] == nil)  // 6 forged headers among 46 mails
+        #expect(own["moved"] == ["mail.old.example", "mail.new.example"])
+        #expect(AuthResults.parse("mail\u{0}evil.example; dmarc=pass")?.server == nil)  // review 6 S5: a domain name or nothing
+        #expect(AuthResults.parse("mx.good-host.example; dmarc=pass")?.server == "mx.good-host.example")
+    }
+
+    @Test("S1: adding the domain to the relation ends the stored look-alike warning")
+    func warningsFollowTheRegister() async throws {
+        let (_, writer, r) = try await RelationTests.archive()
+        try await writer.saveRelation(name: "Sparkasse", domains: ["sparkasse.example"], since: nil, until: nil)
+        let lure = try #require(try r.messageIDs(MessageFilter(text: "msgid:b3@t.test ")).first)  // s-online.example, same name
+        try await writer.setScreened([ScreeningCandidate(id: lure, warning: "lookalike", needsModel: false)])
+        #expect(try r.count(MessageFilter(text: "is:verdächtig ", ids: [lure])) == 1)
+        let rel = try #require(try r.relations().first)
+        try await writer.saveRelation(id: rel.id, name: rel.name, domains: rel.domains + ["s-online.example"], since: nil, until: nil)
+        #expect(try await writer.refreshWarnings() >= 1)
+        #expect(try r.count(MessageFilter(text: "is:verdächtig ", ids: [lure])) == 0)
+    }
+
+    @Test("S3: a forgotten relation may come back as a suggestion, a rejected one never")
+    func forgottenIsNotRejected() async throws {
+        let (_, writer, r) = try await RelationTests.archive()
+        let id = try await writer.saveRelation(name: "Max", domains: ["handwerk.example"], since: nil, until: nil)
+        #expect(!(try r.relationSuggestions().contains { $0.domains.contains("handwerk.example") }))
+        try await writer.forgetMemory([id])
+        #expect(try r.relationSuggestions().contains { $0.domains.contains("handwerk.example") })
+        try await writer.rejectRelation(name: "Max", domains: ["handwerk.example"])
+        #expect(!(try r.relationSuggestions().contains { $0.domains.contains("handwerk.example") }))
+        #expect(try r.relations(includeRejected: true).filter(\.rejected).count == 1)
+    }
+
+    @Test("S6: 'Ist Spam' never takes a draft")
+    func neverFromDrafts() async throws {
+        let (_, writer, r) = try await SpamReviewTests.archive()
+        _ = try await writer.ingest([(sampleMessage(id: "<d@t.test>", subject: "Entwurf"), LocationInfo(account: "imap", mailbox: "Drafts", uidValidity: 9, uid: 1))])
+        let draft = try #require(try r.messageIDs(MessageFilter(text: "subject:entwurf ")).first)
+        #expect(try r.planMarkSpam(MessageFilter(ids: [draft]), title: "x", accounts: InboxSpamTests.accounts).0.items.isEmpty)
+        #expect(RemoteMailbox.looksLikeSentOrDrafts("INBOX/Entwürfe") && !RemoteMailbox.looksLikeSentOrDrafts("INBOX"))
     }
 }

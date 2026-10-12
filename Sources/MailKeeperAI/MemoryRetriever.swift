@@ -48,7 +48,7 @@ public struct MemoryRetriever {
     let exampleVectors: VectorIndex
     let embedModel: String?
     let relations: [Relation]
-    let servers: [String: String]
+    let servers: [String: Set<String>]
     let publicAddresses: [String]
 
     public static let maxNotes = 8
@@ -79,7 +79,8 @@ public struct MemoryRetriever {
     public func context(for messageID: Int64, mail: MailSnapshot, accounts: [String]) throws -> MemoryContext {
         var ctx = MemoryContext()
         let check = try reader.relationCheck(of: messageID, relations: relations, servers: servers, publicAddresses: publicAddresses)
-        ctx.relation = check.lines
+        // mail-derived words (a sender's domain, a name) go out of the fence only cleaned (review 6 C2)
+        ctx.relation = check.lines.map { PromptText.line($0, max: 400) }
         ctx.server = check.server
         for r in [check.known, check.lookAlike].compactMap({ $0 }) { ctx.sources.append(r.id) }
         if let known = check.known, let reply = mail.replyTo?.split(separator: "@").last.map({ LinkCheck.registrableDomain(String($0).lowercased()) }),
@@ -106,7 +107,7 @@ public struct MemoryRetriever {
         }
 
         if let profile = try reader.senderProfile(of: messageID) {
-            ctx.profile = profile.lines
+            ctx.profile = profile.lines.map { PromptText.line($0, max: 240) }
             ctx.sources.append(profile.sourceID)
         }
 

@@ -267,6 +267,7 @@ extension ArchiveReader {
             FROM locations l JOIN messages m ON m.id = l.message_id LEFT JOIN blobs b ON b.sha256 = l.sha256
             WHERE \(QuerySQL.serverLocation) AND l.uid_validity IS NOT NULL AND l.uid BETWEEN 1 AND 4294967294
               AND NOT \(QuerySQL.junkLocation) AND NOT \(QuerySQL.sentLocation) AND NOT \(QuerySQL.trashLocation)
+              AND NOT \(QuerySQL.draftsLocation)
               AND l.message_id IN (SELECT m.id FROM messages m\(whereClause))
             ORDER BY m.date, l.message_id, upper(l.mailbox) = 'INBOX' DESC, l.id
             """, params) { row in

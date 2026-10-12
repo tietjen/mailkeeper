@@ -116,7 +116,7 @@ struct MemoryContextTests {
     func aReplyToOfTheSameRelation() async throws {
         let layout = try ArchiveLayout.open(at: tempDir().appending(path: "rt"), create: true)
         let writer = try ArchiveWriter(layout: layout)
-        let raw = "From: service@paypal.de\r\nReply-To: service@paypal.com\r\nTo: me@own.test\r\nSubject: Zahlung an Galaxus\r\nDate: Sun, 4 Oct 2026 14:15:00 +0200\r\nMessage-ID: <pp@t.test>\r\n\r\nText\r\n"
+        let raw = "From: service@paypal.de\r\nReply-To: service@paypal.com\r\nTo: me@own.test\r\nSubject: Zahlung an Musterladen\r\nDate: Sun, 4 Oct 2026 14:15:00 +0200\r\nMessage-ID: <pp@t.test>\r\n\r\nText\r\n"
         _ = try await writer.ingest([(Data(raw.utf8), LocationInfo(account: "x", mailbox: "INBOX", providerID: "1"))])
         let r = try ArchiveReader(layout: layout)
         let id = try #require(try r.messageIDs(MessageFilter()).first)
@@ -163,8 +163,8 @@ struct AILiveMemoryTests {
         bank.examples = ["Absender info@sparkasse.de, Betreff „Ihr Kontoauszug“ → account_security"]
         bank.profile = ["Erste Mail von dieser Adresse im Archiv.", "Du hast nie an diese Adresse oder ihre Domain geschrieben."]
         // TJ's case: PayPal from paypal.de, Reply-To paypal.com, about a real shop — with the relation it is genuine
-        let paypal = MailSnapshot(from: "service@paypal.de", subject: "Galaxus Deutschland: 115,19 € EUR",
-                                  text: "Hallo, Sie haben 115,19 € EUR an Galaxus Deutschland autorisiert. Händler: galaxus@galaxus.de. Bestellnummer dp-p-71325271.",
+        let paypal = MailSnapshot(from: "service@paypal.de", subject: "Musterladen: 49,90 € EUR",
+                                  text: "Hallo, Sie haben 49,90 € EUR an Musterladen autorisiert. Händler: shop@musterladen.example. Bestellnummer A-1000.",
                                   replyTo: "service@paypal.com", authentication: "dkim=pass spf=pass dmarc=pass")
         var known = MemoryContext()
         known.relation = ["Bekannte Beziehung „PayPal“ seit 2012.", "Prüfung deines Servers bestanden (dkim=pass spf=pass dmarc=pass)."]

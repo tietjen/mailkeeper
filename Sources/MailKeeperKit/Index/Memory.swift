@@ -62,6 +62,8 @@ public struct MemoryContent: Codable, Sendable, Equatable {
     /// A rule: its query (search language) and action ("category:<raw>", "serverDelete:<days>", "moveToJunk").
     public var query: String?
     public var action: String?
+    /// A suggestion the user rejected (not merely forgot): it is not suggested again.
+    public var rejected: Bool?
 
     public init(text: String? = nil, category: String? = nil, verdict: String? = nil, sender: String? = nil, domain: String? = nil,
                 list: String? = nil, subject: String? = nil, name: String? = nil, domains: [String]? = nil, since: Double? = nil,
@@ -140,7 +142,7 @@ public enum Memory {
 
     /// What may be stored as a note's text: trimmed, bounded, without control characters.
     public static func cleanText(_ s: String) -> String {
-        let kept = s.unicodeScalars.filter { $0 == "\n" || !CharacterSet.controlCharacters.contains($0) }
+        let kept = s.unicodeScalars.filter { $0 == "\n" || (!CharacterSet.controlCharacters.contains($0) && $0.properties.generalCategory != .format) }
         let text = String(String.UnicodeScalarView(kept)).trimmingCharacters(in: .whitespacesAndNewlines)
         return String(text.prefix(maxText))
     }

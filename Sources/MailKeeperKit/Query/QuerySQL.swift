@@ -179,6 +179,11 @@ struct QuerySQL {
     static let junkLocation: String = "(" + role("junk") + " OR ((" + names(junkNames).joined(separator: " OR ")
         + ") AND l.account_id NOT IN (SELECT account_id FROM mailbox_roles WHERE instr(roles, ' junk ') > 0)))"
 
+    static let draftsNames = ["drafts", "draft", "entwürfe", "entwurf"]
+    /// Drafts, by role or — for accounts whose server marks none — by the usual names.
+    static let draftsLocation: String = "(" + role("drafts") + " OR ((" + names(draftsNames).joined(separator: " OR ")
+        + ") AND l.account_id NOT IN (SELECT account_id FROM mailbox_roles WHERE instr(roles, ' drafts ') > 0)))"
+
     static let trashNames = ["trash", "papierkorb", "deleted items", "deleted messages", "gelöschte elemente", "gelöschte objekte", "bin"]
     /// The trash, by role or — for accounts whose server marks none — by the usual names.
     static let trashLocation: String = "(" + role("trash") + " OR ((" + names(trashNames).joined(separator: " OR ")

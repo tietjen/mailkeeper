@@ -462,7 +462,7 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         let uses = mailboxUses[mailbox] ?? []
         guard uses.isDisjoint(with: [.junk, .trash, .sent, .drafts]) else { return false }
         let roles = mailboxUses.values.contains { !$0.isDisjoint(with: [.junk, .trash, .sent, .drafts]) }
-        return roles || !RemoteMailbox.looksLikeTrashOrJunk(mailbox)
+        return roles || (!RemoteMailbox.looksLikeTrashOrJunk(mailbox) && !RemoteMailbox.looksLikeSentOrDrafts(mailbox))
     }
 
     public func moveToJunk(_ uids: [UInt32]) async throws {

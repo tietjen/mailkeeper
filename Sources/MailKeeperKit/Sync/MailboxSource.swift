@@ -20,6 +20,14 @@ public struct RemoteMailbox: Sendable, Hashable {
                 "gelöschte objekte", "junk-e-mail"].contains(last)
     }
 
+    /// Without SPECIAL-USE roles: sent or drafts by their usual names ("Ist Spam" never moves
+    /// out of them — review 6 S6).
+    public static func looksLikeSentOrDrafts(_ name: String) -> Bool {
+        let last = (name.split(whereSeparator: { $0 == "/" || $0 == "." }).last.map(String.init) ?? name).lowercased()
+        return ["sent", "sent items", "sent messages", "sent mail", "gesendet", "gesendete objekte", "gesendete elemente",
+                "gesendete nachrichten", "drafts", "draft", "entwürfe", "entwurf"].contains(last)
+    }
+
     /// Decoded display name (modified UTF-7 resolved), e.g. "[Gmail]/Entwürfe". This is the
     /// mailbox key of the archive's locations.
     public var name: String

@@ -1556,7 +1556,7 @@ final class AppModel {
         }
     }
 
-    private var authServersCache: [String: String]?
+    private var authServersCache: [String: Set<String>]?
 
     /// The register's and the own server's word on a message (reader "Echtheit").
     func relationCheck(_ messageID: Int64) -> RelationCheck? {
@@ -1576,8 +1576,8 @@ final class AppModel {
         (try? reader?.modelFlagged(fromDomains: domains, orName: name, excluding: id)) ?? []
     }
 
-    func proposedRelation(for id: Int64, replyTo: String?) -> (name: String, domains: [String]) {
-        (try? reader?.proposedRelation(for: id, replyTo: replyTo)) ?? ("", [])
+    func proposedRelation(for id: Int64, replyTo: String?) -> ProposedRelation {
+        (try? reader?.proposedRelation(for: id, replyTo: replyTo)) ?? ProposedRelation(name: "", domains: [])
     }
 
     /// "Einschätzung korrigieren" (6.4b, TJ): the user's word that the mail is genuine
@@ -1595,6 +1595,7 @@ final class AppModel {
             if let relation {
                 try await writer.saveRelation(id: relation.id, name: relation.name, domains: relation.domains,
                                               since: existing?.since, until: existing?.until)
+                try await writer.refreshWarnings()
             }
         }
         reloadRelations()
@@ -1615,19 +1616,28 @@ final class AppModel {
     var publicAddressItems: [MemoryItem] { memoryItems.filter { $0.subject.hasPrefix("public:") } }
 
     func saveRelation(id: String?, name: String, domains: [String], since: Date?, until: Date?) async -> String? {
-        let problem = await writeNow { writer in try await writer.saveRelation(id: id, name: name, domains: domains, since: since, until: until) }
+        let problem = await writeNow { writer in
+            try await writer.saveRelation(id: id, name: name, domains: domains, since: since, until: until)
+            try await writer.refreshWarnings()  // review 6 S1: "Verdächtig" follows the register
+        }
         reloadRelations()
         return problem
     }
 
     func rejectRelation(_ suggestion: RelationSuggestion) async -> String? {
-        let problem = await writeNow { writer in try await writer.rejectRelation(name: suggestion.name, domains: suggestion.domains) }
+        let problem = await writeNow { writer in
+            try await writer.rejectRelation(name: suggestion.name, domains: suggestion.domains)
+            try await writer.refreshWarnings()
+        }
         reloadRelations()
         return problem
     }
 
     func forgetRelation(_ id: String) async -> String? {
-        let problem = await writeNow { writer in try await writer.forgetMemory([id]) }
+        let problem = await writeNow { writer in
+            try await writer.forgetMemory([id])
+            try await writer.refreshWarnings()
+        }
         reloadRelations()
         return problem
     }
@@ -1667,6 +1677,8 @@ final class AppModel {
             let title: String = switch item.kind {
             case .example: String(localized: "Deine Entscheidung")
             case .vocabulary: String(localized: "Dein Begriff")
+            case .relation: String(localized: "Deine Beziehung")
+            case .rule: String(localized: "Deine Regel")
             default: String(localized: "Deine Notiz")
             }
             return WhyLine(id: source, title: title + (item.active ? "" : String(localized: " (inzwischen vergessen)")),
@@ -2034,6 +2046,7 @@ final class AppModel {
         let ask = Array(candidates.filter(\.needsModel).map(\.id).prefix(Self.screeningPerSync))
         if aiConfig.enabled, !autoJunkFailed, !(junk.isEmpty && ask.isEmpty) {
             runClassification(junk + ask, title: String(localized: "Spam & Phishing prüfen"), automatic: true, screened: candidates)
+            if !actionRunning { startTextIndexing() }  // the run could not start (review 6 C5)
         } else if !candidates.isEmpty {
             // without a model (or after a failed automatic run): only the deterministic warnings
             Task { _ = await writeNow { writer in try await writer.setScreened(candidates) } }

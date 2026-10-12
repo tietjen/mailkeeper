@@ -10,6 +10,8 @@ public struct Relation: Sendable, Equatable, Identifiable {
     public var since: Date?
     public var until: Date?
     public var confirmed: Bool
+    /// The user rejected it as a suggestion (forgotten ones may be suggested again).
+    public var rejected: Bool
 
     /// Ended: trust fades (a final invoice, tax papers still come) — it is no spam signal.
     public var ended: Bool { until.map { $0 < .now } ?? false }
@@ -22,6 +24,26 @@ public struct Relation: Sendable, Equatable, Identifiable {
         since = item.content.since.map(Date.init(timeIntervalSince1970:))
         until = item.content.until.map(Date.init(timeIntervalSince1970:))
         confirmed = item.active
+        rejected = !item.active && item.content.rejected == true
+    }
+}
+
+/// What "Einschätzung korrigieren" proposes (6.4b): the mail's own domain and optional others.
+public struct ProposedRelation: Sendable, Equatable {
+    public struct Domain: Sendable, Equatable {
+        public var domain: String
+        public var mails: Int
+        /// Pre-selected: positive evidence, no warning.
+        public var evidence: Bool
+        public var why: String
+    }
+
+    public var name: String
+    public var domains: [Domain]
+
+    public init(name: String, domains: [Domain]) {
+        self.name = name
+        self.domains = domains
     }
 }
 
@@ -52,6 +74,9 @@ public struct RelationSuggestion: Sendable, Equatable, Identifiable {
 }
 
 public enum Relations {
+    /// Providers whose authserv-id lies in another domain than their IMAP host.
+    static let providerAuthDomains: [String: Set<String>] = ["gmail.com": ["google.com"], "googlemail.com": ["google.com"]]
+
     /// Mail providers for everyone: a domain there is a person's, not an organisation's.
     public static let freemail: Set<String> = [
         "gmail.com", "googlemail.com", "gmx.de", "gmx.net", "gmx.at", "gmx.ch", "web.de", "outlook.com", "outlook.de", "hotmail.com",
@@ -90,7 +115,7 @@ public enum Relations {
         return n.isEmpty || genericNames.contains(n) || n.contains("@")
     }
 
-    /// A person's name as a set of words: "Tietjen, Jan" and "Jan Tietjen" alike.
+    /// A person's name as a set of words: "Muster, Erika" and "Erika Muster" alike.
     static func personKey(_ name: String) -> String {
         name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
             .split(whereSeparator: { !$0.isLetter }).map(String.init).filter { $0.count > 1 }.sorted().joined(separator: " ")
@@ -120,35 +145,80 @@ extension ArchiveReader {
         return try relations().first { $0.domains.contains(reg) }
     }
 
-    /// Per account, the server that adds `Authentication-Results` to its incoming mail: the
-    /// authserv-id of most of the account's mails that carry one (at least half, at least five).
-    public func ownAuthServers() throws -> [String: String] {
-        var byAccount: [String: [(String, Int)]] = [:]
+    /// Per account, the servers that add `Authentication-Results` to its incoming mail — only
+    /// their results count. A server is the account's own when its host shares the account's
+    /// registrable IMAP domain (mail.example.de checks for imap.example.de; Gmail's mx.google.com
+    /// for imap.gmail.com), or when it stamped at least half of *all* the account's incoming mail,
+    /// in the last year or ever (≥ 20 mails). Review 6 B1: counting only mails that carry the
+    /// header let a sender make itself "own" with five forged headers on a provider that adds
+    /// none; half of all mail cannot be forged. Several servers: TJ's mail moved from one
+    /// server to another (27,030 then 7,093 mails).
+    public func ownAuthServers(now: Date = .now) throws -> [String: Set<String>] {
+        struct Counts { var total = 0, recent = 0; var servers: [String: (all: Int, recent: Int)] = [:] }
+        var byAccount: [String: Counts] = [:]
         try db.forEach("""
-            SELECT l.account_id, m.auth_server, count(DISTINCT m.id) FROM messages m JOIN locations l ON l.message_id = m.id
-            WHERE m.auth_server IS NOT NULL GROUP BY 1, 2
-            """) { r in
-            if let account = r.text(0), let server = r.text(1) { byAccount[account, default: []].append((server, Int(r.int(2)))) }
+            SELECT l.account_id, m.auth_server, m.date >= ?, count(DISTINCT m.id) FROM messages m JOIN locations l ON l.message_id = m.id
+            WHERE m.trashed IS NULL AND NOT \(QuerySQL.sentLocation)
+            GROUP BY 1, 2, 3
+            """, [.double(now.addingTimeInterval(-365 * 86_400).timeIntervalSince1970)]) { r in
+            guard let account = r.text(0) else { return }
+            let recent = r.bool(2), n = Int(r.int(3))
+            var c = byAccount[account] ?? Counts()
+            c.total += n
+            if recent { c.recent += n }
+            if let server = r.text(1) {
+                var s = c.servers[server] ?? (0, 0)
+                s.all += n
+                if recent { s.recent += n }
+                c.servers[server] = s
+            }
+            byAccount[account] = c
         }
-        var out: [String: String] = [:]
-        for (account, servers) in byAccount {
-            let total = servers.reduce(0) { $0 + $1.1 }
-            if let best = servers.max(by: { $0.1 < $1.1 }), best.1 >= 5, best.1 * 2 >= total { out[account] = best.0 }
+        let hosts = Dictionary(((try? AccountStore(layout: layout).load()) ?? []).map { ($0.id, $0.host.lowercased()) }, uniquingKeysWith: { a, _ in a })
+        var out: [String: Set<String>] = [:]
+        for (account, c) in byAccount {
+            var own: Set<String> = []
+            let hostDomain = hosts[account].flatMap { $0.isEmpty || $0.first?.isNumber == true ? nil : LinkCheck.registrableDomain($0) }
+            for (server, n) in c.servers {
+                let serverDomain = LinkCheck.registrableDomain(server)
+                let byHost = hostDomain.map { $0 == serverDomain || (Relations.providerAuthDomains[$0]?.contains(serverDomain) ?? false) } ?? false
+                let byShare = (n.all >= 20 && n.all * 2 >= c.total) || (n.recent >= 20 && n.recent * 2 >= c.recent)
+                if byHost || byShare { own.insert(server) }
+            }
+            if !own.isEmpty { out[account] = own }
+        }
+        // a server that is own in one account counts in another where it checked at least a
+        // quarter of the mail (an imported account with older mail before the server added the
+        // header: TJ's rechnung-psde, 15 of 70, all recent)
+        let known = Set(out.values.flatMap { $0 })
+        for (account, c) in byAccount {
+            for (server, n) in c.servers where known.contains(server) && !(out[account]?.contains(server) ?? false) {
+                if (n.all >= 5 && n.all * 4 >= c.total) || (n.recent >= 5 && n.recent * 4 >= c.recent) { out[account, default: []].insert(server) }
+            }
         }
         return out
     }
 
-    /// The own server's verdict on a message: its results, and whether they come from the server
+    /// The own server's verdict on a message: its results, and whether they come from a server
     /// of an account the message lies in (only then do they count).
-    public func authentication(of messageID: Int64, servers: [String: String]? = nil) throws -> (results: AuthResults, trusted: Bool)? {
+    public func authentication(of messageID: Int64, servers: [String: Set<String>]? = nil) throws -> (results: AuthResults, trusted: Bool)? {
         let own = try servers ?? ownAuthServers()
         guard let row = try db.queryOne("SELECT auth_server, auth_dkim, auth_spf, auth_dmarc, auth_from FROM messages WHERE id = ?",
                                         [.int(messageID)], { r in
                                             AuthResults(server: r.text(0), dkim: r.text(1), spf: r.text(2), dmarc: r.text(3), fromDomain: r.text(4))
                                         }) ?? nil, row.server != nil || row.summary != nil else { return nil }
         let accounts = try db.query("SELECT DISTINCT account_id FROM locations WHERE message_id = ?", [.int(messageID)]) { $0.text(0) ?? "" }
-        let trusted = row.server.map { server in accounts.contains { own[$0] == server } } ?? false
+        let trusted = row.server.map { server in accounts.contains { own[$0]?.contains(server) ?? false } } ?? false
         return (row, trusted)
+    }
+
+    /// `m.auth_dmarc = 'pass' AND m.auth_server IN (?, …)` with its parameters (review 6 S5:
+    /// bound, not spliced).
+    static func authenticatedCondition(_ servers: Set<String>) -> (String, [SQLValue]) {
+        guard !servers.isEmpty else { return ("0", []) }
+        let sorted = servers.sorted()
+        return ("(m.auth_dmarc = 'pass' AND m.auth_server IN (" + Array(repeating: "?", count: sorted.count).joined(separator: ",") + "))",
+                sorted.map { .text($0) })
     }
 
     /// Relationships the history suggests (ADR-0010 §6): domains with positive evidence — the
@@ -157,9 +227,7 @@ extension ArchiveReader {
     /// domains, not domains already in a relation (or rejected), not where spam and phishing
     /// outweigh the evidence. Same name → one suggestion with several domains.
     public func relationSuggestions(limit: Int = 200) throws -> [RelationSuggestion] {
-        let servers = Set(try ownAuthServers().values)
-        let serverList = servers.map { "'" + $0.replacingOccurrences(of: "'", with: "''") + "'" }.joined(separator: ",")
-        let authenticated = servers.isEmpty ? "0" : "m.auth_dmarc = 'pass' AND m.auth_server IN (\(serverList))"
+        let (authenticated, authParams) = Self.authenticatedCondition(Set(try ownAuthServers().values.flatMap { $0 }))
         let sent = "m.id IN (SELECT l.message_id FROM locations l WHERE \(QuerySQL.sentLocation))"
         let transactional = Relations.transactional.map { "'\($0)'" }.joined(separator: ",")
 
@@ -183,7 +251,7 @@ extension ArchiveReader {
                    sum(b.verdict = 'spam' OR (b.source = 'user' AND b.category = 'spam') OR b.phishing IN ('verdacht', 'ja')),
                    sum(b.auth AND b.category IN (\(transactional))), max(n.name), max(n.n)
             FROM base b LEFT JOIN names n ON n.k = b.k GROUP BY b.k
-            """) { r in
+            """, authParams) { r in
             guard let k = r.text(0), !k.isEmpty else { return }
             hosts[k] = Host(mails: Int(r.int(1)), ham: Int(r.int(4)), decided: Int(r.int(5)), bad: Int(r.int(6)), auth: Int(r.int(7)),
                             nameMails: Int(r.optionalInt(9) ?? 0), first: r.optionalDouble(2), last: r.optionalDouble(3), name: r.text(8))
@@ -206,7 +274,7 @@ extension ArchiveReader {
                 }
             }
         }
-        let taken = Set(try relations(includeRejected: true).flatMap(\.domains))
+        let taken = Set(try relations(includeRejected: true).filter { $0.confirmed || $0.rejected }.flatMap(\.domains))
 
         var byDomain: [String: RelationSuggestion] = [:]
         var badByDomain: [String: Int] = [:]
@@ -320,7 +388,7 @@ public struct RelationCheck: Sendable, Equatable {
 extension Relations {
     /// Words of a relation that a look-alike would use: the name as a whole, and the words of its
     /// domains' first labels ("sparkasse-koelnbonn" → sparkasse, koelnbonn). Not single words of
-    /// the name: a relation named after a person ("Michelle Schindler") would flag every Michelle.
+    /// the name: a relation named after a person ("Erika Mustermann") would flag every Erika.
     static func claimTokens(_ r: Relation) -> Set<String> {
         let fold = { (s: String) in s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
         var tokens: Set<String> = []
@@ -349,7 +417,7 @@ extension ArchiveReader {
     }
 
     /// The register's and the own server's word on a message.
-    public func relationCheck(of messageID: Int64, relations: [Relation]? = nil, servers: [String: String]? = nil,
+    public func relationCheck(of messageID: Int64, relations: [Relation]? = nil, servers: [String: Set<String>]? = nil,
                               publicAddresses: [String]? = nil) throws -> RelationCheck {
         var check = RelationCheck()
         guard let row = try db.queryOne("SELECT lower(from_addr), from_name, delivered_to, lower(to_addrs), lower(cc_addrs) FROM messages WHERE id = ?",
@@ -417,41 +485,78 @@ extension ArchiveReader {
 
 extension ArchiveReader {
     /// What "Einschätzung korrigieren" proposes as the relation for a sender (6.4b): its domain,
-    /// the "sister" domains the same sender name wrote from with a passing check of the own server
-    /// (TJ: a school writing via schulmanager-mail1.de and schulmanager-cdn.de), and a Reply-To
-    /// domain — never freemail or the user's own. Named like a suggestion: after the sender only
-    /// when that name stands for most of the domain's mail and is not generic, else the domain.
-    public func proposedRelation(for messageID: Int64, replyTo: String? = nil) throws -> (name: String, domains: [String]) {
+    /// and as options the "sister" domains the same sender name wrote from with a passing check
+    /// of the own server (TJ: a school writing through two domains of its mail service) and a
+    /// Reply-To domain — never freemail or the user's own. An option is pre-selected only with
+    /// positive evidence and no warning (review 6 S2: DMARC pass proves a mail came from that
+    /// domain, not that the domain belongs to the organisation — a look-alike's owner controls
+    /// its DNS). Named like a suggestion: after the sender only when that name stands for most of
+    /// the domain's mail and is not generic, else the domain.
+    public func proposedRelation(for messageID: Int64, replyTo: String? = nil) throws -> ProposedRelation {
         guard let row = try db.queryOne("SELECT lower(from_addr), from_name FROM messages WHERE id = ?", [.int(messageID)], { ($0.text(0), $0.text(1)) }),
-              let address = row.0, let at = address.lastIndex(of: "@") else { return ("", []) }
+              let address = row.0, let at = address.lastIndex(of: "@") else { return ProposedRelation(name: "", domains: []) }
         let domain = LinkCheck.registrableDomain(String(address[address.index(after: at)...]))
-        let servers = Set(try ownAuthServers().values)
+        let servers = Set(try ownAuthServers().values.flatMap { $0 })
         let own = try ownDomains()
-        var domains = [domain]
+        var candidates: [String] = []
         let name = row.1?.trimmingCharacters(in: .whitespaces) ?? ""
         if !name.isEmpty, !Relations.isGeneric(name), !servers.isEmpty {
-            let list = servers.map { "'" + $0.replacingOccurrences(of: "'", with: "''") + "'" }.joined(separator: ",")
-            try db.forEach("""
-                SELECT DISTINCT lower(from_addr) FROM messages
-                WHERE from_name = ? AND auth_dmarc = 'pass' AND auth_server IN (\(list)) AND trashed IS NULL LIMIT 200
-                """, [.text(name)]) { r in
+            let (auth, params) = Self.authenticatedCondition(servers)
+            try db.forEach("SELECT DISTINCT lower(m.from_addr) FROM messages m WHERE m.from_name = ? AND \(auth) AND m.trashed IS NULL LIMIT 200",
+                           [.text(name)] + params) { r in
                 guard let a = r.text(0), let i = a.lastIndex(of: "@") else { return }
                 let d = LinkCheck.registrableDomain(String(a[a.index(after: i)...]))
-                if !domains.contains(d), domains.count < 6, !Relations.freemail.contains(d), !own.contains(d) { domains.append(d) }
+                if d != domain, !candidates.contains(d), candidates.count < 5, !Relations.freemail.contains(d), !own.contains(d) { candidates.append(d) }
             }
         }
         if let reply = replyTo?.lowercased(), let i = reply.lastIndex(of: "@") {
             let d = LinkCheck.registrableDomain(String(reply[reply.index(after: i)...]))
-            if !domains.contains(d), !Relations.freemail.contains(d), !own.contains(d) { domains.append(d) }
+            if d != domain, !candidates.contains(d), !Relations.freemail.contains(d), !own.contains(d) { candidates.append(d) }
         }
+        var domains = [ProposedRelation.Domain(domain: domain, mails: try mails(fromDomain: domain), evidence: true,
+                                               why: String(localized: "die Domain dieser Mail"))]
+        for d in candidates { domains.append(try evidence(for: d, servers: servers)) }
         // the name: the sender's only if it stands for most of the domain's mail
         var total = 0, same = 0
-        try db.forEach("SELECT from_name FROM messages WHERE lower(from_addr) LIKE ? AND trashed IS NULL", [.text("%@%" + domain)]) { r in
+        try db.forEach("SELECT from_name FROM messages WHERE (lower(from_addr) LIKE ? OR lower(from_addr) LIKE ?) AND trashed IS NULL",
+                       [.text("%@" + domain), .text("%." + domain)]) { r in
             total += 1
             if r.text(0) == row.1 { same += 1 }
         }
         let usable = !name.isEmpty && !name.contains("@") && !Relations.isGeneric(name) && same * 2 >= total
-        return (usable ? String(name.prefix(120)) : domain, domains)
+        return ProposedRelation(name: usable ? String(name.prefix(120)) : domain, domains: domains)
+    }
+
+    /// Mails from a registrable domain or its subdomains (never "notpaypal.com" for "paypal.com").
+    func mails(fromDomain d: String) throws -> Int {
+        Int(try db.queryOne("SELECT count(*) FROM messages WHERE (lower(from_addr) LIKE ? OR lower(from_addr) LIKE ?) AND trashed IS NULL",
+                            [.text("%@" + d), .text("%." + d)]) { $0.int(0) } ?? 0)
+    }
+
+    /// Positive evidence that a domain is genuine — the user wrote to it, decided on its mails, or
+    /// ≥ 2 authenticated transactional mails came from it — and no warning or phishing flag on it.
+    func evidence(for d: String, servers: Set<String>) throws -> ProposedRelation.Domain {
+        let from = "(lower(m.from_addr) LIKE ? OR lower(m.from_addr) LIKE ?)"
+        let p: [SQLValue] = [.text("%@" + d), .text("%." + d)]
+        let (auth, authParams) = Self.authenticatedCondition(servers)
+        let transactional = Relations.transactional.map { "'\($0)'" }.joined(separator: ",")
+        let (mails, decided, authed, warned) = try db.queryOne("""
+            SELECT count(*), sum(c.verdict = 'ham' OR (c.source = 'user' AND c.category != 'spam')),
+                   sum(\(auth) AND c.category IN (\(transactional))), sum(c.warning IS NOT NULL OR c.phishing IN ('verdacht', 'ja'))
+            FROM messages m LEFT JOIN classifications c ON c.message_id = m.id WHERE \(from) AND m.trashed IS NULL
+            """, authParams + p) { (Int($0.int(0)), Int($0.optionalInt(1) ?? 0), Int($0.optionalInt(2) ?? 0), Int($0.optionalInt(3) ?? 0)) } ?? (0, 0, 0, 0)
+        let sent = "m.id IN (SELECT l.message_id FROM locations l WHERE \(QuerySQL.sentLocation))"
+        let recipients = "', ' || lower(coalesce(m.to_addrs, '')) || ', ' || lower(coalesce(m.cc_addrs, '')) || ','"
+        let wrote = Int(try db.queryOne("""
+            SELECT count(*) FROM messages m WHERE \(sent) AND (instr(\(recipients), '@' || ? || ',') > 0 OR instr(\(recipients), '.' || ? || ',') > 0)
+            """, [.text(d), .text(d)]) { $0.int(0) } ?? 0)
+        let positive = wrote > 0 || decided > 0 || authed >= 2
+        let why: String = warned > 0 ? String(localized: "Warnung oder Phishing-Verdacht an Mails dieser Domain")
+            : wrote > 0 ? String(localized: "du hast \(wrote)× dorthin geschrieben")
+            : decided > 0 ? String(localized: "\(decided) deiner Entscheidungen")
+            : authed >= 2 ? String(localized: "\(authed) echte Transaktionsmails")
+            : String(localized: "kein Beleg – nur gleicher Name oder Antwortadresse")
+        return ProposedRelation.Domain(domain: d, mails: mails, evidence: positive && warned == 0, why: why)
     }
 
     /// Mails a model flagged that come from these domains or carry this sender name — the

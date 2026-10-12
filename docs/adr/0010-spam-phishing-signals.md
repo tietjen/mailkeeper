@@ -41,9 +41,14 @@ as context for unsolicited first contacts.
    spam; personal details found online are no proof of legitimacy.
    *As built (6.3, 2026-10-12):* schema v12 indexes the topmost `Authentication-Results`
    (authserv-id, dkim, spf, dmarc, `header.from`) and `Delivered-To` — at ingest, for older mail by
-   a background pass over the headers only (42k in under five minutes). The own server per account
-   is learned (the authserv-id of most of its mail, ≥ 50 %, ≥ 5); results from any other server
-   count for nothing ("foreign"). Relations are memory items of kind `relation` (name, registrable
+   a background pass over the headers only (42k in under five minutes). The own servers per account
+   are learned — several, a mailbox may move (TJ: 27,030 mails from one server, then 7,093 from
+   another): a server whose host shares the account's registrable IMAP domain (Gmail: mx.google.com
+   for imap.gmail.com), or one that stamped at least half of *all* the account's incoming mail, in
+   the last year or ever (≥ 20); one that is own in another account counts where it checked a
+   quarter (≥ 5). Review 6 B1: counting only mails that carry the header let five forged headers
+   make a sender "own" on a provider that adds none. The authserv-id must be a domain name.
+   Results from any other server count for nothing ("foreign"). Relations are memory items of kind `relation` (name, registrable
    domains, since, until), journalled; a rejected suggestion is stored inactive so it is not
    suggested again. Suggestions need positive evidence (mails the user wrote to the domain, the
    user's "kein Spam" or category, ≥ 2 authenticated transactional mails), never freemail or the

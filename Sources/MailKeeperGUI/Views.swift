@@ -280,7 +280,7 @@ struct ReaderView: View {
     /// Phishing or spam by a model, or a warning of the register or the own server.
     private var looksSuspicious: Bool {
         category?.phishing == .suspicious || category?.phishing == .likely || relation?.isWarning == true
-            || (category?.category == .spam && category?.source != .user)
+            || (category?.category == .spam && category?.source != .user && category?.verdict != "ham")
     }
     @State private var showWhy = false
     @State private var whyLines: [AppModel.WhyLine] = []
@@ -486,7 +486,8 @@ struct ReaderView: View {
     @ViewBuilder
     private func phishingRow(_ m: ParsedMessage) -> some View {
         let level = category?.phishing
-        let modelSpam = category?.category == .spam && (category?.source == .endpoint || category?.source == .onDevice)
+        // after the user's "kein Spam" a model's "spam" says nothing more (review 6 C8)
+        let modelSpam = category?.category == .spam && (category?.source == .endpoint || category?.source == .onDevice) && category?.verdict != "ham"
         if level == .suspicious || level == .likely || !lures.isEmpty || modelSpam {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text("Prüfung").foregroundStyle(.secondary).frame(width: 64, alignment: .trailing)

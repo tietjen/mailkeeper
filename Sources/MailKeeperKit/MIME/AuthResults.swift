@@ -33,9 +33,13 @@ public struct AuthResults: Sendable, Equatable {
         guard let first = segments.first else { return nil }
         var r = AuthResults()
         // authserv-id, optionally followed by a version number
+        // the authserv-id is a domain name (RFC 8601): anything else is not taken (review 6 S5)
         let id = first.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init) ?? ""
-        if !id.isEmpty, !id.contains("=") { r.server = String(id.prefix(120)) }
-        for segment in segments.dropFirst(r.server == nil ? 0 : 1) {
+        if !id.isEmpty, id.count <= 120, id.contains("."), id.allSatisfy({ ($0.isASCII && ($0.isLetter || $0.isNumber)) || $0 == "." || $0 == "-" }) {
+            r.server = id
+        }
+        let claimsID = !first.contains("=")  // a first segment without a result is the authserv-id, valid or not
+        for segment in segments.dropFirst(claimsID ? 1 : 0) {
             let tokens = segment.split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "\n" || $0 == "\r" })
             guard let head = tokens.first, let eq = head.firstIndex(of: "=") else { continue }
             let method = head[..<eq]
