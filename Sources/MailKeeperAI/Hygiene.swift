@@ -46,6 +46,9 @@ public struct MailSnapshot: Sendable, Equatable {
     /// Links with MailKeeper's own findings (5.6): the model needs no HTML to see a lure.
     public var links: [LinkCheck]
     public var replyTo: String?
+    /// The confirmed relation sender and Reply-To both belong to (6.4b): then a different
+    /// Reply-To domain is no warning sign ("paypal.de" answering to "paypal.com").
+    public var replyToRelation: String?
     /// dkim/spf/dmarc from the topmost Authentication-Results header (added by the own server).
     public var authentication: String?
 
@@ -96,7 +99,11 @@ public struct MailSnapshot: Sendable, Equatable {
         if let autoSubmitted { lines.append("Auto-Submitted: \(PromptText.line(autoSubmitted, max: 40))") }
         let fromDomain = from.split(separator: "@").last.map { LinkCheck.registrableDomain(String($0)) }
         if let replyTo, let reply = replyTo.split(separator: "@").last.map({ LinkCheck.registrableDomain(String($0)) }), reply != fromDomain {
-            lines.append("Antwort an (Reply-To): \(PromptText.line(replyTo, max: 120)) – andere Domain als der Absender")
+            if let relation = replyToRelation {
+                lines.append("Antwort an (Reply-To): \(PromptText.line(replyTo, max: 120)) – gehört wie der Absender zur bekannten Beziehung „\(PromptText.line(relation, max: 80))“, kein Warnsignal")
+            } else {
+                lines.append("Antwort an (Reply-To): \(PromptText.line(replyTo, max: 120)) – andere Domain als der Absender")
+            }
         }
         if let authentication { lines.append("Prüfung des eigenen Servers: \(authentication)") }
         if !attachments.isEmpty {

@@ -17,6 +17,8 @@ public struct MemoryContext: Sendable, Equatable {
     /// The own server's verdict; replaces the results the mail itself carries (which may come
     /// from anywhere).
     public var server: RelationCheck.Server?
+    /// Sender and Reply-To belong to this confirmed relation (6.4b).
+    public var replyToRelation: String?
     public var sources: [String] = []
 
     public init() {}
@@ -80,6 +82,10 @@ public struct MemoryRetriever {
         ctx.relation = check.lines
         ctx.server = check.server
         for r in [check.known, check.lookAlike].compactMap({ $0 }) { ctx.sources.append(r.id) }
+        if let known = check.known, let reply = mail.replyTo?.split(separator: "@").last.map({ LinkCheck.registrableDomain(String($0).lowercased()) }),
+           known.domains.contains(reply) {
+            ctx.replyToRelation = known.name
+        }
         let sender = mail.from.lowercased()
         let host = sender.split(separator: "@").last.map(String.init)
         let domain = host.map(LinkCheck.registrableDomain)

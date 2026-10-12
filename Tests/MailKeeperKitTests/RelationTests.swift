@@ -143,3 +143,20 @@ struct RelationCheckTests {
         #expect(try r.relationCheck(of: try id("h1")).firstContactAt == nil)  // to another address
     }
 }
+
+
+@Suite("Einschätzung korrigieren (6.4b)")
+struct VerdictCorrectionTests {
+    @Test func theAlikeOnesAreTheModelFlaggedMailsOfTheseDomains() async throws {
+        let (_, writer, r) = try await RelationTests.archive()
+        let id = { (key: String) in try #require(try r.messageIDs(MessageFilter(text: "msgid:\(key)@t.test ")).first) }
+        try await writer.setClassification(messageID: try id("b1"), category: .accountSecurity, source: .endpoint, model: "m", reason: "r", phishing: .likely)
+        try await writer.setClassification(messageID: try id("b3"), category: .spam, source: .endpoint, model: "m", reason: "r")
+        try await writer.setClassification(messageID: try id("b2"), category: .invoice, source: .endpoint, model: "m", reason: "r")  // not flagged
+        try await writer.setClassification(messageID: try id("n1"), category: .spam, source: .endpoint, model: "m", reason: "r")  // other domain
+        let flagged = try r.modelFlagged(fromDomains: ["sparkasse.example", "s-online.example"], excluding: try id("b1"))
+        #expect(flagged == [try id("b3")])
+        try await writer.confirmNotSpam(identity: try #require(try r.identities(of: [try id("b3")]).first))
+        #expect(try r.modelFlagged(fromDomains: ["sparkasse.example", "s-online.example"]) == [try id("b1")])  // the user's word ends it
+    }
+}

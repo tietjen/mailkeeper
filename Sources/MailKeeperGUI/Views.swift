@@ -261,6 +261,7 @@ struct ReaderView: View {
     @State private var hovered: LinkCheck?
     @State private var relation: RelationCheck?
     @State private var movableToJunk = false
+    @State private var correcting = false
 
     /// Phishing or spam by a model, or a warning of the register or the own server.
     private var looksSuspicious: Bool {
@@ -462,7 +463,8 @@ struct ReaderView: View {
     @ViewBuilder
     private func phishingRow(_ m: ParsedMessage) -> some View {
         let level = category?.phishing
-        if level == .suspicious || level == .likely || !lures.isEmpty {
+        let modelSpam = category?.category == .spam && (category?.source == .endpoint || category?.source == .onDevice)
+        if level == .suspicious || level == .likely || !lures.isEmpty || modelSpam {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text("Prüfung").foregroundStyle(.secondary).frame(width: 64, alignment: .trailing)
                 VStack(alignment: .leading, spacing: 2) {
@@ -470,6 +472,17 @@ struct ReaderView: View {
                         Label(level.label, systemImage: level == .likely ? "exclamationmark.shield.fill" : "exclamationmark.shield")
                             .foregroundStyle(level == .likely ? .red : .orange).fontWeight(.semibold)
                         if let why = category?.phishingReason { Text(DisplayText.safe(why)).foregroundStyle(.secondary) }
+                    }
+                    if modelSpam, level == nil || level == PhishingLevel.none {
+                        Label("Spam laut KI", systemImage: "exclamationmark.shield").foregroundStyle(.orange)
+                    }
+                    if (level == .suspicious || level == .likely || modelSpam), category?.verdict != "ham" {
+                        Button("Einschätzung korrigieren …") { correcting = true }
+                            .controlSize(.small)
+                            .help("Die Mail ist echt: dein Urteil, auf Wunsch eine Regel (Beziehung) und ein Hinweis für die KI – und gleichartige Mails werden neu eingeordnet")
+                            .sheet(isPresented: $correcting) {
+                                VerdictCorrectionSheet(model: model, messageID: messageID, message: m, classification: category) { correcting = false }
+                            }
                     }
                     if !lures.isEmpty {
                         Text(lures.count == 1 ? "1 auffälliger Link" : "\(lures.count) auffällige Links").foregroundStyle(.orange)

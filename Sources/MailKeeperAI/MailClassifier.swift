@@ -31,6 +31,7 @@ public struct MailClassifier: Sendable {
         let fence = Fence()
         let context = memory.map { $0.isEmpty ? "" : $0.render(fence) + "\n\nDie zu bewertende Mail:\n" } ?? ""
         var mail = mail
+        mail.replyToRelation = memory?.replyToRelation
         if let server = memory?.server {  // only the own server's results count (6.3)
             switch server {
             case .passed(let s), .failed(let s), .neutral(let s): mail.authentication = s

@@ -395,3 +395,22 @@ extension ArchiveReader {
         return check
     }
 }
+
+extension ArchiveReader {
+    /// After "Einschätzung korrigieren" (6.4b): other mails from these registrable domains that a
+    /// model holds for phishing or spam and the user has not decided — newest first.
+    public func modelFlagged(fromDomains domains: Set<String>, excluding: Int64? = nil, limit: Int = 500) throws -> [Int64] {
+        guard !domains.isEmpty else { return [] }
+        var out: [Int64] = []
+        try db.forEach("""
+            SELECT m.id, lower(m.from_addr) FROM messages m JOIN classifications c ON c.message_id = m.id
+            WHERE m.trashed IS NULL AND c.verdict IS NULL AND c.source IN ('endpoint', 'on-device')
+              AND (c.phishing IN ('verdacht', 'ja') OR c.category = 'spam')
+            ORDER BY m.date DESC
+            """) { r in
+            guard out.count < limit, r.int(0) != excluding, let address = r.text(1), let at = address.lastIndex(of: "@") else { return }
+            if domains.contains(LinkCheck.registrableDomain(String(address[address.index(after: at)...]))) { out.append(r.int(0)) }
+        }
+        return out
+    }
+}

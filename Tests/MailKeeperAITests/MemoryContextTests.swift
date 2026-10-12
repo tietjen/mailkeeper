@@ -112,6 +112,25 @@ struct MemoryContextTests {
         #expect(await p.requests.last?.user.contains("Prüfung des eigenen Servers: dkim=fail spf=fail dmarc=fail") == true)
     }
 
+    @Test("6.4b: a Reply-To of the same relation is no warning sign (TJ: paypal.de answers to paypal.com)")
+    func aReplyToOfTheSameRelation() async throws {
+        let layout = try ArchiveLayout.open(at: tempDir().appending(path: "rt"), create: true)
+        let writer = try ArchiveWriter(layout: layout)
+        let raw = "From: service@paypal.de\r\nReply-To: service@paypal.com\r\nTo: me@own.test\r\nSubject: Zahlung an Galaxus\r\nDate: Sun, 4 Oct 2026 14:15:00 +0200\r\nMessage-ID: <pp@t.test>\r\n\r\nText\r\n"
+        _ = try await writer.ingest([(Data(raw.utf8), LocationInfo(account: "x", mailbox: "INBOX", providerID: "1"))])
+        let r = try ArchiveReader(layout: layout)
+        let id = try #require(try r.messageIDs(MessageFilter()).first)
+        let mail = MailSnapshot(try #require(try r.parsedMessage(id)))
+        #expect(mail.rendered().contains("– andere Domain als der Absender"))
+        try await writer.saveRelation(name: "PayPal", domains: ["paypal.de", "paypal.com"], since: nil, until: nil)
+        let ctx = try MemoryRetriever(reader: r, embedModel: nil).context(for: id, mail: mail, accounts: ["x"])
+        #expect(ctx.replyToRelation == "PayPal")
+        var known = mail
+        known.replyToRelation = ctx.replyToRelation
+        #expect(known.rendered().contains("gehört wie der Absender zur bekannten Beziehung „PayPal“, kein Warnsignal"))
+        #expect(!known.rendered().contains("andere Domain als der Absender"))
+    }
+
     @Test func theSearchKnowsTheUsersTerms() {
         let system = QueryTranslator.instructions(context: QueryContext(accounts: ["proton"], vocabulary: ["Firma = Konto proton"]), now: Date())
         #expect(system.contains("Begriffe des Nutzers (sie gelten): Firma = Konto proton"))
@@ -143,6 +162,18 @@ struct AILiveMemoryTests {
         var bank = MemoryContext()
         bank.examples = ["Absender info@sparkasse.de, Betreff „Ihr Kontoauszug“ → account_security"]
         bank.profile = ["Erste Mail von dieser Adresse im Archiv.", "Du hast nie an diese Adresse oder ihre Domain geschrieben."]
+        // TJ's case: PayPal from paypal.de, Reply-To paypal.com, about a real shop — with the relation it is genuine
+        let paypal = MailSnapshot(from: "service@paypal.de", subject: "Galaxus Deutschland: 115,19 € EUR",
+                                  text: "Hallo, Sie haben 115,19 € EUR an Galaxus Deutschland autorisiert. Händler: galaxus@galaxus.de. Bestellnummer dp-p-71325271.",
+                                  replyTo: "service@paypal.com", authentication: "dkim=pass spf=pass dmarc=pass")
+        var known = MemoryContext()
+        known.relation = ["Bekannte Beziehung „PayPal“ seit 2012.", "Prüfung deines Servers bestanden (dkim=pass spf=pass dmarc=pass)."]
+        known.server = .passed("dkim=pass spf=pass dmarc=pass")
+        known.replyToRelation = "PayPal"
+        let genuine = try await classifier.classify(paypal, memory: known)
+        print("PayPal:", genuine.category, genuine.phishing, genuine.phishingReason ?? "")
+        #expect(genuine.phishing == PhishingLevel.none && genuine.category != .spam)
+
         let judged = try await classifier.classify(lure, memory: bank)
         print("Nachahmer:", judged.category, judged.phishing, judged.phishingReason ?? "")
         #expect(judged.phishing == .likely || judged.phishing == .suspicious)

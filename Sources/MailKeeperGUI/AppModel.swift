@@ -1422,6 +1422,36 @@ final class AppModel {
         await saveRelation(id: relation.id, name: relation.name, domains: relation.domains + [domain], since: relation.since, until: relation.until)
     }
 
+    /// Other mails of these domains a model holds for phishing or spam (for "Einschätzung korrigieren").
+    func modelFlagged(fromDomains domains: Set<String>, excluding id: Int64) -> [Int64] {
+        (try? reader?.modelFlagged(fromDomains: domains, excluding: id)) ?? []
+    }
+
+    /// "Einschätzung korrigieren" (6.4b, TJ): the user's word that the mail is genuine
+    /// (journalled; ends phishing and spam), optionally a note for the model and a relation as a
+    /// firm rule — then this mail and the alike ones go to the model again with that knowledge.
+    func correctVerdict(messageID: Int64, note: String?, noteDomain: String, relation: (id: String?, name: String, domains: [String])?,
+                        recheck: [Int64]) async -> String? {
+        guard let reader, let identity = try? reader.identities(of: [messageID]).first else { return nil }
+        let existing = relation.flatMap { r in r.id.flatMap { id in relations.first { $0.id == id } } }
+        let problem = await writeNow { writer in
+            try await writer.confirmNotSpam(identity: identity)
+            if let note, !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                try await writer.saveNote(kind: .preference, text: note, subject: "domain:" + noteDomain)
+            }
+            if let relation {
+                try await writer.saveRelation(id: relation.id, name: relation.name, domains: relation.domains,
+                                              since: existing?.since, until: existing?.until)
+            }
+        }
+        reloadRelations()
+        if problem == nil, aiConfig.enabled, !recheck.isEmpty {
+            runClassification([messageID] + recheck.filter { $0 != messageID }, title: String(localized: "Neu einordnen"))
+        }
+        contentGeneration += 1
+        return problem
+    }
+
     func addPublicAddress(_ address: String) async -> String? {
         let a = address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard a.contains("@"), !a.contains(" ") else { return String(localized: "Bitte eine Mailadresse eingeben, z. B. kontakt@beispiel.de") }
