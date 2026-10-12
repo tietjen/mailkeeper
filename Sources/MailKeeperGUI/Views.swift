@@ -320,8 +320,13 @@ struct ReaderView: View {
     @ViewBuilder
     private func content(_ detail: MessageDetail, _ message: ParsedMessage, _ thread: [MessageSummary]) -> some View {
             VStack(alignment: .leading, spacing: 0) {
+                // never wider than the column, whatever a header row wants. (Its rows must not use
+                // fixedSize(vertical:): measured at the minimum width that made the header 3,264 pt
+                // tall and pushed the whole window out of view — TJ.)
                 header(detail, message, thread)
                     .padding(12)
+                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                    .clipped()
                 Divider()
                 if let html = message.html, let rules = ContentRules.shared.list {
                     MessageWebView(html: html, message: message, rules: rules) { hovered = $0 }
@@ -514,22 +519,27 @@ struct ReaderView: View {
         let icon = check.isWarning ? "exclamationmark.shield.fill" : check.firstContactAt != nil ? "envelope.badge" : "checkmark.seal"
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text("Echtheit").foregroundStyle(.secondary).frame(width: 64, alignment: .trailing)
+            // wraps within the column, never wider than it: a long relation name in one line (and a
+            // button titled with it) pushed the whole window apart (TJ)
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(Array(check.lines.enumerated()), id: \.offset) { n, line in
                     Label(DisplayText.safe(line), systemImage: n == 0 ? icon : "circle.fill")
                         .labelStyle(EchtheitLabelStyle(first: n == 0))
                         .foregroundStyle(n == 0 ? tint : .secondary)
                         .fontWeight(n == 0 && check.isWarning ? .semibold : .regular)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(4)
+                        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                        .help(DisplayText.safe(line))
                 }
                 if let lookAlike = check.lookAlike, let domain = check.senderDomain {
-                    Button("\(domain) gehört doch zu „\(DisplayText.safe(lookAlike.name))“") {
+                    Button("Domain gehört doch dazu") {
                         Task { _ = await model.addDomain(domain, to: lookAlike); relation = model.relationCheck(messageID) }
                     }
                     .controlSize(.small)
-                    .help("Nur wenn du sicher bist: die Domain wird zur Beziehung hinzugefügt und gilt danach als echt")
+                    .help("Nur wenn du sicher bist: \(domain) wird zur Beziehung „\(DisplayText.safe(lookAlike.name))“ hinzugefügt und gilt danach als echt")
                 }
             }
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         }
         .font(.callout)
     }

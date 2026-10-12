@@ -70,7 +70,7 @@ private struct SummaryBox: View {
                 }
             case .failed(let message):
                 Text("Zusammenfassen ging nicht: \(DisplayText.safe(message))").foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 6) {
                     Button("Erneut versuchen", action: retry)
                     Button("Schließen", action: close)
@@ -81,17 +81,17 @@ private struct SummaryBox: View {
                 if let caution = s.caution {
                     Label(DisplayText.safe(caution), systemImage: "exclamationmark.shield.fill")
                         .foregroundStyle(.orange).fontWeight(.semibold)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                 }
                 Text(DisplayText.safe(s.summary))
                     .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                 if !s.points.isEmpty {
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(Array(s.points.enumerated()), id: \.offset) { _, point in
                             HStack(alignment: .firstTextBaseline, spacing: 4) {
                                 Text("•").foregroundStyle(.secondary)
-                                Text(DisplayText.safe(point)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                                Text(DisplayText.safe(point)).textSelection(.enabled).frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                             }
                         }
                     }
@@ -101,7 +101,7 @@ private struct SummaryBox: View {
                         ForEach(Array(s.todo.enumerated()), id: \.offset) { _, item in
                             Label(DisplayText.safe(item), systemImage: "checkmark.circle")
                                 .foregroundStyle(.blue)
-                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                         }
                     }
                 }
