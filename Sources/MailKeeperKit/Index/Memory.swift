@@ -82,9 +82,10 @@ public struct MemoryItem: Sendable, Equatable, Identifiable {
     public var summary: String {
         switch kind {
         case .example:
-            let what = [content.category.flatMap(MailCategory.init(rawValue:))?.label,
-                        content.verdict == "spam" ? String(localized: "Spam") : content.verdict == "ham" ? String(localized: "kein Spam") : nil]
-                .compactMap { $0 }.joined(separator: ", ")
+            let category = content.category.flatMap(MailCategory.init(rawValue:))
+            let verdict = content.verdict == "ham" ? String(localized: "kein Spam")
+                : content.verdict == "spam" && category != .spam ? String(localized: "Spam") : nil  // "Ist Spam" sets both
+            let what = [category?.label, verdict].compactMap { $0 }.joined(separator: ", ")
             return "\(what) – \(content.subject ?? "")"
         default:
             return content.text ?? ""

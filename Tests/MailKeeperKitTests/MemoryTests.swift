@@ -59,6 +59,7 @@ struct MemoryTests {
         #expect(try r.classification(of: lotto)?.verdict == "ham" && r.classification(of: lotto)?.category == .newsletter)
         try await writer.setUserClassification(identity: identity, category: .spam)
         #expect(try r.classification(of: lotto)?.verdict == "spam")
+        #expect(try r.memoryItems().first { $0.kind == .example }?.summary.hasPrefix("Spam – ") == true)  // not "Spam, Spam"
         try await writer.setUserClassification(identity: identity, category: .personal)
         #expect(try r.classification(of: lotto)?.verdict == nil && r.classification(of: lotto)?.source == .user)
     }
