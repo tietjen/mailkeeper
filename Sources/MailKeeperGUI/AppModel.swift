@@ -1557,6 +1557,7 @@ final class AppModel {
     }
 
     private var authServersCache: [String: Set<String>]?
+    private var warningsRefreshed = false
 
     /// The register's and the own server's word on a message (reader "Echtheit").
     func relationCheck(_ messageID: Int64) -> RelationCheck? {
@@ -1732,12 +1733,14 @@ final class AppModel {
         let rules = ((try? reader.heuristicPendingCount()) ?? 0) > 0  // categories by rule (5.4)
         let headers = ((try? reader.headerFieldsPending()) ?? 0) > 0  // authentication and delivery (6.3)
         let categoryRules = ((try? reader.rules()) ?? []).contains { !$0.action.isDestructive }  // the user's rules (6.5b)
+        let warnings = !warningsRefreshed  // once per launch: the own servers may have changed since (review 6 B1)
+        warningsRefreshed = true
         let pdfs = (textStats?.pending ?? 0) > 0 && PDFTextClient.isBundled
         // vectors for semantic search (5.7): only with an endpoint, never on the Mac's model
         let router = aiConfig.enabled && aiConfig.endpoint != nil && !embedFailed ? aiRouter() : nil
         let embeds = router != nil && ((try? reader.embeddingCounts(model: aiConfig.model(for: .embed))).map { $0.done < $0.total } ?? false)
         let similarDue = router != nil && ((try? reader.staleSimilarCount()) ?? 0) > 0  // a stricter vote decides again
-        guard pdfs || expired || rules || headers || categoryRules || embeds || similarDue else { return }
+        guard pdfs || expired || rules || headers || categoryRules || warnings || embeds || similarDue else { return }
         let extractor = pdfText
         let token = UUID()
         textIndexToken = token
@@ -1755,6 +1758,9 @@ final class AppModel {
                 }
                 if categoryRules || rules, try await writer.applyCategoryRules() > 0 {  // after the rules: the user's rules win
                     await MainActor.run { self?.contentGeneration += 1 }
+                }
+                if warnings || headers, try await writer.refreshWarnings() > 0 {
+                    await MainActor.run { self?.refresh() }
                 }
                 if pdfs {
                     _ = try await AttachmentIndexer(writer: writer, extractor: extractor).run { p in
