@@ -359,11 +359,19 @@ struct RankedBar: View {
                 if let order = model.rankedSort {
                     Text("· \(model.messageIDs.count) · sortiert nach \(order.sort.label)").foregroundStyle(.secondary)
                     Button("Ähnlichste zuerst") { model.sortRankedByScore() }.controlSize(.small)
+                } else if case .similar = mode {
+                    Text("· \(model.messageIDs.count) · die Mail selbst, dann die ähnlichsten").foregroundStyle(.secondary).lineLimit(1)
+                        .help("Ein Klick auf einen Spaltenkopf sortiert die Treffer nach dieser Spalte")
                 } else {
                     Text("· \(model.messageIDs.count) · ähnlichste zuerst").foregroundStyle(.secondary)
                         .help("Ein Klick auf einen Spaltenkopf sortiert die Treffer nach dieser Spalte")
                 }
                 Spacer()
+                if let sender = model.rankedSender {
+                    Button("Alle \(sender.total.formatted()) von \(DisplayText.safe(sender.name))") { model.showAllFromRankedSender() }
+                        .controlSize(.small).lineLimit(1)
+                        .help("In dieser Liste stehen \(sender.listed) Mails dieses Absenders, im Archiv sind es \(sender.total) – alle zeigen (sender:)")
+                }
                 Button("Schließen") { model.closeRanked() }.controlSize(.small)
             }
             .font(.callout)

@@ -1729,7 +1729,9 @@ final class AppModel {
         case semantic(String)
     }
 
-    private(set) var rankedMode: RankedMode? { didSet { if rankedMode != oldValue { rankedSort = nil } } }
+    private(set) var rankedMode: RankedMode? {
+        didSet { if rankedMode != oldValue { rankedSort = nil; if case .similar = rankedMode {} else { rankedSender = nil } } }
+    }
     private var rankedIDs: [Int64] = []
     /// A column order chosen in a ranked list; nil = by score (each new ranked list starts there).
     private(set) var rankedSort: (sort: MessageSort, ascending: Bool)?
@@ -1757,9 +1759,10 @@ final class AppModel {
         return vectorCache
     }
 
-    /// Mails like this one, most similar first (reader: "Ähnliche Mails").
+    /// Mails like this one: the mail itself first, then the 100 most similar (reader: "Ähnliche
+    /// Mails"). TJ deleted "all similar" and the mail he started from stayed — it belongs in.
     func showSimilar(_ id: Int64) {
-        let subject = summaries([id]).first?.subject ?? ""
+        let summary = summaries([id]).first
         let root = archiveRoot
         Task {
             guard let index = await vectors(), archiveRoot == root else { return }
@@ -1767,10 +1770,41 @@ final class AppModel {
                 actionError = String(localized: "Für diese Mail gibt es noch keinen Vektor – die Embeddings laufen im Hintergrund (Statusleiste).")
                 return
             }
-            rankedIDs = index.nearest(to: v, k: 100, excluding: id).map(\.id)
-            rankedMode = .similar(id: id, subject: subject)
+            rankedIDs = [id] + index.nearest(to: v, k: 100, excluding: id).map(\.id)
+            rankedMode = .similar(id: id, subject: summary?.subject ?? "")
+            rankedSender = sender(of: summary, within: rankedIDs)
             reloadList()
         }
+    }
+
+    /// The starting mail's sender, when the archive holds more of its mails than the list shows.
+    struct RankedSender: Equatable {
+        var name: String
+        var query: String
+        var total: Int
+        var listed: Int
+    }
+
+    private(set) var rankedSender: RankedSender?
+
+    private func sender(of summary: MessageSummary?, within ids: [Int64]) -> RankedSender? {
+        guard let reader, let address = summary?.fromAddress, address.contains("@"), !address.contains("\"") else { return nil }
+        let query = "sender:" + QueryParser.quote(address)
+        guard let total = try? reader.count(MessageFilter(text: query + " ")),
+              let listed = try? reader.count(MessageFilter(text: query + " ", ids: ids)), total > listed else { return nil }
+        return RankedSender(name: summary?.fromName ?? address, query: query, total: total, listed: listed)
+    }
+
+    /// All mails of the starting mail's sender, in every mailbox.
+    func showAllFromRankedSender() {
+        guard let sender = rankedSender else { return }
+        let anchor: Int64? = if case .similar(let id, _) = rankedMode { id } else { nil }
+        rankedMode = nil
+        rankedIDs = []
+        viewMode = .messages
+        setSearch(sender.query + " ")
+        sidebarSelection = .all  // reloads with the new search text
+        if let anchor { reveal(anchor) }
     }
 
     func closeRanked() {
