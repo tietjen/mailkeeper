@@ -49,7 +49,23 @@ ids. Notes are bounded (500 characters, no control characters) and only notes an
 written or imported; examples and derived items belong to their archive. "Art ändern" is the
 user's category (journalled `classified` with a category): it keeps a "kein Spam" and ends a
 "Spam". Settings › Gedächtnis: list by kind, write, edit, forget, export/import JSON, forget all;
-`mkctl memory`. Not yet used in prompts (6.2).
+`mkctl memory`.
+
+*As built (6.2):* sender profiles are computed when asked (`ArchiveReader.senderProfile`), not
+stored: other mails of the address, categories by rules / model / user, the user's verdicts, the
+model's phishing flags, and the user's own sent mails to the address or its domain (recipients
+from the index, sent = role/name/label as `is:sent`). `MemoryRetriever` picks per mail: notes by
+scope (all accounts or the mail's) and subject (general, sender, domain, list; at most 8 /
+1,500 characters), the profile, and up to four examples — same sender, same domain, then similar
+content (cosine ≥ 0.80 against the examples' vectors, loaded alone; the mail itself never). In the
+prompt the user's notes and MailKeeper's counts stand outside the fence, the examples (they carry
+mail subjects) inside a fenced block under a trusted header; the instructions say a known sender
+counts for authenticity only when the own server's check does not fail. Every model answer stores
+what it was shown (`suggestion_sources`, notes/examples by id, the profile as
+`profile:sender:…`) and stamps `last_used`; "Warum?" at the reader's category lists it (the
+profile as of now), each memory item with "Vergessen". The user's terms go into the search
+translation too. Live: a club mail with notes and examples → personal; a look-alike of a bank
+with examples of the real one → phishing "ja" (wrong domain, dmarc=fail, link text).
 
 ## Consequences
 

@@ -168,6 +168,24 @@ extension ArchiveReader {
         return try encoder.encode(MemoryExport(exported: now, items: items))
     }
 
+    /// Message ids of the given identities (examples name their messages by identity).
+    public func messageIDs(identities: [String]) throws -> [String: Int64] {
+        var out: [String: Int64] = [:]
+        for chunk in stride(from: 0, to: identities.count, by: 500).map({ Array(identities[$0..<min($0 + 500, identities.count)]) }) {
+            let marks = Array(repeating: "?", count: chunk.count).joined(separator: ",")
+            try db.forEach("SELECT identity, id FROM messages WHERE identity IN (\(marks))", chunk.map { .text($0) }) { r in
+                if let identity = r.text(0) { out[identity] = r.int(1) }
+            }
+        }
+        return out
+    }
+
+    /// The memory items a suggestion used (6.2, "Warum?"): ids of notes and examples, and
+    /// "profile:sender:…" for the sender profile it saw.
+    public func suggestionSources(of messageID: Int64) throws -> [String] {
+        try db.query("SELECT memory_id FROM suggestion_sources WHERE message_id = ? ORDER BY memory_id", [.int(messageID)]) { $0.text(0) ?? "" }
+    }
+
     static func memoryItem(_ r: Row) -> MemoryItem? {
         guard let kind = r.text(1).flatMap(MemoryKind.init(rawValue:)), let provenance = r.text(5).flatMap(MemoryProvenance.init(rawValue:)) else { return nil }
         let content = r.text(4).flatMap { try? JSONDecoder().decode(MemoryContent.self, from: Data($0.utf8)) } ?? MemoryContent()

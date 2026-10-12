@@ -5,10 +5,13 @@ import MailKeeperKit
 public struct QueryContext: Sendable, Equatable {
     public var accounts: [String]
     public var folders: [String]
+    /// The user's terms from the memory (6.2): "Firma = Konto proton".
+    public var vocabulary: [String]
 
-    public init(accounts: [String] = [], folders: [String] = []) {
+    public init(accounts: [String] = [], folders: [String] = [], vocabulary: [String] = []) {
         self.accounts = accounts
         self.folders = folders
+        self.vocabulary = vocabulary
     }
 }
 
@@ -82,6 +85,7 @@ public struct QueryTranslator: Sendable {
         let weekday = calendar.weekdaySymbols[calendar.component(.weekday, from: now) - 1]
         let accounts = context.accounts.prefix(20).map { PromptText.line($0, max: 40) }.joined(separator: ", ")
         let folders = context.folders.prefix(60).map { PromptText.line($0, max: 60) }.joined(separator: ", ")
+        let vocabulary = context.vocabulary.prefix(20).map { PromptText.line($0, max: 120) }.joined(separator: "; ")
         return """
         Du übersetzt Suchwünsche für ein Mail-Archiv in seine Suchsprache. Gib nur Felder aus dieser Liste aus:
 
@@ -111,7 +115,7 @@ public struct QueryTranslator: Sendable {
         kategorie:offen) – es findet nur bereits eingeordnete Mails. Phishing → is:phishing, Spam-Ordner → is:junk.
         - Füllwörter (von, mit, alle, Mails, zeig mir) lässt du weg. Keine Felder erfinden, keine Erklärungen in die Abfrage.
         - Konten: \(accounts.isEmpty ? "—" : accounts)
-        - Ordner: \(folders.isEmpty ? "—" : folders)
+        - Ordner: \(folders.isEmpty ? "—" : folders)\(vocabulary.isEmpty ? "" : "\n        - Begriffe des Nutzers (sie gelten): " + vocabulary)
         - Im Zweifel die einfachere Abfrage.
 
         Beispiele (Suchwunsch → query | explanation):

@@ -196,3 +196,37 @@ private struct NoteEditor: View {
         .frame(width: 460)
     }
 }
+
+/// "Warum?" at a model's category (6.2): what it saw from the memory, each with "Vergessen".
+struct WhyPopover: View {
+    let lines: [AppModel.WhyLine]
+    let forget: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Was die KI aus dem Gedächtnis gesehen hat").font(.headline)
+            if lines.isEmpty {
+                Text("Nichts – eingeordnet nur nach der Mail selbst (oder vor dem Gedächtnis).").foregroundStyle(.secondary)
+            }
+            ForEach(lines) { line in
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(DisplayText.safe(line.title)).fontWeight(.semibold)
+                        ForEach(Array(line.detail.enumerated()), id: \.offset) { _, d in
+                            Text(DisplayText.safe(d)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    Spacer(minLength: 12)
+                    if line.forgettable {
+                        Button("Vergessen") { forget(line.id) }.controlSize(.small)
+                            .help("Nicht mehr verwenden – die Entscheidung an der Mail selbst bleibt")
+                    }
+                }
+            }
+            Text("Alles ansehen und bearbeiten: Einstellungen › Gedächtnis").font(.caption).foregroundStyle(.secondary)
+        }
+        .font(.callout)
+        .padding(14)
+        .frame(width: 420)
+    }
+}

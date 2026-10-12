@@ -12,6 +12,8 @@ public struct MailClassification: Sendable, Equatable {
     public var path: AIPath
     public var model: String
     public var seconds: Double
+    /// The memory items the model was shown (6.2, "Warum?").
+    public var sources: [String] = []
 }
 
 /// A model's category for a mail the rules left open (ADR-0004 §1, Phase 5.4). The mail goes
@@ -24,9 +26,12 @@ public struct MailClassifier: Sendable {
         self.router = router
     }
 
-    public func classify(_ mail: MailSnapshot) async throws -> MailClassification {
+    /// `memory`: what the user taught MailKeeper about mails like this one (6.2).
+    public func classify(_ mail: MailSnapshot, memory: MemoryContext? = nil) async throws -> MailClassification {
         let fence = Fence()
-        let result = try await router.chat(ChatRequest(task: .classify, system: Self.instructions(fence), user: fence.wrap(mail.rendered(maxText: 1_200)),
+        let context = memory.map { $0.isEmpty ? "" : $0.render(fence) + "\n\nDie zu bewertende Mail:\n" } ?? ""
+        let result = try await router.chat(ChatRequest(task: .classify, system: Self.instructions(fence),
+                                                       user: context + fence.wrap(mail.rendered(maxText: 1_200)),
                                                        schema: Self.schema, maxTokens: 300))
         struct Answer: Decodable { var category: String; var reason: String; var phishing: String; var phishing_reason: String? }
         let answer = try result.decode(Answer.self)
@@ -36,7 +41,7 @@ public struct MailClassifier: Sendable {
         let phishingReason = answer.phishing_reason.map { PromptText.line($0, max: 200) }.flatMap { $0.isEmpty ? nil : $0 }
         return MailClassification(category: category, reason: PromptText.line(answer.reason, max: 160),
                                   phishing: phishing, phishingReason: phishing == .none ? nil : phishingReason,
-                                  path: result.path, model: result.model, seconds: result.seconds)
+                                  path: result.path, model: result.model, seconds: result.seconds, sources: memory?.sources ?? [])
     }
 
     static let schema = AISchema.object(name: "classification", properties: [
@@ -67,6 +72,13 @@ public struct MailClassifier: Sendable {
         fehlgeschlagene Prüfung des eigenen Servers (dmarc=fail, dkim=fail), Kurzlinks oder IP-Adressen als Ziel.
         Newsletter leiten Klicks oft über Tracking-Domains (mailchimp, sendgrid, hubspot …) – das allein ist kein Phishing.
         phishing: nein = keine Anzeichen; verdacht = einzelne Anzeichen; ja = klare Täuschung.
+
+        Vor der Mail können stehen: Notizen des Nutzers (vertrauenswürdig – beachte sie), Fakten von MailKeeper über die \
+        Absenderadresse und Entscheidungen des Nutzers zu verwandten Mails (gleicher Absender, gleiche Domain oder ähnlicher \
+        Inhalt). Folge diesen Entscheidungen, wenn die Mail wirklich gleichartig ist. Ein bekannter Absender und frühere Mails \
+        des Nutzers an ihn sprechen nur dann für Echtheit, wenn die Prüfung des eigenen Servers nicht fehlschlägt – \
+        Absender lassen sich fälschen; eine erste Mail einer unbekannten Adresse, die sich als bekannte Firma ausgibt, ist ein \
+        Warnsignal.
         \(fence.rule)
         """
     }

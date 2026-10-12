@@ -706,7 +706,7 @@ public actor ArchiveWriter {
     /// with its phishing assessment (5.6). Never over a category the user gave; the user's
     /// verdict stays.
     public func setClassification(messageID: Int64, category: MailCategory, source: ClassificationSource, model: String?, reason: String?,
-                                  phishing: PhishingLevel? = nil, phishingReason: String? = nil) throws {
+                                  phishing: PhishingLevel? = nil, phishingReason: String? = nil, sources: [String] = []) throws {
         try db.run("""
             INSERT INTO classifications(message_id, category, source, rule, model, reason, version, created, phishing, phishing_reason)
             SELECT id, ?, ?, NULL, ?, ?, 0, ?, ?, ? FROM messages
@@ -717,6 +717,14 @@ public actor ArchiveWriter {
                 phishing_reason = CASE WHEN classifications.verdict = 'ham' THEN NULL ELSE excluded.phishing_reason END
             """, [.text(category.rawValue), .text(source.rawValue), .optional(model), .optional(reason),
                   .double(Date().timeIntervalSince1970), .optional(phishing?.rawValue), .optional(phishingReason), .int(messageID)])
+        guard db.changes > 0 else { return }  // the user's category: nothing written, nothing to explain
+        // what the model was shown from the memory (6.2, "Warum?"); used items get their last use
+        let now = Date().timeIntervalSince1970
+        try db.run("DELETE FROM suggestion_sources WHERE message_id = ?", [.int(messageID)])
+        for id in Set(sources) {
+            try db.run("INSERT OR IGNORE INTO suggestion_sources(message_id, memory_id) VALUES (?, ?)", [.int(messageID), .text(id)])
+            try db.run("UPDATE memory_items SET last_used = ? WHERE id = ?", [.double(now), .text(id)])
+        }
     }
 
     /// "Ist Spam": category spam, the user's — journalled, survives a rebuild, no model overrides it.

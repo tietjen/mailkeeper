@@ -95,3 +95,44 @@ struct MemoryTests {
         #expect(try ArchiveReader(layout: layout).memoryItems().map(\.content.category) == ["work"])
     }
 }
+
+@Suite("Absenderprofil und Quellen (6.2)")
+struct SenderProfileTests {
+    @Test func theProfileCountsWhatTheArchiveKnowsWithoutTheMailItself() async throws {
+        let layout = try ArchiveLayout.open(at: tempDir().appending(path: "prof"), create: true)
+        let writer = try ArchiveWriter(layout: layout)
+        let mail = { (id: String, from: String, to: String, subject: String) in
+            eml("From: \(from)\nTo: \(to)\nSubject: \(subject)\nDate: Thu, 14 Mar 2024 10:00:00 +0100\nMessage-ID: <\(id)@t.test>\n\nText\n")
+        }
+        _ = try await writer.ingest([
+            (mail("1", "Max <Max@Handwerk.example>", "me@own.test", "Angebot"), LocationInfo(account: "x", mailbox: "INBOX", providerID: "1")),
+            (mail("2", "max@handwerk.example", "me@own.test", "Rechnung"), LocationInfo(account: "x", mailbox: "INBOX", providerID: "2")),
+            (mail("3", "max@handwerk.example", "me@own.test", "Termin"), LocationInfo(account: "x", mailbox: "INBOX", providerID: "3")),
+            (mail("4", "me@own.test", "MAX@handwerk.example, b@x.test", "Antwort"), LocationInfo(account: "x", mailbox: "Sent", providerID: "4")),
+            (mail("5", "me@own.test", "buero@handwerk.example", "Frage"), LocationInfo(account: "x", mailbox: "Sent", providerID: "5")),
+            (mail("6", "new@bank-login.example", "me@own.test", "Konto gesperrt"), LocationInfo(account: "x", mailbox: "INBOX", providerID: "6")),
+        ])
+        let r = try ArchiveReader(layout: layout)
+        let id = { (s: String) in try #require(try r.messageIDs(MessageFilter(text: "subject:\"\(s)\" ")).first) }
+        try await writer.setClassification(messageID: try id("Rechnung"), category: .invoice, source: .endpoint, model: "m", reason: "r",
+                                           phishing: .suspicious, phishingReason: "x")
+        try await writer.setUserClassification(identity: try #require(try r.identities(of: [try id("Termin")]).first), category: .work)
+
+        let p = try #require(try r.senderProfile(of: try id("Angebot")))
+        #expect(p.address == "max@handwerk.example" && p.mails == 2 && p.byModel == [.invoice: 1] && p.byUser == [.work: 1])
+        #expect(p.phishingFlags == 1 && p.youWrote == 1 && p.youWroteToDomain == 2)
+        #expect(p.lines.contains("Du hast 1 Mails an diese Adresse geschrieben.") && p.lines.contains { $0.hasPrefix("Von dieser Adresse 2 weitere Mails") })
+        let stranger = try #require(try r.senderProfile(of: try id("Konto gesperrt")))
+        #expect(stranger.mails == 0 && stranger.lines.first == "Erste Mail von dieser Adresse im Archiv.")
+        #expect(stranger.lines.last == "Du hast nie an diese Adresse oder ihre Domain geschrieben.")
+
+        // what a model saw is kept for "Warum?" — not for a mail the user decided
+        let note = try await writer.saveNote(kind: .preference, text: "Handwerker-Angebote sind Arbeit")
+        try await writer.setClassification(messageID: try id("Angebot"), category: .work, source: .endpoint, model: "m", reason: "r",
+                                           sources: [note, p.sourceID])
+        #expect(try r.suggestionSources(of: try id("Angebot")) == [note, p.sourceID].sorted())
+        #expect(try r.memoryItem(note)?.lastUsed != nil)
+        try await writer.setClassification(messageID: try id("Termin"), category: .personal, source: .endpoint, model: "m", reason: "r", sources: [note])
+        #expect(try r.suggestionSources(of: try id("Termin")).isEmpty && r.classification(of: try id("Termin"))?.category == .work)
+    }
+}

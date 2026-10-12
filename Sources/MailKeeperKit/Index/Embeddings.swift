@@ -62,6 +62,26 @@ extension ArchiveReader {
         return VectorIndex(ids: ids, dim: dim, matrix: matrix)
     }
 
+    /// The vectors of a few messages (memory examples, the mail being classified) — without
+    /// loading the whole index.
+    public func vectors(of ids: [Int64], model: String) throws -> VectorIndex {
+        var outIDs: [Int64] = []
+        var matrix: [Float] = []
+        var dim = 0
+        for chunk in stride(from: 0, to: ids.count, by: 500).map({ Array(ids[$0..<min($0 + 500, ids.count)]) }) {
+            let marks = Array(repeating: "?", count: chunk.count).joined(separator: ",")
+            try db.forEach("SELECT message_id, dim, vector FROM embeddings WHERE model = ? AND message_id IN (\(marks))",
+                           [.text(model)] + chunk.map { .int($0) }) { r in
+                let d = Int(r.int(1))
+                guard let blob = r.data(2), d > 0, blob.count == d * 2, dim == 0 || d == dim else { return }
+                dim = d
+                outIDs.append(r.int(0))
+                matrix.append(contentsOf: VectorMath.decode(blob))
+            }
+        }
+        return VectorIndex(ids: outIDs, dim: dim, matrix: matrix)
+    }
+
     /// Categories that count as labels for "similar mails": the rules', the models' and the
     /// user's — never one decided by similarity itself (no echo).
     public func labelledCategories() throws -> [Int64: MailCategory] {

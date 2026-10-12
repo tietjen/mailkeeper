@@ -1375,6 +1375,32 @@ final class AppModel {
         }
     }
 
+    /// One line of "Warum?": a memory item the model saw, or the sender profile (as of now).
+    struct WhyLine: Identifiable {
+        var id: String
+        var title: String
+        var detail: [String]
+        var forgettable: Bool
+    }
+
+    func why(_ messageID: Int64) -> [WhyLine] {
+        guard let reader, let sources = try? reader.suggestionSources(of: messageID) else { return [] }
+        return sources.compactMap { source in
+            if source.hasPrefix("profile:") {
+                guard let profile = try? reader.senderProfile(of: messageID) else { return nil }
+                return WhyLine(id: source, title: String(localized: "Absenderprofil \(profile.address) (Stand jetzt)"), detail: profile.lines, forgettable: false)
+            }
+            guard let item = try? reader.memoryItem(source) else { return nil }
+            let title: String = switch item.kind {
+            case .example: String(localized: "Deine Entscheidung")
+            case .vocabulary: String(localized: "Dein Begriff")
+            default: String(localized: "Deine Notiz")
+            }
+            return WhyLine(id: source, title: title + (item.active ? "" : String(localized: " (inzwischen vergessen)")),
+                           detail: [item.summary], forgettable: item.active)
+        }
+    }
+
     func saveNote(id: String?, kind: MemoryKind, text: String, subject: String, scope: String) async -> String? {
         await writeNow { writer in try await writer.saveNote(id: id, kind: kind, text: text, subject: subject, scope: scope) }
     }
@@ -1564,6 +1590,7 @@ final class AppModel {
         actionRunning = true
         actionProgress = ActionRunProgress(title: title, done: 0, total: ids.count, failed: 0, resumable: false)
         let indexing = pauseTextIndexing()
+        let embedModel = aiConfig.endpoint != nil ? aiConfig.model(for: .embed) : nil
         actionTask = Task.detached { [weak self] in
             await indexing?.value
             var problem: String?
@@ -1573,16 +1600,19 @@ final class AppModel {
                 let reader = try ArchiveReader(layout: layout)
                 let writer = try ArchiveWriter(layout: layout)
                 let classifier = MailClassifier(router: router)
+                let memory = try MemoryRetriever(reader: reader, embedModel: embedModel)  // 6.2: what the user taught
                 for (n, id) in ids.enumerated() {
                     try Task.checkCancellation()
                     do {
                         // the user decided this one: no model call, nothing would be written (review 5.9 N7)
                         if try reader.classification(of: id)?.source == .user { continue }
                         guard let parsed = try reader.parsedMessage(id) else { continue }
-                        let c = try await classifier.classify(MailSnapshot(parsed))
+                        let mail = MailSnapshot(parsed)
+                        let accounts = try reader.detail(id)?.locations.map(\.account) ?? []
+                        let c = try await classifier.classify(mail, memory: try memory.context(for: id, mail: mail, accounts: accounts))
                         try await writer.setClassification(messageID: id, category: c.category,
                                                            source: c.path == .onDevice ? .onDevice : .endpoint, model: c.model, reason: c.reason,
-                                                           phishing: c.phishing, phishingReason: c.phishingReason)
+                                                           phishing: c.phishing, phishingReason: c.phishingReason, sources: c.sources)
                     } catch let error as AIError {
                         failed += 1
                         if case .notConfigured = error { throw error }
@@ -1941,7 +1971,8 @@ final class AppModel {
         guard canTranslateSearch, let router = aiRouter() else { return }
         let original = searchText
         let context = QueryContext(accounts: accounts.map(\.id),
-                                   folders: Array(Set(accounts.flatMap { $0.mailboxes.map(\.name) })).sorted())
+                                   folders: Array(Set(accounts.flatMap { $0.mailboxes.map(\.name) })).sorted(),
+                                   vocabulary: memoryItems.filter { $0.kind == .vocabulary }.compactMap(\.content.text))
         translatingSearch = true
         searchTranslation = nil
         translationTask = Task { [weak self] in

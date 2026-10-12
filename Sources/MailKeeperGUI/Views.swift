@@ -252,6 +252,8 @@ struct ReaderView: View {
     @State private var inJunk = false
     @State private var rescuable = false
     @State private var hovered: LinkCheck?
+    @State private var showWhy = false
+    @State private var whyLines: [AppModel.WhyLine] = []
     @State private var lures: [LinkCheck] = []
     @State private var failed = false
 
@@ -369,6 +371,16 @@ struct ReaderView: View {
                 .help("Alle Mails dieser Art zeigen")
                 Text(DisplayText.safe(categorySource)).foregroundStyle(.secondary).lineLimit(2)
                     .help(DisplayText.safe(categorySource))
+                if category?.source == .endpoint || category?.source == .onDevice {
+                    Button("Warum?") { whyLines = model.why(messageID); showWhy = true }
+                        .buttonStyle(.link).controlSize(.small)
+                        .help("Was die KI aus dem Gedächtnis gesehen hat: deine Notizen, Entscheidungen und das Absenderprofil")
+                        .popover(isPresented: $showWhy, arrowEdge: .bottom) {
+                            WhyPopover(lines: whyLines) { id in
+                                Task { _ = await model.forgetMemory([id]); whyLines = model.why(messageID) }
+                            }
+                        }
+                }
                 if let verdictText { Text(verdictText).foregroundStyle(.green) }
             } else {
                 Text(category == nil ? "noch nicht eingeordnet" : "offen – keine Regel passt").foregroundStyle(.secondary)

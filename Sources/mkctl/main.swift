@@ -375,13 +375,17 @@ func summarize(_ p: ImportProgress, start: Date) {
             guard config.enabled else { throw CLIError(description: "KI ist aus: mkctl ai config --on --endpoint <url>") }
             let key = config.secretKey.flatMap { try? CredentialStore().secret(key: $0) }
             let classifier = MailClassifier(router: AIRouter(config: config, apiKey: key))
+            let memory = try MemoryRetriever(reader: reader, embedModel: config.endpoint != nil ? config.model(for: .embed) : nil)
             let query = args.joined(separator: " ")
             for id in try reader.openForClassification(MessageFilter(text: query.isEmpty ? nil : query + " "), limit: limit) {
                 guard let parsed = try reader.parsedMessage(id) else { continue }
                 do {
-                    let c = try await classifier.classify(MailSnapshot(parsed))
+                    let mail = MailSnapshot(parsed)
+                    let context = try memory.context(for: id, mail: mail, accounts: try reader.detail(id)?.locations.map(\.account) ?? [])
+                    let c = try await classifier.classify(mail, memory: context)
                     try await writer.setClassification(messageID: id, category: c.category, source: c.path == .onDevice ? .onDevice : .endpoint,
-                                                       model: c.model, reason: c.reason, phishing: c.phishing, phishingReason: c.phishingReason)
+                                                       model: c.model, reason: c.reason, phishing: c.phishing, phishingReason: c.phishingReason,
+                                                       sources: c.sources)
                     let fish = c.phishing == .none ? "" : "  ⚠︎ \(c.phishing.label): \(clean(c.phishingReason ?? ""))"
                     print("\(c.category.label.padding(toLength: 20, withPad: " ", startingAt: 0)) \(clean(String((parsed.subject ?? "").prefix(60))))  — \(clean(c.reason))\(fish)")
                 } catch {
@@ -487,7 +491,8 @@ func summarize(_ p: ImportProgress, start: Date) {
         let key = config.secretKey.flatMap { try? CredentialStore().secret(key: $0) }
         let reader = try ArchiveReader(layout: layout)
         let accounts = try reader.accounts()
-        let context = QueryContext(accounts: accounts.map(\.id), folders: Array(Set(accounts.flatMap { $0.mailboxes.map(\.name) })).sorted())
+        let context = QueryContext(accounts: accounts.map(\.id), folders: Array(Set(accounts.flatMap { $0.mailboxes.map(\.name) })).sorted(),
+                                   vocabulary: try reader.memoryItems().filter { $0.kind == .vocabulary }.compactMap(\.content.text))
         let t = try await QueryTranslator(router: AIRouter(config: config, apiKey: key)).translate(text, context: context)
         print("\(t.query)")
         print("  \(clean(t.explanation)) — \(t.path == .onDevice ? "Modell auf diesem Mac" : t.model), \(String(format: "%.1f", t.seconds)) s")
