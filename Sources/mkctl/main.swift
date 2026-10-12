@@ -50,6 +50,7 @@ usage: mkctl [--archive <dir>] <command>
   similar <id> [--limit n] | meaning <text…>  mails like a message / by meaning (needs embed)
   summarize <id> [--thread]                   KI: summary of a message or its whole conversation
   relations [list | suggest]                   relationship register: confirmed ones, or suggestions from the history
+  cleanup                                     cleanup suggestions: where deleting on the server pays off (read-only)
   memory [list | note <text…> | term <text…> | forget <id>… | export [file] | import <file>]
                                               what MailKeeper learned: notes, terms, examples from your decisions
   ai status | test                            KI settings of the archive; connection test (endpoint, on-device)
@@ -431,6 +432,14 @@ func summarize(_ p: ImportProgress, start: Date) {
         for h in hits {
             guard let m = byID[h.id] else { continue }
             print(String(format: "%.3f  %6lld  ", h.score, h.id) + "\(m.date.map { $0.formatted(date: .numeric, time: .omitted) } ?? "—")  \(clean(m.fromDisplay).prefix(28))  \(clean(m.subject ?? "").prefix(60))")
+        }
+
+    case "cleanup":
+        let reader = try ArchiveReader(layout: try ArchiveLayout.open(at: root, create: false))
+        for s in try reader.cleanupSuggestions() {
+            print("\(clean(s.title))  —  \(s.count) Mails, \(bytes(s.bytes))")
+            print("   \(clean(s.reason))")
+            print("   \(s.query)")
         }
 
     case "relations":

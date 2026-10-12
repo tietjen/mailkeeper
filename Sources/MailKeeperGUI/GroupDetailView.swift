@@ -253,6 +253,45 @@ struct GroupDetailView: View {
 struct CleanupOverviewView: View {
     let model: AppModel
 
+    /// 6.5a: what MailKeeper suggests, archive-wide — counts, a reason, and the usual plan sheet.
+    @ViewBuilder private var suggestions: some View {
+        if model.loadingSuggestions && model.cleanupSuggestions.isEmpty {
+            HStack { ProgressView().controlSize(.small); Text("Vorschläge werden berechnet …").foregroundStyle(.secondary) }
+        } else if !model.cleanupSuggestions.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Vorschläge").font(.headline)
+                ForEach(model.cleanupSuggestions) { s in suggestionCard(s) }
+            }
+        }
+    }
+
+    private func suggestionCard(_ s: CleanupSuggestion) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(DisplayText.safe(s.title)).fontWeight(.semibold)
+                Spacer()
+                Text("\(s.count.formatted()) · \(s.bytes.formatted(.byteCount(style: .file)))").monospacedDigit().foregroundStyle(.secondary)
+            }
+            Text(DisplayText.safe(s.reason)).foregroundStyle(.secondary).frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 6) {
+                Button("Ansehen") { model.showSuggestion(s) }
+                if s.group != nil { Button("Zur Gruppe") { model.openSuggestionGroup(s) }.help("Details und Abmelden") }
+                if s.onServer > 0 {
+                    Button("Vom Server löschen …") { model.planSuggestion(s, .serverDelete) }
+                        .help("\(s.onServer) Mails in den Papierkorb ihres Servers – das Archiv behält sie; vorher kommt die Übersicht")
+                }
+                if s.archiveOnly > 0 {
+                    Button("Aus dem Archiv löschen …") { model.planSuggestion(s, .archiveDelete) }
+                        .help("\(s.archiveOnly) Mails, die auf keinem Server mehr liegen, in den Papierkorb des Archivs – nach 30 Tagen endgültig weg; vorher kommt die Übersicht")
+                }
+            }
+            .controlSize(.small)
+            .disabled(model.actionRunning)
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).stroke(.separator))
+    }
+
     /// Active: tinted with a check mark. Empty: shown, but nothing to click (choosing it would
     /// only leave nothing).
     @ViewBuilder private func bucketRow(_ b: CleanupOverview.Bucket) -> some View {
@@ -296,6 +335,7 @@ struct CleanupOverviewView: View {
                     Text("Wähle links eine Gruppe für Details. Ein Bereich grenzt die Gruppen ein; es ist immer nur einer aktiv, ein zweiter Klick hebt ihn auf.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
+                suggestions
                 if let buckets = model.cleanupOverview?.buckets {
                     VStack(spacing: 0) {
                         ForEach(buckets, id: \.query) { b in bucketRow(b) }
@@ -332,5 +372,6 @@ struct CleanupOverviewView: View {
             .padding(16)
             .frame(maxWidth: 560, alignment: .leading)
         }
+        .onAppear { model.reloadSuggestions() }
     }
 }

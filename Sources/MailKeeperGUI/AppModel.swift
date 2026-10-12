@@ -806,6 +806,43 @@ final class AppModel {
         viewMode = .messages
     }
 
+    // MARK: Cleanup suggestions (6.5a)
+
+    private(set) var cleanupSuggestions: [CleanupSuggestion] = []
+    private(set) var loadingSuggestions = false
+
+    func reloadSuggestions() {
+        guard let layout = reader?.layout, !loadingSuggestions else { return }
+        loadingSuggestions = true
+        Task {
+            let result = await Task.detached(priority: .utility) { (try? ArchiveReader(layout: layout).cleanupSuggestions()) ?? [] }.value
+            loadingSuggestions = false
+            guard reader?.layout.root == layout.root else { return }
+            cleanupSuggestions = result
+        }
+    }
+
+    /// "Ansehen": the suggestion's mails in the list, all mailboxes.
+    func showSuggestion(_ s: CleanupSuggestion) {
+        viewMode = .messages
+        setSearch(s.query + " ")
+        sidebarSelection = .all  // reloads with the new search text
+    }
+
+    /// "Vom Server löschen …" / "Aus dem Archiv löschen …": the plan sheet, as everywhere.
+    func planSuggestion(_ s: CleanupSuggestion, _ kind: ActionKind) {
+        plan(kind, filter: MessageFilter(text: s.query + " "), title: s.title)
+    }
+
+    /// A newsletter's group (unsubscribe lives there).
+    func openSuggestionGroup(_ s: CleanupSuggestion) {
+        guard let group = s.group else { return }
+        setSearch("")
+        sidebarSelection = .all
+        viewMode = group.mode == .list ? .list : group.mode == .domain ? .domain : .sender
+        selectedGroupID = group.id
+    }
+
     /// Only what the right-hand pane shows: the selected group's details, else the overview.
     private func loadGroupDetail() {
         guard let reader, let filter = lastFilter, viewMode != .messages else { return }
