@@ -914,12 +914,14 @@ final class AppModel {
         plan(kind, filter: MessageFilter(text: s.query + " "), title: s.title)
     }
 
-    /// A newsletter's group (unsubscribe lives there).
+    /// A newsletter's groups (unsubscribe lives there): the list shows only them — the suggestion's
+    /// search stands in the search field — and the biggest is selected (TJ: the view jumped and
+    /// the selected group was somewhere off screen).
     func openSuggestionGroup(_ s: CleanupSuggestion) {
         guard let group = s.group else { return }
-        setSearch("")
-        sidebarSelection = .all
         viewMode = group.mode == .list ? .list : group.mode == .domain ? .domain : .sender
+        setSearch(s.query + " ")
+        sidebarSelection = .all  // reloads with the new search text
         selectedGroupID = group.id
     }
 

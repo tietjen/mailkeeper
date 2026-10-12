@@ -29,21 +29,34 @@ extension ArchiveReader {
     public func cleanupSuggestions(now: Date = .now) throws -> [CleanupSuggestion] {
         var out: [CleanupSuggestion] = []
         let place = { (n: Int) in n == 0 ? String(localized: "keine mehr auf einem Server") : String(localized: "\(n) noch auf dem Server") }
-        // newsletters nobody reads that still write — by sender: a mail service gives every
-        // campaign its own List-Id (one sender came up four times)
+        // newsletters nobody reads that still write — by sender domain: a mail service gives every
+        // campaign its own List-Id, and one company writes from several addresses (TJ saw
+        // "Kickstarlaunch" twice: email@ and team@kickstarlaunch.com)
         let onServer = Dictionary(try groups(MessageFilter(text: "is:list on:server "), by: .sender).map { ($0.key, $0.count) },
                                   uniquingKeysWith: { a, _ in a })
         let halfYear = now.addingTimeInterval(-182 * 86_400)
+        var byDomain: [String: [MessageGroup]] = [:]
+        for g in try groups(MessageFilter(text: "is:list "), by: .sender) {
+            guard let at = g.key.lastIndex(of: "@") else { continue }
+            byDomain[LinkCheck.registrableDomain(String(g.key[g.key.index(after: at)...])), default: []].append(g)
+        }
         var lists: [CleanupSuggestion] = []
-        for g in try groups(MessageFilter(text: "is:list "), by: .sender) where g.count >= Self.suggestionMinimum.list {
-            guard Double(g.unread) / Double(g.count) >= 0.9, (g.newest ?? .distantPast) >= halfYear else { continue }
-            let share = Int((Double(g.unread) / Double(g.count) * 100).rounded())
-            let server = onServer[g.key] ?? 0
+        for (_, senders) in byDomain {
+            let count = senders.reduce(0) { $0 + $1.count }, unread = senders.reduce(0) { $0 + $1.unread }
+            let newest = senders.compactMap(\.newest).max()
+            guard count >= Self.suggestionMinimum.list, Double(unread) / Double(count) >= 0.9, (newest ?? .distantPast) >= halfYear else { continue }
+            let biggest = senders.max { $0.count < $1.count }!
+            let shown = Array(senders.sorted { $0.count > $1.count }.prefix(8))
+            let query = (shown.count == 1 ? shown[0].query : "(" + shown.map(\.query).joined(separator: " OR ") + ")") + " is:list"
+            let server = shown.reduce(0) { $0 + (onServer[$1.key] ?? 0) }
+            let mails = shown.reduce(0) { $0 + $1.count }
+            let share = Int((Double(unread) / Double(count) * 100).rounded())
+            let from = shown.count > 1 ? " " + String(localized: "(\(shown.count) Absender)") : ""
             lists.append(CleanupSuggestion(
-                kind: .unreadList, title: String(localized: "„\(g.name ?? g.key)“ liest du nicht"),
-                reason: String(localized: "\(g.count) Mails, \(share) % ungelesen, die letzte am \(g.newest!.formatted(date: .abbreviated, time: .omitted)); \(place(server)).")
-                    + (g.unsubscribe ? " " + String(localized: "Abmelden geht in der Gruppe.") : ""),
-                query: g.query + " is:list", count: g.count, bytes: g.bytes, onServer: server, group: g))
+                kind: .unreadList, title: String(localized: "„\(biggest.name ?? biggest.key)“ liest du nicht") + from,
+                reason: String(localized: "\(mails) Mails, \(share) % ungelesen, die letzte am \(newest!.formatted(date: .abbreviated, time: .omitted)); \(place(server)).")
+                    + (senders.contains(where: \.unsubscribe) ? " " + String(localized: "Abmelden geht in der Gruppe.") : ""),
+                query: query, count: mails, bytes: shown.reduce(0) { $0 + $1.bytes }, onServer: server, group: biggest))
         }
         out += lists.sorted { $0.count > $1.count }.prefix(5)
         func bucket(_ kind: CleanupSuggestion.Kind, _ query: String, _ minimum: Int, _ title: String, _ reason: (Int, Int64, Int) -> String) throws {
