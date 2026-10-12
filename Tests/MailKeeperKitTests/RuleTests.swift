@@ -53,6 +53,21 @@ struct RuleTests {
         try await writer.forgetMemory([rule])
         _ = try await writer.applyCategoryRules()
         #expect(try r.classification(of: fourth)?.source == .heuristic)
+        // review 6 R3: a deleted rule may be suggested again, a rejected suggestion never
+        let again = try #require(try r.ruleSuggestions(audit: []).first { $0.action == .category(.notification) })
+        try await writer.rejectRule(name: again.name, query: again.query, action: again.action)
+        #expect(try r.ruleSuggestions(audit: []).first { $0.action == .category(.notification) } == nil)
+        #expect(try r.rules(includeRejected: true).filter(\.rejected).count == 1)
+    }
+
+    @Test("Review 6 R4/R5: an OR in a rule stays inside it, one statement per rule")
+    func orInsideARule() async throws {
+        let (_, writer, r) = try await Self.archive()
+        _ = try await writer.saveRule(name: "Beide", query: "sender:win@lotto.example OR sender:x@other.example", action: .category(.travel))
+        #expect(try await writer.applyCategoryRules() == 3)
+        #expect(try r.count(MessageFilter(text: "kategorie:reisen ")) >= 3)
+        #expect(try r.classification(of: try #require(try r.messageIDs(MessageFilter(text: "sender:updates@linkedin.example ")).first))?.source != .rule)
+        #expect(try await writer.applyCategoryRules() == 0)
     }
 
     @Test func destructiveRulesOnlyCountWhatIsReadyAndRejectingSticks() async throws {

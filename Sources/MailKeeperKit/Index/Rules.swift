@@ -43,6 +43,8 @@ public struct MailRule: Sendable, Equatable, Identifiable {
     public var query: String
     public var action: Action
     public var active: Bool
+    /// A suggestion the user rejected; a deleted rule is merely inactive and may be suggested again.
+    public var rejected: Bool
 
     init?(_ item: MemoryItem) {
         guard item.kind == .rule, let query = item.content.query, let raw = item.content.action, let action = Action(raw: raw) else { return nil }
@@ -51,6 +53,7 @@ public struct MailRule: Sendable, Equatable, Identifiable {
         self.query = query
         self.action = action
         active = item.active
+        rejected = item.content.rejected == true
     }
 
     /// The mails a destructive rule would act on now (on a server, old enough, not already there).
@@ -89,9 +92,9 @@ extension ArchiveReader {
     /// Repeated decisions become suggestions (deterministic): the same category given to ≥ 3
     /// mails of a sender (and no other), "Ist Spam" for ≥ 2, deleted on the server ≥ 3 times
     /// (from the audit log: shas → messages → sender). Not where a rule (or a rejected
-    /// suggestion) with that query and action exists.
+    /// suggestion) with that query and action exists; a deleted rule may come back.
     public func ruleSuggestions(audit: [AuditLog.Entry]) throws -> [RuleSuggestion] {
-        let existing = Set(try rules(includeRejected: true).map { $0.query.lowercased() + "|" + $0.action.raw })
+        let existing = Set(try rules(includeRejected: true).filter { $0.active || $0.rejected }.map { $0.query.lowercased() + "|" + $0.action.raw })
         var out: [RuleSuggestion] = []
         func add(_ sender: String, _ name: String?, _ action: MailRule.Action, _ evidence: String) throws {
             let query = "sender:" + QueryParser.quote(sender)

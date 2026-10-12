@@ -43,14 +43,19 @@ as context for unsolicited first contacts.
    (authserv-id, dkim, spf, dmarc, `header.from`) and `Delivered-To` — at ingest, for older mail by
    a background pass over the headers only (42k in under five minutes). The own servers per account
    are learned — several, a mailbox may move (TJ: 27,030 mails from one server, then 7,093 from
-   another): a server whose host shares the account's registrable IMAP domain (Gmail: mx.google.com
-   for imap.gmail.com), or one that stamped at least half of *all* the account's incoming mail, in
-   the last year or ever (≥ 20); one that is own in another account counts where it checked a
-   quarter (≥ 5). Review 6 B1: counting only mails that carry the header let five forged headers
-   make a sender "own" on a provider that adds none. The authserv-id must be a domain name.
+   another): one that stamped at least half of *all* the account's incoming mail, in the last year
+   or ever (≥ 20), or a fifth (≥ 5) when its host shares the account's registrable IMAP domain
+   (Gmail: mx.google.com for imap.gmail.com); one that is own in another account counts where it
+   checked a quarter (≥ 5). Review 6 B1: counting only mails that carry the header let five forged
+   headers make a sender "own" on a provider that adds none; in the second pass the host alone let
+   one forged header naming the provider's public MX do it — the host is a tie-breaker, never a
+   free pass. What remains: a dormant account with few mails can be outnumbered (≥ 20 forged).
+   The authserv-id must be a domain name.
    Results from any other server count for nothing ("foreign"). Relations are memory items of kind `relation` (name, registrable
-   domains, since, until), journalled; a rejected suggestion is stored inactive so it is not
-   suggested again. Suggestions need positive evidence (mails the user wrote to the domain, the
+   domains, since, until), journalled; a rejected suggestion is stored inactive with
+   `rejected` so it is not suggested again, a forgotten one may come back (review 6 S3 — journals
+   from before that fix have no flag: their rejected suggestions count as forgotten after a
+   rebuild, once). Suggestions need positive evidence (mails the user wrote to the domain, the
    user's "kein Spam" or category, ≥ 2 authenticated transactional mails), never freemail or the
    user's own domains, never where spam and phishing outweigh; named after the domain unless one
    non-generic sender name stands for most of its mails and is not the user's own; one name with

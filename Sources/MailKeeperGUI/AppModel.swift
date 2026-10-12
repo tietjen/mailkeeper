@@ -872,9 +872,9 @@ final class AppModel {
         switch rule.action {
         case .category: return
         case .serverDelete(let days):
-            plan(.serverDelete, filter: MessageFilter(text: rule.query + " "), title: rule.name, graceDays: days)
+            plan(.serverDelete, filter: MessageFilter(text: "(\(rule.query)) "), title: rule.name, graceDays: days)
         case .moveToJunk:
-            plan(.moveToJunk, filter: MessageFilter(text: rule.query + " -is:junk "), title: rule.name)
+            plan(.moveToJunk, filter: MessageFilter(text: "(\(rule.query)) -is:junk "), title: rule.name)  // an OR inside stays inside (review 6 R4)
         }
     }
 
@@ -1693,7 +1693,16 @@ final class AppModel {
     }
 
     func forgetMemory(_ ids: [String]) async -> String? {
-        await writeNow { writer in try await writer.forgetMemory(ids) }
+        let rules = ids.contains { $0.hasPrefix("rule:") }
+        let problem = await writeNow { writer in
+            try await writer.forgetMemory(ids)
+            if rules { _ = try await writer.applyCategoryRules() }  // its labels go with it (review 6 R1)
+        }
+        if rules {
+            reloadRules()
+            contentGeneration += 1
+        }
+        return problem
     }
 
     func exportMemory() -> String? {
@@ -1710,7 +1719,7 @@ final class AppModel {
         }
     }
 
-    /// Notes and terms from a file; returns a message for the view.
+    /// Notes, terms, rules and relations from a file; returns a message for the view.
     func importMemory() async -> String? {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.json]
@@ -1720,7 +1729,7 @@ final class AppModel {
         let count = Mutex(0)
         if let problem = await writeNow({ writer in let n = try await writer.importMemory(data); count.withLock { $0 = n } }) { return problem }
         let n = count.withLock { $0 }
-        return n == 0 ? String(localized: "Nichts Neues in der Datei.") : String(localized: "\(n) Notizen und Begriffe übernommen.")
+        return n == 0 ? String(localized: "Nichts Neues in der Datei.") : String(localized: "\(n) Einträge übernommen (Notizen, Begriffe, Regeln, Beziehungen).")
     }
 
     // MARK: PDF text (ADR-0009)
@@ -1735,7 +1744,6 @@ final class AppModel {
         let headers = ((try? reader.headerFieldsPending()) ?? 0) > 0  // authentication and delivery (6.3)
         let categoryRules = ((try? reader.rules()) ?? []).contains { !$0.action.isDestructive }  // the user's rules (6.5b)
         let warnings = !warningsRefreshed  // once per launch: the own servers may have changed since (review 6 B1)
-        warningsRefreshed = true
         let pdfs = (textStats?.pending ?? 0) > 0 && PDFTextClient.isBundled
         // vectors for semantic search (5.7): only with an endpoint, never on the Mac's model
         let router = aiConfig.enabled && aiConfig.endpoint != nil && !embedFailed ? aiRouter() : nil
@@ -1760,8 +1768,12 @@ final class AppModel {
                 if categoryRules || rules, try await writer.applyCategoryRules() > 0 {  // after the rules: the user's rules win
                     await MainActor.run { self?.contentGeneration += 1 }
                 }
-                if warnings || headers, try await writer.refreshWarnings() > 0 {
-                    await MainActor.run { self?.refresh() }
+                if warnings || headers {
+                    let changed = try await writer.refreshWarnings()
+                    await MainActor.run {
+                        self?.warningsRefreshed = true  // only once it ran: a sync may cancel the pass before (review 6 R6)
+                        if changed > 0 { self?.refresh() }
+                    }
                 }
                 if pdfs {
                     _ = try await AttachmentIndexer(writer: writer, extractor: extractor).run { p in

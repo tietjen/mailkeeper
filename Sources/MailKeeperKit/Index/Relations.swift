@@ -146,13 +146,15 @@ extension ArchiveReader {
     }
 
     /// Per account, the servers that add `Authentication-Results` to its incoming mail — only
-    /// their results count. A server is the account's own when its host shares the account's
-    /// registrable IMAP domain (mail.example.de checks for imap.example.de; Gmail's mx.google.com
-    /// for imap.gmail.com), or when it stamped at least half of *all* the account's incoming mail,
-    /// in the last year or ever (≥ 20 mails). Review 6 B1: counting only mails that carry the
-    /// header let a sender make itself "own" with five forged headers on a provider that adds
-    /// none; half of all mail cannot be forged. Several servers: TJ's mail moved from one
-    /// server to another (27,030 then 7,093 mails).
+    /// their results count. A server is the account's own when it stamped at least half of *all*
+    /// the account's incoming mail, in the last year or ever (≥ 20 mails), or a fifth (≥ 5) when
+    /// its host shares the account's registrable IMAP domain (mail.example.de checks for
+    /// imap.example.de; Gmail's mx.google.com for imap.gmail.com). Review 6 B1: counting only
+    /// mails that carry the header let a sender make itself "own" with five forged headers on a
+    /// provider that adds none; the host alone let one forged header naming the provider's public
+    /// MX do it. A share of all mail takes many forged mails, and the floor of 20 is what
+    /// remains: a dormant account with few mails can still be outnumbered. Several servers: TJ's
+    /// mail moved from one server to another (27,030 then 7,093 mails).
     public func ownAuthServers(now: Date = .now) throws -> [String: Set<String>] {
         struct Counts { var total = 0, recent = 0; var servers: [String: (all: Int, recent: Int)] = [:] }
         var byAccount: [String: Counts] = [:]
@@ -181,7 +183,9 @@ extension ArchiveReader {
             let hostDomain = hosts[account].flatMap { $0.isEmpty || $0.first?.isNumber == true ? nil : LinkCheck.registrableDomain($0) }
             for (server, n) in c.servers {
                 let serverDomain = LinkCheck.registrableDomain(server)
-                let byHost = hostDomain.map { $0 == serverDomain || (Relations.providerAuthDomains[$0]?.contains(serverDomain) ?? false) } ?? false
+                let sameHost = hostDomain.map { $0 == serverDomain || (Relations.providerAuthDomains[$0]?.contains(serverDomain) ?? false) } ?? false
+                // the host is a tie-breaker, never a free pass (review 6, second pass)
+                let byHost = sameHost && ((n.all >= 5 && n.all * 5 >= c.total) || (n.recent >= 5 && n.recent * 5 >= c.recent))
                 let byShare = (n.all >= 20 && n.all * 2 >= c.total) || (n.recent >= 20 && n.recent * 2 >= c.recent)
                 if byHost || byShare { own.insert(server) }
             }

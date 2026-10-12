@@ -922,16 +922,40 @@ extension ArchiveWriter {
         guard data.count < 4 << 20, let file = try? decoder.decode(MemoryExport.self, from: data), file.format == "mailkeeper-memory" else {
             throw ArchiveError.invalid("Keine MailKeeper-Gedächtnisdatei")
         }
-        let existing = Set(try ArchiveReader(layout: layout).memoryItems().compactMap { item in
+        let reader = try ArchiveReader(layout: layout)
+        let existing = Set(try reader.memoryItems().compactMap { item in
             item.provenance == .user ? "\(item.kind.rawValue)|\(item.subject)|\(item.content.text ?? "")" : nil
         })
+        // rules and relations too, checked like the user's own (review 6 R7): what the export wrote
+        var rules = Set(try reader.rules().map { $0.query.lowercased() + "|" + $0.action.raw })
+        var claimed = Set(try reader.relations().flatMap(\.domains))
         var added = 0
         for item in file.items.prefix(2_000) {
-            guard let kind = MemoryKind(rawValue: item.kind), kind == .preference || kind == .vocabulary,
-                  let text = item.content.text, !Memory.cleanText(text).isEmpty,
-                  !existing.contains("\(kind.rawValue)|\(Memory.cleanText(item.subject))|\(Memory.cleanText(text))") else { continue }
-            try saveNote(kind: kind, text: text, subject: item.subject, scope: item.scope)
-            added += 1
+            guard let kind = MemoryKind(rawValue: item.kind) else { continue }
+            do {
+                switch kind {
+                case .preference, .vocabulary:
+                    guard let text = item.content.text, !Memory.cleanText(text).isEmpty,
+                          !existing.contains("\(kind.rawValue)|\(Memory.cleanText(item.subject))|\(Memory.cleanText(text))") else { continue }
+                    try saveNote(kind: kind, text: text, subject: item.subject, scope: item.scope)
+                case .rule:
+                    guard let query = item.content.query, let action = item.content.action.flatMap(MailRule.Action.init(raw:)),
+                          rules.insert(query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() + "|" + action.raw).inserted else { continue }
+                    try saveRule(name: item.content.name ?? query, query: query, action: action)
+                case .relation:
+                    // a domain belongs to one relation: one already claimed keeps the whole entry out
+                    guard let name = item.content.name, let domains = item.content.domains.map(Relations.normalize), !domains.isEmpty,
+                          claimed.isDisjoint(with: domains) else { continue }
+                    try saveRelation(name: name, domains: domains, since: item.content.since.map(Date.init(timeIntervalSince1970:)),
+                                     until: item.content.until.map(Date.init(timeIntervalSince1970:)))
+                    claimed.formUnion(domains)
+                default:
+                    continue
+                }
+                added += 1
+            } catch ArchiveError.invalid {
+                continue  // an entry the checks refuse (no valid search, no name): the others still come
+            }
         }
         return added
     }
@@ -1042,11 +1066,13 @@ extension ArchiveWriter {
     @discardableResult
     public func refreshWarnings() throws -> Int {
         let reader = try ArchiveReader(layout: layout)
-        let relations = try reader.relations(), servers = try reader.ownAuthServers(), publics = try reader.publicAddresses()
+        let relations = try reader.relations(), servers = try reader.ownAuthServers()
         let rows = try db.query("SELECT message_id, warning FROM classifications WHERE screened IS NOT NULL OR warning IS NOT NULL") { ($0.int(0), $0.text(1)) }
         var updates: [(Int64, String?)] = []
         for (id, old) in rows {
-            let check = try reader.relationCheck(of: id, relations: relations, servers: servers, publicAddresses: publics)
+            // no public addresses: the warning does not depend on first contact, which costs a
+            // sender profile per mail (review 6 R2)
+            let check = try reader.relationCheck(of: id, relations: relations, servers: servers, publicAddresses: [])
             var warning: String?
             if check.lookAlike != nil { warning = "lookalike" } else if case .failed = check.server { warning = "serverfail" }
             if warning != old { updates.append((id, warning)) }
@@ -1102,10 +1128,10 @@ extension ArchiveWriter {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (try? QueryParser.parse(q + " ").root) != nil else { throw ArchiveError.invalid("Die Regel braucht eine gültige, nicht leere Suche, z. B. sender:news@shop.de") }
         let clean = Memory.cleanText(name).replacingOccurrences(of: "\n", with: " ")
+        var content = MemoryContent(name: String((clean.isEmpty ? q : clean).prefix(160)), query: String(q.prefix(600)), action: action.raw)
+        content.rejected = active ? nil : true  // "Ablehnen", not "Löschen": only that keeps it from coming back (review 6 R3)
         return JournalEvent.MemoryRecord(id: id ?? "rule:" + UUID().uuidString.lowercased(), kind: MemoryKind.rule.rawValue, scope: "",
-                                         subject: "rule", active: active,
-                                         content: MemoryContent(name: String((clean.isEmpty ? q : clean).prefix(160)), query: String(q.prefix(600)),
-                                                                action: action.raw))
+                                         subject: "rule", active: active, content: content)
     }
 
     /// Category rules label their mails (derived, re-applied after a rebuild): over the rules'
@@ -1127,23 +1153,22 @@ extension ArchiveWriter {
             changed += db.changes
             for rule in rules {
                 guard case .category(let category) = rule.action else { continue }
-                let matching = Set(try reader.messageIDs(MessageFilter(text: rule.query + " ")))
-                // no longer matching: back to the rules
-                var gone: [Int64] = []
-                try db.forEach("SELECT message_id FROM classifications WHERE source = 'user-rule' AND rule = ?", [.text(rule.id)]) { r in
-                    if !matching.contains(r.int(0)) { gone.append(r.int(0)) }
-                }
-                for id in gone {
-                    try db.run("UPDATE classifications SET category = NULL, source = 'heuristic', rule = NULL, reason = NULL, version = 0 WHERE message_id = ?", [.int(id)])
-                    changed += 1
-                }
-                for id in matching {
-                    try db.run("""
-                        UPDATE classifications SET category = ?, source = 'user-rule', rule = ?, reason = ?, model = NULL
-                        WHERE message_id = ? AND source != 'user' AND NOT (source = 'user-rule' AND rule = ? AND category = ?)
-                        """, [.text(category.rawValue), .text(rule.id), .text(rule.name), .int(id), .text(rule.id), .text(category.rawValue)])
-                    changed += db.changes
-                }
+                // a query the parser no longer takes stops only its own rule, not the pass after it
+                // (review 6 R5); its labels stay until it is fixed or forgotten
+                guard let ids = try? reader.messageIDs(MessageFilter(text: "(\(rule.query)) ")),
+                      let json = String(data: try JSONEncoder().encode(ids), encoding: .utf8) else { continue }
+                // set-based, one statement each (review 6 R5): no longer matching → back to the rules
+                try db.run("""
+                    UPDATE classifications SET category = NULL, source = 'heuristic', rule = NULL, reason = NULL, version = 0
+                    WHERE source = 'user-rule' AND rule = ? AND message_id NOT IN (SELECT value FROM json_each(?))
+                    """, [.text(rule.id), .text(json)])
+                changed += db.changes
+                try db.run("""
+                    UPDATE classifications SET category = ?, source = 'user-rule', rule = ?, reason = ?, model = NULL
+                    WHERE message_id IN (SELECT value FROM json_each(?)) AND source != 'user'
+                      AND NOT (source = 'user-rule' AND rule = ? AND category = ?)
+                    """, [.text(category.rawValue), .text(rule.id), .text(rule.name), .text(json), .text(rule.id), .text(category.rawValue)])
+                changed += db.changes
             }
         }
         return changed

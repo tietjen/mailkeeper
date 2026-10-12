@@ -221,6 +221,28 @@ struct ReviewSixTests {
         #expect(AuthResults.parse("mx.good-host.example; dmarc=pass")?.server == "mx.good-host.example")
     }
 
+    @Test("Review 6, second pass: one forged header naming the provider's own MX does not make it own")
+    func theHostAloneIsNoFreePass() async throws {
+        let layout = try ArchiveLayout.open(at: tempDir().appending(path: "host"), create: true)
+        try AccountStore(layout: layout).save([AccountConfig.imap(id: "small", username: "u", host: "imap.kleinhoster.example")])
+        let writer = try ArchiveWriter(layout: layout)
+        var batch: [(data: Data, location: LocationInfo)] = []
+        for n in 0..<40 { batch.append((RelationTests.mail("p\(n)", from: "a\(n)@plain.example", subject: "Hallo"), LocationInfo(account: "small", mailbox: "INBOX", providerID: "p\(n)"))) }
+        batch.append((RelationTests.mail("f", from: "service@bank.example", subject: "Konto", auth: "mx.kleinhoster.example; dkim=pass; spf=pass; dmarc=pass header.from=bank.example"),
+                      LocationInfo(account: "small", mailbox: "INBOX", providerID: "f")))
+        _ = try await writer.ingest(batch)
+        let r = try ArchiveReader(layout: layout)
+        #expect(try r.ownAuthServers()["small"] == nil)
+        // a fifth of the mail from the provider's host is its own server
+        var more: [(data: Data, location: LocationInfo)] = []
+        for n in 0..<10 {
+            more.append((RelationTests.mail("h\(n)", from: "b\(n)@other.example", subject: "Post", auth: "mx.kleinhoster.example; dmarc=pass"),
+                         LocationInfo(account: "small", mailbox: "INBOX", providerID: "h\(n)")))
+        }
+        _ = try await writer.ingest(more)
+        #expect(try r.ownAuthServers()["small"] == ["mx.kleinhoster.example"])
+    }
+
     @Test("S1: adding the domain to the relation ends the stored look-alike warning")
     func warningsFollowTheRegister() async throws {
         let (_, writer, r) = try await RelationTests.archive()

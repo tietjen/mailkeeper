@@ -64,19 +64,22 @@ struct MemoryTests {
         #expect(try r.classification(of: lotto)?.verdict == nil && r.classification(of: lotto)?.source == .user)
     }
 
-    @Test func exportAndImportCarryOnlyNotesAndTerms() async throws {
+    @Test func exportAndImportCarryNotesTermsRulesAndRelationsNotExamples() async throws {
         let (_, writer, r) = try await Self.archive()
         try await writer.saveNote(kind: .preference, text: "Newsletter nach 90 Tagen vom Server")
         try await writer.saveNote(kind: .vocabulary, text: "Firma = Konto proton", subject: "", scope: "proton")
+        _ = try await writer.saveRule(name: "Shop", query: "sender:news@shop.example", action: .category(.newsletter))
+        _ = try await writer.saveRelation(name: "Musterbank", domains: ["musterbank.example"], since: nil, until: nil)
         let offer = try #require(try r.messageIDs(MessageFilter(text: "subject:angebot ")).first)
         try await writer.setUserClassification(identity: try #require(try r.identities(of: [offer]).first), category: .work)
         let data = try r.exportMemory()
         #expect(String(decoding: data, as: UTF8.self).contains("mailkeeper-memory"))
 
         let (_, other, r2) = try await Self.archive()
-        #expect(try await other.importMemory(data) == 2)  // the example belongs to the other archive
+        #expect(try await other.importMemory(data) == 4)  // the example belongs to the other archive
         #expect(try await other.importMemory(data) == 0)  // nothing twice
-        #expect(Set(try r2.memoryItems().map(\.kind)) == [.preference, .vocabulary])
+        #expect(Set(try r2.memoryItems().map(\.kind)) == [.preference, .vocabulary, .rule, .relation])
+        #expect(try r2.rules().first?.query == "sender:news@shop.example" && r2.relations().first?.domains == ["musterbank.example"])
         #expect(try r2.memoryItems().first { $0.kind == .vocabulary }?.scope == "proton")
         await #expect(throws: ArchiveError.self) { try await other.importMemory(Data("{}".utf8)) }
         await #expect(throws: ArchiveError.self) { try await other.saveNote(kind: .example, text: "x") }
