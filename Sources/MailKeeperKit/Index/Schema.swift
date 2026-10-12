@@ -218,6 +218,12 @@ enum Schema {
         ALTER TABLE messages ADD COLUMN headers_v INTEGER;
         CREATE INDEX messages_headers_pending ON messages(headers_v) WHERE headers_v IS NULL;
         """,
+        // v13: the inbox screening (6.4) — when a message was looked at, and the register's or the
+        // own server's warning (look-alike, failed check) so "Verdächtig" shows it without a model.
+        """
+        ALTER TABLE classifications ADD COLUMN screened REAL;
+        ALTER TABLE classifications ADD COLUMN warning TEXT;
+        """,
     ]
 
     static var currentVersion: Int { migrations.count }

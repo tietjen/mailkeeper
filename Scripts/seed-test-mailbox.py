@@ -8,6 +8,7 @@
   --cleanup-restore remove the restore test's messages (mk-rst-*) from its folder and Trash
   --junk-test      "Junk": add 2 fresh messages (spam review: one legitimate, one spam)
   --cleanup-junk   remove the spam test's messages (mk-junk-*) from Junk and INBOX
+  --inbox-spam-test  "INBOX": add 1 fresh lure (6.4 "Ist Spam → Spam-Ordner"; removed by --cleanup-junk)
 
 Credentials come from ~/.config/mailkeeper/test-accounts.json and the login keychain via
 /usr/bin/security; nothing secret is printed. Never point this at a real mailbox — it writes.
@@ -54,6 +55,16 @@ if "--junk-test" in sys.argv:
                f"Date: Thu, 14 Mar 2019 10:00:00 +0100\r\nMessage-ID: <mk-junk-{stamp}-{n}@mailkeeper.test>\r\n\r\n{text}\r\n")
         m.append("Junk", None, imaplib.Time2Internaldate(time.time()), msg.encode())
     print(f"Junk: 2 messages added (mk-junk-{stamp}-*)")
+    m.logout()
+    sys.exit(0)
+
+if "--inbox-spam-test" in sys.argv:
+    stamp = int(time.time())
+    msg = (f"From: Sparkasse <service@sparkasse-kundenportal.example>\r\nTo: inbox@mailkeeper.test\r\n"
+           f"Subject: Ihr Konto wurde eingeschraenkt\r\nDate: Thu, 14 Mar 2019 10:00:00 +0100\r\n"
+           f"Message-ID: <mk-junk-{stamp}-9@mailkeeper.test>\r\n\r\nBitte bestaetigen Sie sofort Ihre Daten.\r\n")
+    m.append("INBOX", None, imaplib.Time2Internaldate(time.time()), msg.encode())
+    print(f"INBOX: 1 lure added (mk-junk-{stamp}-9)")
     m.logout()
     sys.exit(0)
 

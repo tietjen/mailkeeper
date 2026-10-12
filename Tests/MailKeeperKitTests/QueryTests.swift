@@ -412,7 +412,7 @@ struct Phase3ReviewTests {
         let (layout, _) = try await ThreadTests.archive(order: Array(0..<8))
         let raw = try Database(path: layout.indexURL.path)
         try raw.execute("""
-            DROP INDEX messages_headers_pending; ALTER TABLE messages DROP COLUMN auth_server; ALTER TABLE messages DROP COLUMN auth_dkim; ALTER TABLE messages DROP COLUMN auth_spf; ALTER TABLE messages DROP COLUMN auth_dmarc; ALTER TABLE messages DROP COLUMN auth_from; ALTER TABLE messages DROP COLUMN delivered_to; ALTER TABLE messages DROP COLUMN headers_v;
+            ALTER TABLE classifications DROP COLUMN screened; ALTER TABLE classifications DROP COLUMN warning; DROP INDEX messages_headers_pending; ALTER TABLE messages DROP COLUMN auth_server; ALTER TABLE messages DROP COLUMN auth_dkim; ALTER TABLE messages DROP COLUMN auth_spf; ALTER TABLE messages DROP COLUMN auth_dmarc; ALTER TABLE messages DROP COLUMN auth_from; ALTER TABLE messages DROP COLUMN delivered_to; ALTER TABLE messages DROP COLUMN headers_v;
             DROP TABLE suggestion_sources; DROP TABLE memory_items; DROP TABLE embeddings; DROP TABLE mailbox_roles; DROP TABLE classifications; DROP TABLE tombstones; DROP TABLE tombstone_locations; DROP INDEX messages_trashed;
             ALTER TABLE messages DROP COLUMN trashed;
             DROP TABLE attachment_text; DROP TABLE attachment_text_fts;

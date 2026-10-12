@@ -84,6 +84,18 @@ APPEND, Proton rebuilds messages and ignores the APPEND date, Dovecot is textboo
    read only when the account says so (`includeJunk`, never the trash; an include list still
    rules — Proton stays in its test folder).
 
+9. **"Ist Spam → Spam-Ordner" (6.4, TJ 2026-10-12):** the other direction of §8 with the same
+   rails. Own IMAP access `.markAsJunk`: SELECT a mailbox that is no spam, trash, sent or drafts
+   mailbox (by role; by name on a server without roles) and move exactly the named UIDs into the
+   spam mailbox (\Junk, or by name without roles; never created) — UID MOVE, or UID COPY + STORE
+   +\Deleted + UID EXPUNGE on its own copies; every stream part checked, `$` refused. The planner
+   takes per message and account one fetched location outside spam, sent and trash, INBOX first
+   (Gmail: one move takes it out of All Mail too); imported mail gets the verdict only. Before the
+   move UIDVALIDITY and identity are checked, after it the old location is marked gone, the mail
+   is found in the spam mailbox (recorded where the account fetches it, `includeJunk`) and the
+   user's "Ist Spam" is journalled. One mail is one click, several go through the plan sheet;
+   queue and audit as everywhere. Live on the mailcow test account (both directions).
+
 ## Consequences
 
 - Deleting is slower than a mail client's delete key — by design.

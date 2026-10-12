@@ -73,6 +73,11 @@ public enum IMAPAccess: Sendable, Equatable {
     /// a server without roles) into INBOX — UID MOVE, or UID COPY + STORE +\Deleted + UID EXPUNGE
     /// on exactly those UIDs. Never another source or destination.
     case rescueFromJunk
+    /// 6.4 "Ist Spam": SELECT a mailbox that is no spam, trash, sent or drafts mailbox, and move
+    /// messages from it into the spam mailbox (\Junk, or by name on a server without roles) —
+    /// UID MOVE, or UID COPY + STORE +\Deleted + UID EXPUNGE on exactly those UIDs. Never
+    /// another source or destination.
+    case markAsJunk
 }
 
 /// One IMAP connection, read-only unless opened with `access: .moveToTrash`: mailboxes are opened
@@ -97,6 +102,8 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
     private var trash: MailboxName?
     /// INBOX from the last LIST: the only destination of a rescue.
     private var inbox: MailboxName?
+    /// The spam mailbox, once looked up: the only destination of "Ist Spam".
+    private var junk: MailboxName?
     /// Special-use roles by display name, from the last LIST (restore never writes into Trash/Junk).
     private var mailboxUses: [String: Set<SpecialUse>] = [:]
     /// The mailbox opened with SELECT, and the UIDs this connection appended per mailbox: the
@@ -435,6 +442,50 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         }
     }
 
+    // MARK: Mark as spam (6.4, access .markAsJunk)
+
+    /// The server's spam mailbox: \Junk, or — on a server that marks no roles at all — a mailbox
+    /// with a spam name. Nil when there is none (nothing is created).
+    public func junkMailbox() async throws -> String? {
+        let boxes = try await mailboxes()
+        let roles = boxes.contains { $0.specialUse.contains(.junk) }
+        guard let box = boxes.first(where: { $0.selectable && ($0.specialUse.contains(.junk) || (!roles && RemoteMailbox.looksLikeJunk($0.name))) })
+        else { return nil }
+        junk = mailboxNames[box.name]
+        return box.name
+    }
+
+    /// Whether the selected mailbox may give mail to the spam folder: not spam, trash, sent or
+    /// drafts (by role; by name where the server marks no roles).
+    private var selectedMayMarkJunk: Bool {
+        guard let mailbox = selectedMailbox, mailboxNames[mailbox] != junk else { return false }
+        let uses = mailboxUses[mailbox] ?? []
+        guard uses.isDisjoint(with: [.junk, .trash, .sent, .drafts]) else { return false }
+        let roles = mailboxUses.values.contains { !$0.isDisjoint(with: [.junk, .trash, .sent, .drafts]) }
+        return roles || !RemoteMailbox.looksLikeTrashOrJunk(mailbox)
+    }
+
+    public func moveToJunk(_ uids: [UInt32]) async throws {
+        guard !uids.isEmpty else { return }
+        guard access == .markAsJunk, selectedMayMarkJunk else { throw IMAPError.readOnlyViolation("MOVE aus einem Spam-, Papierkorb-, Gesendet- oder Entwurfsordner") }
+        guard let junk else { throw IMAPError.protocolError("kein Spam-Ordner bestimmt") }
+        let set = try Self.uidSet(uids)
+        do {
+            if serverCapabilities.contains("MOVE") {
+                try await run(.uidMove(set, junk))
+            } else if serverCapabilities.contains("UIDPLUS") {
+                try await run(.uidCopy(set, junk))
+                if let mailbox = selectedMailbox { copiedUIDs[mailbox, default: []].formUnion(uids) }
+                try await run(.uidStore(set, [], .flags(.add(silent: true, list: [.deleted]))))
+                try await run(.uidExpunge(set))
+            } else {
+                throw ServerRefusal("der Server kann weder MOVE noch UIDPLUS – gezieltes Verschieben nicht möglich")
+            }
+        } catch IMAPError.command(_, let message) {
+            throw ServerRefusal(message)
+        }
+    }
+
     public func present(_ uids: [UInt32]) async throws -> Set<UInt32> {
         guard !uids.isEmpty else { return [] }
         return Set(try await run(.uidFetch(try Self.uidSet(uids), [.uid], [])).fetches.compactMap(\.uid))
@@ -592,9 +643,11 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
     /// those of a `.restore` connection (SELECT, adding Gmail labels, setting/clearing client
     /// system flags — never \Deleted; `requireOwn` limits both to its own uploads; APPEND has its
     /// own checks).
-    static func isAllowedChange(_ command: Command, access: IMAPAccess, trash: MailboxName?, inbox: MailboxName? = nil) -> Bool {
+    static func isAllowedChange(_ command: Command, access: IMAPAccess, trash: MailboxName?, inbox: MailboxName? = nil,
+                                junk: MailboxName? = nil) -> Bool {
         switch (access, command) {
-        case (.moveToTrash, .select(_, let params)), (.restore, .select(_, let params)), (.rescueFromJunk, .select(_, let params)):
+        case (.moveToTrash, .select(_, let params)), (.restore, .select(_, let params)), (.rescueFromJunk, .select(_, let params)),
+             (.markAsJunk, .select(_, let params)):
             return params.allSatisfy { if case .basic(let kv) = $0 { kv.key.uppercased() == "CONDSTORE" } else { false } }
         // explicit UID sets only: `$` (SEARCHRES, the last search's hits) never names the messages
         case (.moveToTrash, .uidMove(.set, let destination)), (.moveToTrash, .uidCopy(.set, let destination)):
@@ -609,6 +662,12 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
             return modifiers.isEmpty && store.operation == .add && store.flags == [.deleted]
         case (.rescueFromJunk, .uidExpunge(.set)):
             return true
+        case (.markAsJunk, .uidMove(.set, let destination)), (.markAsJunk, .uidCopy(.set, let destination)):
+            return junk != nil && destination == junk  // the source is checked per session (selectedMayMarkJunk)
+        case (.markAsJunk, .uidStore(.set, let modifiers, .flags(let store))):
+            return modifiers.isEmpty && store.operation == .add && store.flags == [.deleted]
+        case (.markAsJunk, .uidExpunge(.set)):
+            return true
         case (.restore, .uidStore(_, let modifiers, .gmailLabels(let store))):
             return modifiers.isEmpty && store.operation == .add
         case (.restore, .uidStore(_, let modifiers, .flags(let store))):
@@ -621,7 +680,7 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
 
     @discardableResult
     func run(_ command: Command, failure: (String) -> IMAPError = { _ in IMAPError.closed }) async throws -> Result {
-        guard Self.isReadOnly(command) || Self.isAllowedChange(command, access: access, trash: trash, inbox: inbox) else {
+        guard Self.isReadOnly(command) || Self.isAllowedChange(command, access: access, trash: trash, inbox: inbox, junk: junk) else {
             throw IMAPError.readOnlyViolation(Self.name(of: command))
         }
         return try await perform(name: Self.name(of: command), isLogin: { if case .login = command { true } else { false } }(),
@@ -643,14 +702,18 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         for part in stream {
             switch part {
             case .tagged(let tagged):
-                guard Self.isReadOnly(tagged.command) || Self.isAllowedChange(tagged.command, access: access, trash: trash, inbox: inbox) else {
+                guard Self.isReadOnly(tagged.command) || Self.isAllowedChange(tagged.command, access: access, trash: trash, inbox: inbox, junk: junk) else {
                     throw IMAPError.readOnlyViolation(Self.name(of: tagged.command))
                 }
-                // a rescue moves only out of the spam folder
-                if access == .rescueFromJunk {
+                // a rescue moves only out of the spam folder, "Ist Spam" only out of an ordinary one
+                if access == .rescueFromJunk || access == .markAsJunk {
                     switch tagged.command {
                     case .uidMove, .uidCopy:
-                        guard selectedIsJunk else { throw IMAPError.readOnlyViolation("MOVE aus einem Nicht-Spam-Ordner") }
+                        if access == .rescueFromJunk {
+                            guard selectedIsJunk else { throw IMAPError.readOnlyViolation("MOVE aus einem Nicht-Spam-Ordner") }
+                        } else {
+                            guard selectedMayMarkJunk else { throw IMAPError.readOnlyViolation("MOVE aus einem Spam-, Papierkorb-, Gesendet- oder Entwurfsordner") }
+                        }
                     default: break
                     }
                 }
@@ -664,7 +727,7 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
                     throw IMAPError.readOnlyViolation("STORE ohne UID-Liste")
                 }
                 // a delete (or rescue) connection flags and expunges only what it has just copied
-                if access == .moveToTrash || access == .rescueFromJunk {
+                if access == .moveToTrash || access == .rescueFromJunk || access == .markAsJunk {
                     let uids: MessageIdentifierSetNonEmpty<UID>? = switch tagged.command {
                     case .uidStore(.set(let set), _, _), .uidExpunge(.set(let set)): set
                     default: nil

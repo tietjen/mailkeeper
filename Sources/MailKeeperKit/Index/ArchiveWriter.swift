@@ -1023,3 +1023,20 @@ extension ArchiveWriter {
         return rows.count
     }
 }
+
+// MARK: - Inbox screening (6.4)
+
+extension ArchiveWriter {
+    /// Marks messages as looked at by the screening, with the register's or the own server's
+    /// warning (derived data, not journalled).
+    public func setScreened(_ items: [ScreeningCandidate]) throws {
+        guard !items.isEmpty else { return }
+        let now = Date().timeIntervalSince1970
+        try db.transaction {
+            for item in items {
+                try db.run("UPDATE classifications SET screened = ?, warning = ? WHERE message_id = ?",
+                           [.double(now), .optional(item.warning), .int(item.id)])
+            }
+        }
+    }
+}

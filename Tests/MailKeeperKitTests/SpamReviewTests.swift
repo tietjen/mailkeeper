@@ -32,6 +32,19 @@ actor FakeRescueServer: ServerRescueActions {
             boxes["INBOX"]!.messages[next] = d
         }
     }
+    func junkMailbox() async throws -> String? {
+        boxes.first { $0.value.uses.contains(.junk) }?.key ?? boxes.keys.first { RemoteMailbox.looksLikeJunk($0) }
+    }
+    func moveToJunk(_ uids: [UInt32]) async throws {
+        if let refuse { throw ServerRefusal(refuse) }
+        guard let junk = try await junkMailbox() else { throw ServerRefusal("kein Spam-Ordner") }
+        moves += 1
+        for uid in uids {
+            guard let d = boxes[selected!]!.messages.removeValue(forKey: uid) else { continue }
+            let next = (boxes[junk]!.messages.keys.max() ?? 0) + 1
+            boxes[junk]!.messages[next] = d
+        }
+    }
     func present(_ uids: [UInt32]) async throws -> Set<UInt32> { Set(uids).intersection(boxes[selected!]!.messages.keys) }
     func search(messageID: String) async throws -> [UInt32] {
         boxes[selected!]!.messages.filter { MIMEParser.parse($0.value).messageID?.contains(messageID) == true }.map(\.key).sorted()
@@ -181,5 +194,101 @@ struct HamClearsPhishingTests {
         try await writer.setClassification(messageID: id, category: .accountSecurity, source: .endpoint, model: "m", reason: "r",
                                            phishing: .likely, phishingReason: "Link passt nicht")
         #expect(try r.classification(of: id)?.phishing == nil)  // the user's word stands
+    }
+}
+
+
+@Suite("Spam & Phishing im Posteingang (6.4)")
+struct InboxSpamTests {
+    static let accounts = [AccountConfig.imap(id: "imap", username: "u", host: "mail.example.test")]
+
+    @Test func istSpamMovesFromTheInboxToTheSpamFolderAndTheArchiveKnows() async throws {
+        let (layout, writer, r) = try await SpamReviewTests.archive()
+        _ = try await writer.ingest([
+            (sampleMessage(id: "<sent@t.test>", subject: "Gesendet", from: "me@own.test"), LocationInfo(account: "imap", mailbox: "Sent", uidValidity: 8, uid: 1)),
+        ])
+        let server = FakeRescueServer(["INBOX": .init(validity: 7), "Spam": .init(validity: 5, uses: [.junk]), "Sent": .init(validity: 8, uses: [.sent])])
+        await server.put(sampleMessage(id: "<inbox@t.test>", subject: "Hallo"), uid: 1, in: "INBOX")
+        let hello = try #require(try r.messageIDs(MessageFilter(text: "subject:hallo ")).first)
+        let sent = try #require(try r.messageIDs(MessageFilter(text: "subject:gesendet ")).first)
+        let spam = try #require(try r.messageIDs(MessageFilter(text: "subject:gewinn ")).first)
+        let imported = try #require(try r.messageIDs(MessageFilter(text: "subject:importiert ")).first)
+        let (job, summary) = try r.planMarkSpam(MessageFilter(ids: [hello, sent, spam, imported]), title: "x", accounts: Self.accounts)
+        #expect(job.kind == .moveToJunk && job.items.map(\.location?.mailbox) == ["INBOX"])  // never from Sent, Spam or an import
+        #expect(summary.archiveOnly == 3)
+
+        var config = Self.accounts[0]
+        config.policy = SyncPolicy(mode: .standard, includeJunk: true)  // the spam folder is fetched: its location is recorded
+        let store = ActionStore(layout: layout)
+        try store.create(job)
+        let done = try await RescueExecutor(writer: writer, store: store, audit: AuditLog(url: tempDir().appending(path: "a.jsonl")))
+            .run(job.id, accounts: [config]) { _ in server }
+        #expect(done.items.map(\.state) == [.done], "\(done.reasons)")
+        let inbox = await server.ids(in: "INBOX"), junk = await server.ids(in: "Spam")
+        #expect(inbox.isEmpty && junk == ["<inbox@t.test>"])
+        let detail = try #require(try r.detail(hello))
+        #expect(detail.locations.first { $0.mailbox == "Spam" }?.isOnServer == true && detail.locations.first { $0.mailbox == "INBOX" }?.isOnServer == false)
+        let c = try #require(try r.classification(of: hello))
+        #expect(c.source == .user && c.category == .spam && c.verdict == "spam")
+        #expect(try r.count(MessageFilter(text: "is:junk ", ids: [hello])) == 1)
+    }
+
+    @Test func aRefusalOrAMissingSpamFolderFailsOnlyItsItems() async throws {
+        let (layout, writer, r) = try await SpamReviewTests.archive()
+        let hello = try #require(try r.messageIDs(MessageFilter(text: "subject:hallo ")).first)
+        for (boxes, refuse, reason) in [
+            (["INBOX": FakeRescueServer.Box(validity: 7)], nil as String?, "Kein Spam-Ordner auf dem Server"),
+            (["INBOX": FakeRescueServer.Box(validity: 7), "Spam": .init(validity: 5, uses: [.junk])], "NO quota", "vom Server abgelehnt: NO quota"),
+        ] {
+            let server = FakeRescueServer(boxes)
+            await server.put(sampleMessage(id: "<inbox@t.test>", subject: "Hallo"), uid: 1, in: "INBOX")
+            if let refuse { await server.setRefuse(refuse) }
+            let (job, _) = try r.planMarkSpam(MessageFilter(ids: [hello]), title: "x", accounts: Self.accounts)
+            let store = ActionStore(layout: layout)
+            try store.create(job)
+            let done = try await RescueExecutor(writer: writer, store: store, audit: AuditLog(url: tempDir().appending(path: "a.jsonl")))
+                .run(job.id, accounts: Self.accounts) { _ in server }
+            #expect(done.items.map(\.state) == [.failed] && done.items.first?.reason == reason, "\(done.reasons)")
+            #expect(try r.classification(of: hello)?.source != .user)  // nothing moved: no verdict either
+        }
+    }
+
+    @Test func theScreeningAsksTheModelOnlyWhereItMatters() async throws {
+        let (_, writer, r) = try await RelationTests.archive()
+        try await writer.saveRelation(name: "Sparkasse", domains: ["sparkasse.example"], since: nil, until: nil)
+        let recent = { (id: String, from: String, subject: String, auth: String) in
+            (RelationTests.mail(id, from: from, subject: subject, auth: auth, date: "\(Calendar.current.component(.day, from: .now)) \(Self.month()) \(Calendar.current.component(.year, from: .now))"),
+             LocationInfo(account: "x", mailbox: "INBOX", providerID: id))
+        }
+        _ = try await writer.ingest([
+            recent("n1", "Sparkasse <info@sparkasse.example>", "Kontoauszug", "mail.own.test; dmarc=pass header.from=sparkasse.example"),
+            recent("n2", "Sparkasse <info@sparkasse-kundenportal.example>", "Konto gesperrt", "mail.own.test; dmarc=pass"),
+            recent("n3", "news@shop.example", "Sale", "mail.own.test; dmarc=pass"),
+        ])
+        _ = try await writer.classifyHeuristically()
+        let id = { (key: String) in try #require(try r.messageIDs(MessageFilter(text: "msgid:\(key)@t.test ")).first) }
+        try await writer.setClassification(messageID: try id("n1"), category: .invoice, source: .heuristic, model: nil, reason: nil)
+        try await writer.setClassification(messageID: try id("n3"), category: .newsletter, source: .heuristic, model: nil, reason: nil)
+        let candidates = try r.screeningCandidates(since: Date.now.addingTimeInterval(-2 * 86_400), limit: 20)
+        let byID = Dictionary(uniqueKeysWithValues: candidates.map { ($0.id, $0) })
+        #expect(byID[try id("n1")]?.needsModel == false)  // a known relation's invoice, the own server's check passed
+        let lure = try id("n2")
+        #expect(byID[lure]?.needsModel == true && byID[lure]?.warning == "lookalike")
+        #expect(byID[try id("n3")]?.needsModel == false)  // a newsletter
+        #expect(candidates.count == 3)  // older mail and mail in Sent are not screened
+
+        try await writer.setScreened(candidates)
+        #expect(try r.screeningCandidates(since: Date.now.addingTimeInterval(-2 * 86_400), limit: 20).isEmpty)
+        #expect(try r.screeningCandidates(since: Date.now.addingTimeInterval(-2 * 86_400), limit: 20, again: true).count == 3)
+        #expect(try r.messageIDs(MessageFilter(text: "is:verdächtig ")) == [try id("n2")])  // the warning alone shows it
+        try await writer.confirmNotSpam(identity: try #require(try r.identities(of: [try id("n2")]).first))
+        #expect(try r.messageIDs(MessageFilter(text: "is:verdächtig ")).isEmpty)  // "kein Spam" ends it
+    }
+
+    static func month() -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "MMM"
+        return f.string(from: .now)
     }
 }

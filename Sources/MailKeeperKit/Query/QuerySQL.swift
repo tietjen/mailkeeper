@@ -124,6 +124,11 @@ struct QuerySQL {
             return location(Self.junkLocation)
         case .isPhishing:
             return "m.id IN (SELECT c.message_id FROM classifications c WHERE c.phishing IN ('verdacht', 'ja'))"
+        case .isSuspicious:
+            return """
+                m.id IN (SELECT c.message_id FROM classifications c WHERE coalesce(c.verdict, '') != 'ham' AND NOT (c.source = 'user' AND c.category != 'spam')
+                    AND (c.phishing IN ('verdacht', 'ja') OR c.warning IS NOT NULL OR (c.category = 'spam' AND c.source IN ('endpoint', 'on-device'))))
+                """
         case .category(let category?):
             params.append(.text(category.rawValue))
             return "m.id IN (SELECT c.message_id FROM classifications c WHERE c.category = ?)"
@@ -173,6 +178,11 @@ struct QuerySQL {
     /// the usual names, as the rescue does (a user folder "Projekte/Spam" is no spam folder there).
     static let junkLocation: String = "(" + role("junk") + " OR ((" + names(junkNames).joined(separator: " OR ")
         + ") AND l.account_id NOT IN (SELECT account_id FROM mailbox_roles WHERE instr(roles, ' junk ') > 0)))"
+
+    static let trashNames = ["trash", "papierkorb", "deleted items", "deleted messages", "gelöschte elemente", "gelöschte objekte", "bin"]
+    /// The trash, by role or — for accounts whose server marks none — by the usual names.
+    static let trashLocation: String = "(" + role("trash") + " OR ((" + names(trashNames).joined(separator: " OR ")
+        + ") AND l.account_id NOT IN (SELECT account_id FROM mailbox_roles WHERE instr(roles, ' trash ') > 0)))"
 
     private static func names(_ list: [String]) -> [String] {
         list.flatMap { n in ["mk_lower(l.mailbox) = '\(n)'", "mk_lower(l.mailbox) LIKE '%/\(n)'", "mk_lower(l.mailbox) LIKE '%.\(n)'"] }

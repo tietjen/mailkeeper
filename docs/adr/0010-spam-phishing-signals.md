@@ -56,6 +56,16 @@ as context for unsolicited first contacts.
    mail before, never written to). The reader shows it as "Echtheit" (with "… gehört doch dazu"
    for a look-alike the user knows), the model gets it outside the fence and sees only the own
    server's results. Settings › Beziehungen.
+   *As built (6.4):* the inbox is screened after every sync: new mail of the last 14 days outside
+   spam, sent and trash that no model and no user judged. Deterministic first — the register's
+   warning (look-alike, failed check of the own server) is stored (`warning`) so "Verdächtig"
+   shows it without a model — then the model only where it matters: a warning, a first contact at
+   a public address, mail the rules left open, invoices/orders/notifications/account mail that do
+   not come from a confirmed relation with a passing check (≤ 30 per sync, quietly; together with
+   the spam-folder check). `is:verdächtig` = phishing or spam by a model, or a stored warning,
+   unless the user said "kein Spam" or gave another category; sidebar "Verdächtig" with
+   "Posteingang prüfen" (14 / 90 / 365 days) for older mail. "Ist Spam → Spam-Ordner" per
+   ADR-0006 §9.
 7. **Later — report phishing:** forward a mail as a complete `.eml` attachment to an address the
    user configures (e.g. `phishing@verbraucherzentrale.nrw`). Needs a sending path (SMTP, not in
    MailKeeper yet); always explicit, per mail, logged.

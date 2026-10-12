@@ -10,17 +10,23 @@ public protocol ServerRescueActions: Sendable {
     func bodies(_ uids: [UInt32]) async throws -> [UInt32: Data]
     /// Moves UIDs of the selected spam mailbox to INBOX — nothing else. `ServerRefusal` on NO.
     func moveToInbox(_ uids: [UInt32]) async throws
+    /// The spam mailbox (6.4): the server's \Junk, or by name on a server without roles; nil if none.
+    func junkMailbox() async throws -> String?
+    /// Moves UIDs of the selected ordinary mailbox into the spam mailbox. `ServerRefusal` on NO.
+    func moveToJunk(_ uids: [UInt32]) async throws
     func present(_ uids: [UInt32]) async throws -> Set<UInt32>
     func search(messageID: String) async throws -> [UInt32]
     func fetch(_ uids: [UInt32]) async throws -> [RemoteMessage]
     func close() async
 }
 
-/// Runs a "Kein Spam" job (ADR-0006, 5.5): per account and spam mailbox — the mailbox must be
-/// the server's \Junk (or, on a server without roles, carry a spam name), verify UIDVALIDITY and
-/// that each UID is still the same message, claim, move to INBOX, check it left the spam
-/// folder, find it in INBOX (Message-ID, sender, subject) and record that location like a sync,
-/// mark the spam location gone, and note the user's decision ("Kein Spam", journalled).
+/// Runs a "Kein Spam" job (ADR-0006 §8, 5.5) or an "Ist Spam" job (§9, 6.4): per account and
+/// source mailbox — for "Kein Spam" the server's \Junk (or, without roles, a spam name), for "Ist
+/// Spam" an ordinary mailbox (no spam, trash, sent or drafts) — verify UIDVALIDITY and that each
+/// UID is still the same message, claim, move (to INBOX, or to the spam mailbox), check it left,
+/// find it at the target (Message-ID, sender, subject) and record that location like a sync
+/// where the account fetches that mailbox, mark the old location gone, and note the user's
+/// decision (journalled: "Kein Spam" / "Ist Spam").
 public struct RescueExecutor: Sendable {
     public let writer: ArchiveWriter
     public let store: ActionStore
@@ -35,7 +41,7 @@ public struct RescueExecutor: Sendable {
     public func run(_ jobID: UUID, accounts: [AccountConfig], connect: @Sendable (String) async throws -> any ServerRescueActions,
                     progress: @escaping @Sendable (ServerDeleteProgress) -> Void = { _ in }) async throws -> ActionJob {
         var job = try store.load(jobID)
-        guard job.kind == .moveToInbox, !job.cancelled else { return job }
+        guard job.kind == .moveToInbox || job.kind == .moveToJunk, !job.cancelled else { return job }
         var p = ServerDeleteProgress(total: job.open.count)
         progress(p)
         let byAccount = Dictionary(grouping: job.open.filter { $0.location != nil }, by: { $0.location!.account })
@@ -63,24 +69,42 @@ public struct RescueExecutor: Sendable {
 
     private func run(items accountItems: [ActionItem], policy: SyncPolicy, server: any ServerRescueActions, job: inout ActionJob,
                      progress p: inout ServerDeleteProgress, notify progress: @Sendable (ServerDeleteProgress) -> Void) async throws {
+        let toJunk = job.kind == .moveToJunk
         let boxes = try await server.mailboxes()
-        // the INBOX location is recorded only where the account also syncs INBOX — otherwise no
-        // sync would ever see it go (Gmail syncs All Mail; include lists)
-        let inboxSynced = policy.select(boxes).contains { $0.name.uppercased() == "INBOX" }
         let roles = boxes.contains { $0.specialUse.contains(.junk) }
-        guard let inbox = boxes.first(where: { $0.name.uppercased() == "INBOX" }) else {
-            for item in accountItems { try finish(&job, item.id, .failed, String(localized: "Kein Posteingang (INBOX) auf dem Server"), &p) }
+        let anyRoles = boxes.contains { !$0.specialUse.isDisjoint(with: [.junk, .trash, .sent, .drafts]) }
+        // the target: INBOX, or the spam mailbox
+        let targetName: String?
+        if toJunk {
+            do { targetName = try await server.junkMailbox() } catch let refusal as ServerRefusal {
+                for item in accountItems { try finish(&job, item.id, .failed, String(localized: "vom Server abgelehnt: \(refusal.message)"), &p) }
+                return
+            }
+        } else {
+            targetName = boxes.first(where: { $0.name.uppercased() == "INBOX" })?.name
+        }
+        guard let target = targetName else {
+            for item in accountItems {
+                try finish(&job, item.id, .failed, toJunk ? String(localized: "Kein Spam-Ordner auf dem Server") : String(localized: "Kein Posteingang (INBOX) auf dem Server"), &p)
+            }
             return
         }
+        // the target location is recorded only where the account also fetches that mailbox —
+        // otherwise no sync would ever see it go (Gmail syncs All Mail; include lists; spam off)
+        let targetSynced = policy.select(boxes).contains { $0.name == target }
         let byMailbox = Dictionary(grouping: accountItems, by: { $0.location!.mailbox })
         for mailbox in byMailbox.keys.sorted() {
             let items = byMailbox[mailbox]!
             let box = boxes.first { $0.name == mailbox }
             let isJunk = box.map { $0.specialUse.contains(.junk) || (!roles && RemoteMailbox.looksLikeJunk($0.name)) } ?? false
-            guard isJunk else {
+            let mayMarkJunk = box.map { b in
+                b.name != target && b.specialUse.isDisjoint(with: [.junk, .trash, .sent, .drafts]) && (anyRoles || !RemoteMailbox.looksLikeTrashOrJunk(b.name))
+            } ?? false
+            guard toJunk ? mayMarkJunk : isJunk else {
                 for item in items {
                     try finish(&job, item.id, .failed, box == nil ? String(localized: "Ordner gibt es auf dem Server nicht mehr")
-                                                                  : String(localized: "Ordner ist auf dem Server kein Spam-Ordner"), &p)
+                               : toJunk ? String(localized: "aus diesem Ordner verschiebt MailKeeper nichts in den Spam-Ordner")
+                               : String(localized: "Ordner ist auf dem Server kein Spam-Ordner"), &p)
                 }
                 progress(p)
                 continue
@@ -109,9 +133,10 @@ public struct RescueExecutor: Sendable {
                 guard let r = remote[uid] else {
                     gone.insert(uid)
                     if item.state == .claimed {
-                        resumed.append(item)  // probably moved already: looked for in INBOX below
+                        resumed.append(item)  // probably moved already: looked for at the target below
                     } else {
-                        try finish(&job, item.id, .failed, String(localized: "liegt nicht mehr im Spam-Ordner – erst neu abrufen"), &p)
+                        try finish(&job, item.id, .failed, toJunk ? String(localized: "liegt nicht mehr in diesem Ordner – erst neu abrufen")
+                                   : String(localized: "liegt nicht mehr im Spam-Ordner – erst neu abrufen"), &p)
                     }
                     continue
                 }
@@ -125,13 +150,15 @@ public struct RescueExecutor: Sendable {
             for item in go { try store.record(job: job.id, item: item.id, state: .claimed) }
             var refusal: String?
             if !go.isEmpty {
-                do { try await server.moveToInbox(go.map { $0.location!.uid }) } catch let r as ServerRefusal { refusal = r.message }
+                do {
+                    if toJunk { try await server.moveToJunk(go.map { $0.location!.uid }) } else { try await server.moveToInbox(go.map { $0.location!.uid }) }
+                } catch let r as ServerRefusal { refusal = r.message }
             }
             let stillThere = go.isEmpty ? [] : try await server.present(go.map { $0.location!.uid })
             let moved = go.filter { !stillThere.contains($0.location!.uid) }
             for item in go where stillThere.contains(item.location!.uid) {
                 try finish(&job, item.id, .failed, refusal.map { String(localized: "vom Server abgelehnt: \($0)") }
-                           ?? String(localized: "nach dem Verschieben noch im Spam-Ordner"), &p)
+                           ?? String(localized: "nach dem Verschieben noch im alten Ordner"), &p)
             }
             gone.formUnion(moved.map { $0.location!.uid })
             if !gone.isEmpty {
@@ -140,34 +167,38 @@ public struct RescueExecutor: Sendable {
             }
             guard !moved.isEmpty || !resumed.isEmpty else { continue }
             // The server's state is final now: whatever fails from here, a moved mail is done.
-            var inboxValidity: UInt32?
-            do { inboxValidity = try await server.selectForChange(inbox.name) } catch is ServerRefusal {}
+            let place = toJunk ? String(localized: "im Spam-Ordner") : String(localized: "im Posteingang")
+            var targetValidity: UInt32?
+            do { targetValidity = try await server.selectForChange(target) } catch is ServerRefusal {}
             for item in moved + resumed {
                 let wasResumed = resumed.contains(item)
                 var found: RemoteMessage?
-                if inboxValidity != nil, let messageID = item.messageID {
+                if targetValidity != nil, let messageID = item.messageID {
                     found = try? await find(messageID, sha: item.sha256, server: server)
                 }
                 if wasResumed, found == nil {
                     try finish(&job, item.id, .failed, item.messageID == nil
-                               ? String(localized: "Ausgang unbekannt (Mail ohne Message-ID) – bitte im Posteingang nachsehen")
-                               : String(localized: "liegt weder im Spam-Ordner noch im Posteingang – erst neu abrufen"), &p)
+                               ? String(localized: "Ausgang unbekannt (Mail ohne Message-ID) – bitte \(place) nachsehen")
+                               : String(localized: "liegt weder im alten Ordner noch \(place) – erst neu abrufen"), &p)
                     continue
                 }
                 var note: String?
                 var at: ServerLocation?
-                if let found, let validity = inboxValidity, inboxSynced {
-                    _ = try await writer.ingest(found.data, at: LocationInfo(account: item.location!.account, mailbox: inbox.name,
+                if let found, let validity = targetValidity, targetSynced {
+                    _ = try await writer.ingest(found.data, at: LocationInfo(account: item.location!.account, mailbox: target,
                                                                              uidValidity: validity, uid: found.uid,
                                                                              providerID: found.providerID, internalDate: found.internalDate,
                                                                              flags: found.flags, labels: found.labels))
-                    at = ServerLocation(account: item.location!.account, mailbox: inbox.name, uidValidity: validity, uid: found.uid)
+                    at = ServerLocation(account: item.location!.account, mailbox: target, uidValidity: validity, uid: found.uid)
                 } else if found != nil {
-                    note = String(localized: "im Posteingang; diesen Ordner ruft MailKeeper für das Konto nicht ab")
+                    note = toJunk ? String(localized: "im Spam-Ordner; den ruft MailKeeper für das Konto nicht ab (Spam prüfen ist aus)")
+                                  : String(localized: "im Posteingang; diesen Ordner ruft MailKeeper für das Konto nicht ab")
                 } else {
-                    note = String(localized: "im Posteingang; der Ort erscheint beim nächsten Abruf")
+                    note = String(localized: "\(place); der Ort erscheint beim nächsten Abruf")
                 }
-                if let identity = item.identity { try await writer.confirmNotSpam(identity: identity) }
+                if let identity = item.identity {
+                    if toJunk { try await writer.setUserClassification(identity: identity, category: .spam) } else { try await writer.confirmNotSpam(identity: identity) }
+                }
                 try finish(&job, item.id, .done, note, &p, at: at)
             }
             progress(p)

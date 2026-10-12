@@ -38,10 +38,11 @@ struct PlanSheet: View {
                 GridRow {
                     Text(job.kind == .serverDelete ? "In den Papierkorb des Servers"
                          : job.kind == .restore ? "Auf den Server zurück"
-                         : job.kind == .moveToInbox ? "Aus dem Spam-Ordner in den Posteingang" : "In den Papierkorb des Archivs")
+                         : job.kind == .moveToInbox ? "Aus dem Spam-Ordner in den Posteingang"
+                         : job.kind == .moveToJunk ? "In den Spam-Ordner des Servers" : "In den Papierkorb des Archivs")
                     Text("\(runs.formatted()) Mails · \(job.openBytes.formatted(.byteCount(style: .file)))").fontWeight(.semibold)
                 }
-                if job.kind == .serverDelete || job.kind == .moveToInbox {
+                if job.kind == .serverDelete || job.kind == .moveToInbox || job.kind == .moveToJunk {
                     ForEach(plan.summary.perAccount.sorted { $0.key < $1.key }, id: \.key) { account, count in
                         GridRow {
                             Text("Konto \(account)").foregroundStyle(.secondary)
@@ -167,6 +168,8 @@ struct PlanSheet: View {
                 + (protonInvolved ? " " + String(localized: "Proton braucht etwa 1,5 Sekunden je Mail und nimmt das Datum aus der Mail.") : "")
         case .moveToInbox:
             String(localized: "Die Mails wandern auf dem Server aus dem Spam-Ordner in den Posteingang, das Archiv merkt sich den neuen Ort und deine Entscheidung „Kein Spam“. Vorher prüft MailKeeper jede einzelne: noch dieselbe Mail im Spam-Ordner.")
+        case .moveToJunk:
+            String(localized: "Die Mails wandern auf dem Server in den Spam-Ordner ihres Kontos, das Archiv behält sie und merkt sich deine Entscheidung „Spam“. Vorher prüft MailKeeper jede einzelne: noch dieselbe Mail am selben Ort. Aus Gesendet, Entwürfen und dem Papierkorb verschiebt es nichts.")
         case .export:
             ""
         }
@@ -264,6 +267,32 @@ struct ExportSheet: View {
 }
 
 /// Above the list in the spam review: what is unchecked, what the model doubts, and the actions.
+/// Above the list in "Verdächtig" (6.4): what it is, and a check of older mail on request.
+struct SuspiciousBar: View {
+    let model: AppModel
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.shield").foregroundStyle(.secondary)
+            Text("Außerhalb der Spam-Ordner: Phishing- oder Spam-Verdacht der KI, Nachahmer bekannter Absender, fehlgeschlagene Prüfung deines Servers. Neue Mails prüft MailKeeper nach jedem Abruf.")
+                .font(.callout).foregroundStyle(.secondary).lineLimit(2)
+            Spacer()
+            Menu("Posteingang prüfen") {
+                Button("Letzte 14 Tage") { model.screenInbox(days: 14) }
+                Button("Letzte 90 Tage") { model.screenInbox(days: 90) }
+                Button("Letztes Jahr") { model.screenInbox(days: 365) }
+            }
+            .fixedSize()
+            .disabled(!model.aiConfig.enabled || model.actionRunning)
+            .help("Mails dieses Zeitraums, die noch keine KI geprüft hat – nur verdächtige Kandidaten gehen ans Modell (höchstens \(AppModel.maxClassify))")
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.bar)
+    }
+}
+
 struct SpamReviewBar: View {
     let model: AppModel
 

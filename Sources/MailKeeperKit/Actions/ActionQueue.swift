@@ -12,6 +12,8 @@ public enum ActionKind: String, Codable, Sendable, CaseIterable {
     case export
     /// "Kein Spam": from the account's spam folder back to its INBOX (5.5).
     case moveToInbox
+    /// "Ist Spam": from an ordinary mailbox into the account's spam folder (6.4).
+    case moveToJunk
 }
 
 /// A location MailKeeper fetched over IMAP: the only kind a server action may touch.

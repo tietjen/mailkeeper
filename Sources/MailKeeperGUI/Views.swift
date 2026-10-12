@@ -85,6 +85,7 @@ struct ContentView: View {
                         VStack(spacing: 0) {
                             if model.sidebarSelection == .trash { TrashBar(model: model) }
                             if model.sidebarSelection == .spamReview { SpamReviewBar(model: model) }
+                            if model.sidebarSelection == .suspicious { SuspiciousBar(model: model) }
                             TranslationNoteBar(model: model)
                             RankedBar(model: model)
                             QueryBar(model: model)
@@ -216,6 +217,10 @@ struct Sidebar: View {
                         .tag(SidebarItem.spamReview)
                         .help("Mails in den Spam-Ordnern; die Zahl: was die KI nicht für Spam hält")
                 }
+                Label("Verdächtig", systemImage: "exclamationmark.shield")
+                    .badge(model.suspiciousCount)
+                    .tag(SidebarItem.suspicious)
+                    .help("Mails außerhalb der Spam-Ordner, die nach Phishing oder Spam aussehen – laut KI, Beziehungsregister oder deinem Server")
             }
             ForEach(model.accounts, id: \.id) { account in
                 Section(account.name) {
@@ -253,6 +258,13 @@ struct ReaderView: View {
     @State private var rescuable = false
     @State private var hovered: LinkCheck?
     @State private var relation: RelationCheck?
+    @State private var movableToJunk = false
+
+    /// Phishing or spam by a model, or a warning of the register or the own server.
+    private var looksSuspicious: Bool {
+        category?.phishing == .suspicious || category?.phishing == .likely || relation?.isWarning == true
+            || (category?.category == .spam && category?.source != .user)
+    }
     @State private var showWhy = false
     @State private var whyLines: [AppModel.WhyLine] = []
     @State private var lures: [LinkCheck] = []
@@ -286,6 +298,7 @@ struct ReaderView: View {
                 rescuable = inJunk && model.canRescue(messageID)
                 lures = LinkExtractor.links(html: message.html, text: message.text).map { LinkCheck(href: $0.href, text: $0.text) }.filter(\.isSuspicious)
                 relation = model.relationCheck(messageID)
+                movableToJunk = !inJunk && model.canMoveToJunk(messageID)
             }
         }
     }
@@ -419,6 +432,12 @@ struct ReaderView: View {
                 if category?.verdict != "spam" {
                     Button("Ist Spam") { model.markSpamSelection() }.controlSize(.small)
                 }
+            } else if category?.verdict != "spam", looksSuspicious {
+                // 6.4: outside the spam folder — moved there on the server, one click
+                Button(movableToJunk ? "Ist Spam → Spam-Ordner" : "Ist Spam") { model.markSpamSelection() }
+                    .controlSize(.small).disabled(model.actionRunning)
+                    .help(movableToJunk ? "Auf dem Server in den Spam-Ordner verschieben; das Archiv merkt sich deine Entscheidung"
+                                        : "Diese Mail liegt auf keinem Server, den MailKeeper kennt: nur dein Urteil wird vermerkt")
             }
         }
         .font(.callout)

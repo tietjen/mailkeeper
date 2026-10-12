@@ -205,11 +205,12 @@ struct MessageTable: NSViewRepresentable {
                 menu.addItem(.separator())
                 add(menu, String(localized: "Auf den Server zurückspielen …"), #selector(restoreToServer))
                 add(menu, String(localized: "Exportieren …"), #selector(export))
+                menu.addItem(.separator())
                 if model.sidebarSelection == .spamReview || model.anyInJunk(Array(model.actionSelection.prefix(50))) {
-                    menu.addItem(.separator())
                     add(menu, String(localized: "Kein Spam (→ Posteingang, wo auf dem Server)"), #selector(rescue))
-                    add(menu, String(localized: "Ist Spam"), #selector(markSpam))
                 }
+                add(menu, model.sidebarSelection == .spamReview ? String(localized: "Ist Spam")
+                          : String(localized: "Ist Spam (→ Spam-Ordner, wo auf dem Server)"), #selector(markSpam))
                 menu.addItem(.separator())
                 let kinds = NSMenu()
                 for c in MailCategory.allCases {

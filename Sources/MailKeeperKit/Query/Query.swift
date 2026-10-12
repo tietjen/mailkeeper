@@ -43,6 +43,9 @@ public enum QueryPredicate: Sendable, Equatable {
     case inJunk
     /// A model sees phishing (suspicion or likely), 5.6.
     case isPhishing
+    /// Suspicious (6.4): phishing by a model, spam by a model, or a warning of the register or the
+    /// own server (look-alike, failed check) — unless the user said "kein Spam".
+    case isSuspicious
     case flag(Flag)
     case onServer
     case archiveOnly
@@ -383,7 +386,8 @@ public enum QueryParser {
                 case "sent", "gesendet", "versendet": return (.predicate(.isSent), "gesendet")
                 case "junk", "spamordner", "spam-ordner", "im-spam": return (.predicate(.inJunk), "im Spam-Ordner")
                 case "phishing", "betrug": return (.predicate(.isPhishing), "Phishing (Verdacht)")
-                default: throw QueryError("„is:\(value)“ kenne ich nicht — unread, read, flagged, answered, list, sent, junk oder phishing.")
+                case "suspicious", "verdächtig", "verdaechtig", "verdacht": return (.predicate(.isSuspicious), "verdächtig")
+                default: throw QueryError("„is:\(value)“ kenne ich nicht — unread, read, flagged, answered, list, sent, junk, phishing oder verdächtig.")
                 }
             case .category:
                 let word = try required().lowercased()

@@ -112,6 +112,23 @@ struct ReadOnlyGuardTests {
         #expect(!IMAPSession.isAllowedChange(.uidMove(one, inboxName), access: .moveToTrash, trash: archive, inbox: inboxName))
     }
 
+    @Test("6.4: an 'Ist Spam' connection moves only into the spam mailbox, with explicit UIDs") func markAsJunkAllowlist() {
+        let junk = MailboxName(ByteBuffer(string: "Junk"))
+        let inboxName = MailboxName(ByteBuffer(string: "INBOX"))
+        let archive = MailboxName(ByteBuffer(string: "Archiv"))
+        #expect(IMAPSession.isAllowedChange(.select(inboxName, []), access: .markAsJunk, trash: nil, junk: junk))
+        #expect(IMAPSession.isAllowedChange(.uidMove(one, junk), access: .markAsJunk, trash: nil, junk: junk))
+        #expect(IMAPSession.isAllowedChange(.uidCopy(one, junk), access: .markAsJunk, trash: nil, junk: junk))
+        #expect(IMAPSession.isAllowedChange(.uidStore(one, [], .flags(.add(silent: true, list: [.deleted]))), access: .markAsJunk, trash: nil, junk: junk))
+        for c: Command in [.uidMove(one, inboxName), .uidMove(one, archive), .uidMove(.lastCommand, junk),
+                           .uidStore(one, [], .flags(.add(silent: true, list: [.seen]))), .uidExpunge(.lastCommand), .expunge, .close,
+                           .create(junk, []), .delete(archive)] {
+            #expect(!IMAPSession.isAllowedChange(c, access: .markAsJunk, trash: nil, junk: junk), "\(c)")
+        }
+        #expect(!IMAPSession.isAllowedChange(.uidMove(one, junk), access: .markAsJunk, trash: nil, junk: nil))  // no spam mailbox known
+        #expect(!IMAPSession.isAllowedChange(.uidMove(one, junk), access: .rescueFromJunk, trash: nil, inbox: inboxName, junk: junk))
+    }
+
     @Test func uidZeroAndStarNeverReachTheServer() throws {
         #expect(throws: IMAPError.self) { _ = try IMAPSession.uidSet([0]) }
         #expect(throws: IMAPError.self) { _ = try IMAPSession.uidSet([UInt32.max]) }
@@ -436,6 +453,47 @@ struct IntegrationTests {
         #expect(!detail.locations.contains { $0.mailbox == "INBOX" })
         #expect(detail.locations.first { $0.mailbox == "Junk" }?.isOnServer == false)
         #expect(try reader.classification(of: ids[0])?.verdict == "ham")
+    }
+
+    /// 6.4, mailcow TEST account only: a lure in INBOX is synced, moved into Junk through the
+    /// narrow `.markAsJunk` access ("Ist Spam → Spam-Ordner"), checked on the server with a separate
+    /// read-only connection; the archive records the Junk location and the user's verdict.
+    @Test func mailcowIstSpamToJunk() async throws {
+        let a = try account("mailcow")
+        try seed("--cleanup-junk")
+        try seed("--inbox-spam-test")
+        defer { try? seed("--cleanup-junk") }
+        let endpoint = IMAPEndpoint(host: a.host, port: a.port, security: .tls)
+        let policy = SyncPolicy(mode: .standard, include: ["INBOX", "Junk"], includeJunk: true)
+        let (layout, first, _) = try await run("mailcow", endpoint: endpoint, policy: policy)
+        #expect(first.failures.isEmpty, "\(first.failures)")
+        let reader = try ArchiveReader(layout: layout)
+        let ids = try reader.messageIDs(MessageFilter(text: "subject:eingeschraenkt -is:junk "))
+        try #require(ids.count == 1, "the seeded lure is in INBOX")
+        var config = AccountConfig.imap(id: "mailcow", username: a.username, host: a.host, port: a.port)
+        config.policy = policy
+        let (job, _) = try reader.planMarkSpam(MessageFilter(ids: ids), title: "test", accounts: [config])
+        #expect(job.count(.planned) == 1 && job.items.first?.location?.mailbox == "INBOX", "\(job.reasons)")
+        let store = ActionStore(layout: layout)
+        try store.create(job)
+        let pw = try password(a)
+        let done = try await RescueExecutor(writer: try ArchiveWriter(layout: layout), store: store,
+                                            audit: AuditLog(url: tempDir().appending(path: "audit.jsonl"))).run(job.id, accounts: [config]) { _ in
+            try await IMAPSession.connect(endpoint, username: a.username, password: pw, access: .markAsJunk)
+        }
+        #expect(done.count(.done) == 1, "\(done.reasons)")
+        let messageID = try #require(job.items.first?.messageID)
+        let check = try await IMAPSession.connect(endpoint, username: a.username, password: pw)
+        let boxes = try await check.mailboxes()
+        _ = try await check.examine(try #require(boxes.first { $0.specialUse.contains(.junk) }))
+        #expect(try await !check.search(messageID: messageID).isEmpty)
+        _ = try await check.examine(try #require(boxes.first { $0.name == "INBOX" }))
+        #expect(try await check.search(messageID: messageID).isEmpty)
+        await check.close()
+        let detail = try #require(try reader.detail(ids[0]))
+        #expect(detail.locations.first { $0.mailbox == "Junk" }?.isOnServer == true)
+        #expect(detail.locations.first { $0.mailbox == "INBOX" }?.isOnServer == false)
+        #expect(try reader.classification(of: ids[0])?.verdict == "spam" && reader.classification(of: ids[0])?.source == .user)
     }
 
     @Test func protonWrongPinIsRefused() async throws {

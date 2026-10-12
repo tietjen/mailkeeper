@@ -91,6 +91,7 @@ struct MemoryTests {
         try await writer.setUserClassification(identity: try #require(try r.identities(of: [offer]).first), category: .work)
         let raw = try Database(path: layout.indexURL.path)
         try raw.execute("""
+            ALTER TABLE classifications DROP COLUMN screened; ALTER TABLE classifications DROP COLUMN warning;
             DROP INDEX messages_headers_pending; ALTER TABLE messages DROP COLUMN auth_server; ALTER TABLE messages DROP COLUMN auth_dkim;
             ALTER TABLE messages DROP COLUMN auth_spf; ALTER TABLE messages DROP COLUMN auth_dmarc; ALTER TABLE messages DROP COLUMN auth_from;
             ALTER TABLE messages DROP COLUMN delivered_to; ALTER TABLE messages DROP COLUMN headers_v;
