@@ -9,6 +9,15 @@ struct RelationSettings: View {
     @State private var selection: Set<String> = []
     @State private var draft: RelationDraft?
     @State private var message: String?
+    @State private var newPublic = ""
+
+    private func addPublic() {
+        let address = newPublic
+        Task {
+            message = await model.addPublicAddress(address)
+            if message == nil { newPublic = "" }
+        }
+    }
 
     enum Section: String, CaseIterable, Identifiable {
         case confirmed, suggested, rejected
@@ -37,6 +46,24 @@ struct RelationSettings: View {
                 Button("Neue Beziehung …") { draft = RelationDraft() }
                 Spacer()
                 Button("Vorschläge neu berechnen") { model.reloadRelations() }.disabled(model.loadingRelations)
+            }
+            Divider()
+            // ADR-0010 §6: the bait address — a first contact there is unsolicited, not spam
+            HStack(alignment: .firstTextBaseline) {
+                Text("Öffentliche Adressen").fontWeight(.medium)
+                    .help("Adressen, die auf deiner Webseite oder in Profilen stehen: Erstkontakte dort sind unaufgefordert – persönliche Angaben darin beweisen nichts")
+                ForEach(model.publicAddressItems) { item in
+                    HStack(spacing: 2) {
+                        Text(item.subject.dropFirst("public:".count))
+                        Button { Task { message = await model.forgetMemory([item.id]) } } label: { Image(systemName: "xmark.circle.fill") }
+                            .buttonStyle(.borderless).foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 6).padding(.vertical, 1)
+                    .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                }
+                TextField("kontakt@deine-webseite.de", text: $newPublic).frame(maxWidth: 220)
+                    .onSubmit(addPublic)
+                Button("Hinzufügen", action: addPublic).disabled(newPublic.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             if let message { Text(DisplayText.safe(message)).font(.callout).foregroundStyle(.secondary) }
         }

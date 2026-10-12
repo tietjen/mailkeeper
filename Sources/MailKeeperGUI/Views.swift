@@ -252,6 +252,7 @@ struct ReaderView: View {
     @State private var inJunk = false
     @State private var rescuable = false
     @State private var hovered: LinkCheck?
+    @State private var relation: RelationCheck?
     @State private var showWhy = false
     @State private var whyLines: [AppModel.WhyLine] = []
     @State private var lures: [LinkCheck] = []
@@ -284,6 +285,7 @@ struct ReaderView: View {
                 inJunk = model.isInJunk(messageID)
                 rescuable = inJunk && model.canRescue(messageID)
                 lures = LinkExtractor.links(html: message.html, text: message.text).map { LinkCheck(href: $0.href, text: $0.text) }.filter(\.isSuspicious)
+                relation = model.relationCheck(messageID)
             }
         }
     }
@@ -326,6 +328,7 @@ struct ReaderView: View {
             placeRow(d)
             categoryRow()
             phishingRow(m)
+            if let relation, !relation.isEmpty { echtheitRow(relation) }
             filterRow("Ablage", d.locations.map {
                 ("\($0.account) › \($0.mailbox)", MessageFilters.place(account: $0.account, mailbox: $0.mailbox), nil,
                  $0.isOnServer ? "server.rack" : "archivebox")
@@ -459,6 +462,34 @@ struct ReaderView: View {
             }
             .font(.callout)
         }
+    }
+
+    /// The register and the own server (6.3b): known relation, look-alike, failed check, first
+    /// contact at a public address — only when there is something to say.
+    @ViewBuilder
+    private func echtheitRow(_ check: RelationCheck) -> some View {
+        let tint: Color = check.isWarning ? .red : check.firstContactAt != nil ? .orange : (check.known?.ended ?? false) ? .secondary : .green
+        let icon = check.isWarning ? "exclamationmark.shield.fill" : check.firstContactAt != nil ? "envelope.badge" : "checkmark.seal"
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("Echtheit").foregroundStyle(.secondary).frame(width: 64, alignment: .trailing)
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(check.lines.enumerated()), id: \.offset) { n, line in
+                    Label(DisplayText.safe(line), systemImage: n == 0 ? icon : "circle.fill")
+                        .labelStyle(EchtheitLabelStyle(first: n == 0))
+                        .foregroundStyle(n == 0 ? tint : .secondary)
+                        .fontWeight(n == 0 && check.isWarning ? .semibold : .regular)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let lookAlike = check.lookAlike, let domain = check.senderDomain {
+                    Button("\(domain) gehört doch zu „\(DisplayText.safe(lookAlike.name))“") {
+                        Task { _ = await model.addDomain(domain, to: lookAlike); relation = model.relationCheck(messageID) }
+                    }
+                    .controlSize(.small)
+                    .help("Nur wenn du sicher bist: die Domain wird zur Beziehung hinzugefügt und gilt danach als echt")
+                }
+            }
+        }
+        .font(.callout)
     }
 
     private var verdictText: String? {
@@ -729,5 +760,16 @@ struct LinkTargetBar: View {
         .padding(6)
         .frame(maxWidth: 640, alignment: .leading)
         .allowsHitTesting(false)
+    }
+}
+
+/// The first line of "Echtheit" carries the icon, the others a small dot.
+private struct EchtheitLabelStyle: LabelStyle {
+    let first: Bool
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            if first { configuration.icon } else { Text("·").foregroundStyle(.secondary) }
+            configuration.title
+        }
     }
 }

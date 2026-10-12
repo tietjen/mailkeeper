@@ -30,6 +30,13 @@ public struct MailClassifier: Sendable {
     public func classify(_ mail: MailSnapshot, memory: MemoryContext? = nil) async throws -> MailClassification {
         let fence = Fence()
         let context = memory.map { $0.isEmpty ? "" : $0.render(fence) + "\n\nDie zu bewertende Mail:\n" } ?? ""
+        var mail = mail
+        if let server = memory?.server {  // only the own server's results count (6.3)
+            switch server {
+            case .passed(let s), .failed(let s), .neutral(let s): mail.authentication = s
+            case .foreign, .none: mail.authentication = nil
+            }
+        }
         let result = try await router.chat(ChatRequest(task: .classify, system: Self.instructions(fence),
                                                        user: context + fence.wrap(mail.rendered(maxText: 1_200)),
                                                        schema: Self.schema, maxTokens: 300))
@@ -73,7 +80,10 @@ public struct MailClassifier: Sendable {
         Newsletter leiten Klicks oft über Tracking-Domains (mailchimp, sendgrid, hubspot …) – das allein ist kein Phishing.
         phishing: nein = keine Anzeichen; verdacht = einzelne Anzeichen; ja = klare Täuschung.
 
-        Vor der Mail können stehen: Notizen des Nutzers (vertrauenswürdig – beachte sie), Fakten von MailKeeper über die \
+        MailKeepers Prüfung (Beziehungsregister, Prüfung des eigenen Servers) ist verlässlich: „Gibt sich als … aus, kommt aber \
+        von …“ oder eine fehlgeschlagene Prüfung des eigenen Servers sind starke Phishing-Anzeichen; eine bekannte Beziehung \
+        mit bestandener Prüfung spricht für Echtheit.
+        Vor der Mail können außerdem stehen: Notizen des Nutzers (vertrauenswürdig – beachte sie), Fakten von MailKeeper über die \
         Absenderadresse und Entscheidungen des Nutzers zu verwandten Mails (gleicher Absender, gleiche Domain oder ähnlicher \
         Inhalt). Folge diesen Entscheidungen, wenn die Mail wirklich gleichartig ist. Ein bekannter Absender und frühere Mails \
         des Nutzers an ihn sprechen nur dann für Echtheit, wenn die Prüfung des eigenen Servers nicht fehlschlägt – \

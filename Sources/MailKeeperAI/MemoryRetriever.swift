@@ -12,14 +12,20 @@ public struct MemoryContext: Sendable, Equatable {
     /// "Absender …, Betreff „…“ → Arbeit": the decision is the user's, sender and subject are
     /// mail text — inside the fence.
     public var examples: [String] = []
+    /// The register's and the own server's word (6.3b) — outside the fence.
+    public var relation: [String] = []
+    /// The own server's verdict; replaces the results the mail itself carries (which may come
+    /// from anywhere).
+    public var server: RelationCheck.Server?
     public var sources: [String] = []
 
     public init() {}
 
-    public var isEmpty: Bool { notes.isEmpty && profile.isEmpty && examples.isEmpty }
+    public var isEmpty: Bool { notes.isEmpty && profile.isEmpty && examples.isEmpty && relation.isEmpty }
 
     func render(_ fence: Fence) -> String {
         var parts: [String] = []
+        if !relation.isEmpty { parts.append("MailKeepers Prüfung (Beziehungsregister des Nutzers und sein eigener Server):\n" + relation.map { "- " + $0 }.joined(separator: "\n")) }
         if !notes.isEmpty { parts.append("Notizen des Nutzers:\n" + notes.map { "- " + $0 }.joined(separator: "\n")) }
         if !profile.isEmpty { parts.append("MailKeeper über die Absenderadresse:\n" + profile.map { "- " + $0 }.joined(separator: "\n")) }
         if !examples.isEmpty {
@@ -39,6 +45,9 @@ public struct MemoryRetriever {
     let examples: [(item: MemoryItem, messageID: Int64?)]
     let exampleVectors: VectorIndex
     let embedModel: String?
+    let relations: [Relation]
+    let servers: [String: String]
+    let publicAddresses: [String]
 
     public static let maxNotes = 8
     public static let maxNoteChars = 1_500
@@ -48,6 +57,9 @@ public struct MemoryRetriever {
     public init(reader: ArchiveReader, embedModel: String?) throws {
         self.reader = reader
         self.embedModel = embedModel
+        relations = try reader.relations()
+        servers = try reader.ownAuthServers()
+        publicAddresses = try reader.publicAddresses()
         let items = try reader.memoryItems()
         notes = items.filter { $0.kind == .preference || $0.kind == .vocabulary }
         let ex = items.filter { $0.kind == .example }
@@ -64,6 +76,10 @@ public struct MemoryRetriever {
 
     public func context(for messageID: Int64, mail: MailSnapshot, accounts: [String]) throws -> MemoryContext {
         var ctx = MemoryContext()
+        let check = try reader.relationCheck(of: messageID, relations: relations, servers: servers, publicAddresses: publicAddresses)
+        ctx.relation = check.lines
+        ctx.server = check.server
+        for r in [check.known, check.lookAlike].compactMap({ $0 }) { ctx.sources.append(r.id) }
         let sender = mail.from.lowercased()
         let host = sender.split(separator: "@").last.map(String.init)
         let domain = host.map(LinkCheck.registrableDomain)

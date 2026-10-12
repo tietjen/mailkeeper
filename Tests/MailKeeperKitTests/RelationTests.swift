@@ -103,3 +103,43 @@ struct RelationTests {
         #expect(try r.ownAuthServers() == ["x": "mail.own.test"])
     }
 }
+
+@Suite("Echtheit: Register und eigener Server (6.3b)")
+struct RelationCheckTests {
+    @Test func knownLookAlikeForgedAndFirstContact() async throws {
+        let (_, writer, r) = try await RelationTests.archive()
+        let extra: [(String, String, String, String?)] = [
+            ("l1", "Sparkasse Service <service@sparkasse-kundenportal.example>", "me@own.test", "mail.own.test; dmarc=pass header.from=sparkasse-kundenportal.example"),
+            ("l2", "Kundenservice <info@secure-login.example>", "me@own.test", "mail.own.test; dmarc=none"),
+            ("m1", "Michelle Obama <michelle@foundation.example>", "me@own.test", "mail.own.test; dmarc=pass"),
+            ("k1", "Erika Muster <erika@neu.example>", "kontakt@own.test", "mail.own.test; dmarc=pass"),
+            ("f1", "info@sparkasse.example", "me@own.test", "mail.own.test; dkim=fail; spf=fail; dmarc=fail header.from=sparkasse.example"),
+        ]
+        _ = try await writer.ingest(extra.enumerated().map { n, m in
+            (RelationTests.mail(m.0, from: m.1, to: m.2, subject: "Betreff", auth: m.3), LocationInfo(account: "x", mailbox: "INBOX", providerID: "e\(n)"))
+        })
+        try await writer.saveRelation(name: "Sparkasse KölnBonn", domains: ["sparkasse.example"], since: nil, until: nil)
+        try await writer.saveRelation(name: "Michelle Schindler", domains: ["pfandbrief.example"], since: nil, until: nil)
+        try await writer.saveNote(kind: .preference, text: "öffentlich", subject: "public:kontakt@own.test")
+        let id = { (key: String) in try #require(try r.messageIDs(MessageFilter(text: "msgid:\(key)@t.test ")).first) }
+
+        let known = try r.relationCheck(of: try id("b1"))
+        #expect(known.known?.name == "Sparkasse KölnBonn" && known.lookAlike == nil && !known.isWarning)
+        #expect(known.lines == ["Bekannte Beziehung „Sparkasse KölnBonn“.", "Prüfung deines Servers bestanden (dkim=pass spf=pass dmarc=pass)."])
+
+        let lookAlike = try r.relationCheck(of: try id("l1"))  // by name and by domain label, though DMARC passed for its own domain
+        #expect(lookAlike.lookAlike?.name == "Sparkasse KölnBonn" && lookAlike.isWarning)
+        #expect(lookAlike.lines.first?.hasPrefix("Gibt sich als „Sparkasse KölnBonn“ aus, kommt aber von sparkasse-kundenportal.example") == true)
+        #expect(try r.relationCheck(of: try id("l2")).isEmpty)  // claims nothing known
+        #expect(try r.relationCheck(of: try id("m1")).lookAlike == nil)  // a Michelle is no "Michelle Schindler"
+
+        let forged = try r.relationCheck(of: try id("z1"))  // another server's "dmarc=pass" in a mail of the bank's domain
+        #expect(forged.known != nil && forged.server == .foreign && forged.lines.last == "Die Prüfergebnisse in der Mail stammen nicht von deinem Server und zählen nicht.")
+        let failed = try r.relationCheck(of: try id("f1"))
+        #expect(failed.isWarning && failed.lines.contains { $0.hasPrefix("Prüfung deines Servers fehlgeschlagen") })
+
+        let first = try r.relationCheck(of: try id("k1"))
+        #expect(first.firstContactAt == "kontakt@own.test" && first.lines.last?.hasPrefix("Erstkontakt an deine öffentliche Adresse") == true)
+        #expect(try r.relationCheck(of: try id("h1")).firstContactAt == nil)  // to another address
+    }
+}

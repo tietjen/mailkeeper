@@ -77,6 +77,25 @@ public enum Relations {
         }
     }
 
+    /// Sender names that say nothing about who writes: they neither name nor merge a suggestion.
+    static let genericNames: Set<String> = [
+        "mail delivery system", "mail delivery subsystem", "mailer daemon", "mailerdaemon", "postmaster", "noreply", "no reply",
+        "donotreply", "do not reply", "info", "service", "support", "newsletter", "news", "team", "notification", "notifications",
+        "kundenservice", "customer service", "admin", "office", "kontakt", "contact", "hello", "hallo", "mail", "system",
+    ]
+
+    static func isGeneric(_ name: String) -> Bool {
+        let n = name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber }).joined(separator: " ")
+        return n.isEmpty || genericNames.contains(n) || n.contains("@")
+    }
+
+    /// A person's name as a set of words: "Tietjen, Jan" and "Jan Tietjen" alike.
+    static func personKey(_ name: String) -> String {
+        name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .split(whereSeparator: { !$0.isLetter }).map(String.init).filter { $0.count > 1 }.sorted().joined(separator: " ")
+    }
+
     /// For grouping suggestions: "Sparkasse KölnBonn" and "sparkasse koelnbonn" alike.
     static func nameKey(_ name: String) -> String {
         name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
@@ -144,7 +163,7 @@ extension ArchiveReader {
         let sent = "m.id IN (SELECT l.message_id FROM locations l WHERE \(QuerySQL.sentLocation))"
         let transactional = Relations.transactional.map { "'\($0)'" }.joined(separator: ",")
 
-        struct Host { var mails = 0, ham = 0, decided = 0, bad = 0, auth = 0, wrote = 0; var first: Double?, last: Double?, name: String? }
+        struct Host { var mails = 0, ham = 0, decided = 0, bad = 0, auth = 0, wrote = 0, nameMails = 0; var first: Double?, last: Double?, name: String? }
         var hosts: [String: Host] = [:]
         try db.forEach("""
             WITH base AS (
@@ -153,21 +172,28 @@ extension ArchiveReader {
                        (\(authenticated)) AS auth
                 FROM messages m LEFT JOIN classifications c ON c.message_id = m.id
                 WHERE m.trashed IS NULL AND instr(m.from_addr, '@') > 0 AND NOT (\(sent))
-            ), names AS (\(Self.usualName(from: "base")))
+            ), names AS (
+                SELECT k, name, n FROM (
+                    SELECT k, name, count(*) AS n, row_number() OVER (PARTITION BY k ORDER BY count(*) DESC, max(date) DESC, name) AS r
+                    FROM base WHERE name IS NOT NULL AND name != '' GROUP BY k, name
+                ) WHERE r = 1
+            )
             SELECT b.k, count(*), min(b.date), max(b.date),
                    sum(b.verdict = 'ham'), sum(b.source = 'user' AND b.category IS NOT NULL AND b.category != 'spam'),
                    sum(b.verdict = 'spam' OR (b.source = 'user' AND b.category = 'spam') OR b.phishing IN ('verdacht', 'ja')),
-                   sum(b.auth AND b.category IN (\(transactional))), max(n.name)
+                   sum(b.auth AND b.category IN (\(transactional))), max(n.name), max(n.n)
             FROM base b LEFT JOIN names n ON n.k = b.k GROUP BY b.k
             """) { r in
             guard let k = r.text(0), !k.isEmpty else { return }
             hosts[k] = Host(mails: Int(r.int(1)), ham: Int(r.int(4)), decided: Int(r.int(5)), bad: Int(r.int(6)), auth: Int(r.int(7)),
-                            first: r.optionalDouble(2), last: r.optionalDouble(3), name: r.text(8))
+                            nameMails: Int(r.optionalInt(9) ?? 0), first: r.optionalDouble(2), last: r.optionalDouble(3), name: r.text(8))
         }
         // the user's own mails: who they went to, and which domains the user writes from
         var own: Set<String> = []
-        try db.forEach("SELECT m.from_addr, m.to_addrs, m.cc_addrs, m.date FROM messages m WHERE \(sent) AND m.trashed IS NULL") { r in
+        var ownNames: Set<String> = []
+        try db.forEach("SELECT m.from_addr, m.to_addrs, m.cc_addrs, m.date, m.from_name FROM messages m WHERE \(sent) AND m.trashed IS NULL") { r in
             if let from = r.text(0), let at = from.lastIndex(of: "@") { own.insert(LinkCheck.registrableDomain(String(from[from.index(after: at)...]).lowercased())) }
+            if let name = r.text(4) { ownNames.insert(Relations.personKey(name)) }
             for list in [r.text(1), r.text(2)].compactMap({ $0 }) {
                 for address in list.split(separator: ",") {
                     let a = address.trimmingCharacters(in: .whitespaces).lowercased()
@@ -195,9 +221,16 @@ extension ArchiveReader {
             s.authenticated += h.auth
             if let f = h.first { s.first = min(s.first ?? .distantFuture, Date(timeIntervalSince1970: f)) }
             if let l = h.last { s.last = max(s.last ?? .distantPast, Date(timeIntervalSince1970: l)) }
-            if let name = h.name, h.mails > nameMails[domain, default: 0] {
-                s.name = String(Memory.cleanText(name).prefix(120))
+            // named after the domain's biggest sender, and only when that name stands for most of its
+            // mails, says more than "Support" and is not the user's own (a person writing for a
+            // company, the user's own address there)
+            if h.mails > nameMails[domain, default: 0] {
                 nameMails[domain] = h.mails
+                if let name = h.name, h.nameMails * 2 >= h.mails, !Relations.isGeneric(name), !ownNames.contains(Relations.personKey(name)) {
+                    s.name = String(Memory.cleanText(name).prefix(120))
+                } else {
+                    s.name = domain
+                }
             }
             badByDomain[domain, default: 0] += h.bad
             byDomain[domain] = s
@@ -221,5 +254,144 @@ extension ArchiveReader {
             merged[key] = m
         }
         return Array(merged.values.sorted { $0.score > $1.score || ($0.score == $1.score && $0.name < $1.name) }.prefix(limit))
+    }
+}
+
+/// What the register and the own server say about one mail (6.3b, ADR-0010 §6) — deterministic,
+/// shown in the reader and given to the model. A warning raises caution; "known" lowers it only
+/// together with a passing check of the own server (a From line can be forged).
+public struct RelationCheck: Sendable, Equatable {
+    public enum Server: Sendable, Equatable {
+        /// DMARC passed at the own server.
+        case passed(String)
+        /// The own server's check failed (dmarc=fail, or dkim and spf both fail).
+        case failed(String)
+        /// The own server checked, neither clearly.
+        case neutral(String)
+        /// Results are in the mail, but not from the own server: they count for nothing.
+        case foreign
+        case none
+    }
+
+    public var senderDomain: String?
+    /// The confirmed relation the sender's domain belongs to.
+    public var known: Relation?
+    /// A relation the mail claims to be (by name or domain) while it comes from elsewhere.
+    public var lookAlike: Relation?
+    public var server: Server = .none
+    /// A first contact at one of the user's public addresses (no mail before, never written to).
+    public var firstContactAt: String?
+
+    public var isWarning: Bool {
+        if lookAlike != nil { return true }
+        if case .failed = server { return true }
+        return false
+    }
+
+    public var isEmpty: Bool {
+        known == nil && lookAlike == nil && firstContactAt == nil && { if case .failed = server { return false }; return true }()
+    }
+
+    /// German lines for the reader and the model.
+    public var lines: [String] {
+        var out: [String] = []
+        if let r = lookAlike, let domain = senderDomain {
+            out.append(String(localized: "Gibt sich als „\(r.name)“ aus, kommt aber von \(domain) – \(r.name) schreibt von \(r.domains.joined(separator: ", ")).", comment: "look-alike"))
+        }
+        if let r = known {
+            let since = r.since.map { String(localized: " seit \($0.formatted(.dateTime.year()))") } ?? ""
+            out.append(r.ended ? String(localized: "Bekannte Beziehung „\(r.name)“ – beendet \(r.until!.formatted(.dateTime.month().year())); Vertrauen geringer.")
+                               : String(localized: "Bekannte Beziehung „\(r.name)“\(since)."))
+        }
+        switch server {
+        case .passed(let s): if known != nil || lookAlike != nil { out.append(String(localized: "Prüfung deines Servers bestanden (\(s)).")) }
+        case .failed(let s): out.append(String(localized: "Prüfung deines Servers fehlgeschlagen (\(s)) – der Absender ist vermutlich gefälscht."))
+        case .neutral(let s): if known != nil { out.append(String(localized: "Prüfung deines Servers ohne klares Ergebnis (\(s)).")) }
+        case .foreign: if known != nil || lookAlike != nil { out.append(String(localized: "Die Prüfergebnisse in der Mail stammen nicht von deinem Server und zählen nicht.")) }
+        case .none: break
+        }
+        if let address = firstContactAt {
+            out.append(String(localized: "Erstkontakt an deine öffentliche Adresse \(address): unaufgefordert. Name oder Firma in der Mail sind kein Echtheitsbeweis – aber auch kein Spam-Beweis."))
+        }
+        return out
+    }
+}
+
+extension Relations {
+    /// Words of a relation that a look-alike would use: the name as a whole, and the words of its
+    /// domains' first labels ("sparkasse-koelnbonn" → sparkasse, koelnbonn). Not single words of
+    /// the name: a relation named after a person ("Michelle Schindler") would flag every Michelle.
+    static func claimTokens(_ r: Relation) -> Set<String> {
+        let fold = { (s: String) in s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
+        var tokens: Set<String> = []
+        let whole = nameKey(r.name)
+        if whole.count >= 5, !claimStopWords.contains(whole) { tokens.insert(whole) }
+        for domain in r.domains {
+            let label = fold(domain.split(separator: ".").first.map(String.init) ?? "")
+            for part in label.split(separator: "-") where part.count >= 5 && !claimStopWords.contains(String(part)) { tokens.insert(String(part)) }
+        }
+        return tokens
+    }
+
+    /// Words too common to tell an organisation by.
+    static let claimStopWords: Set<String> = [
+        "gmbh", "group", "gruppe", "service", "services", "online", "kundenservice", "support", "deutschland", "germany", "international",
+        "newsletter", "konto", "account", "info", "mail", "versand", "shop", "store", "team", "verlag", "consulting", "solutions", "digital",
+        "systems", "technology", "technologies", "kunden", "portal", "secure", "security", "login", "update", "noreply",
+    ]
+}
+
+extension ArchiveReader {
+    /// The user's public addresses (bait: the website's contact address), stored as notes with
+    /// the subject "public:<address>".
+    public func publicAddresses() throws -> [String] {
+        try memoryItems().filter { $0.subject.hasPrefix("public:") }.map { String($0.subject.dropFirst("public:".count)) }
+    }
+
+    /// The register's and the own server's word on a message.
+    public func relationCheck(of messageID: Int64, relations: [Relation]? = nil, servers: [String: String]? = nil,
+                              publicAddresses: [String]? = nil) throws -> RelationCheck {
+        var check = RelationCheck()
+        guard let row = try db.queryOne("SELECT lower(from_addr), from_name, delivered_to, lower(to_addrs), lower(cc_addrs) FROM messages WHERE id = ?",
+                                        [.int(messageID)], { ($0.text(0), $0.text(1), $0.text(2), $0.text(3), $0.text(4)) }) else { return check }
+        if let auth = try authentication(of: messageID, servers: servers) {
+            if !auth.trusted {
+                check.server = .foreign
+            } else {
+                let r = auth.results
+                let summary = r.summary ?? ""
+                if r.dmarc == "pass" { check.server = .passed(summary) }
+                else if r.dmarc == "fail" || (r.dkim == "fail" && r.spf == "fail") { check.server = .failed(summary) }
+                else { check.server = .neutral(summary) }
+            }
+        }
+        guard let address = row.0, let at = address.lastIndex(of: "@") else { return check }
+        let domain = LinkCheck.registrableDomain(String(address[address.index(after: at)...]))
+        check.senderDomain = domain
+        let all = try relations ?? self.relations()
+        check.known = all.first { $0.confirmed && $0.domains.contains(domain) }
+        if check.known == nil {
+            let fold = { (s: String) in s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
+            let nameKey = Relations.nameKey(row.1 ?? "")
+            let nameWords = Set(fold(row.1 ?? "").split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init))
+            let label = fold(domain.split(separator: ".").first.map(String.init) ?? "")
+            check.lookAlike = all.first { r in
+                guard r.confirmed, !r.domains.contains(domain) else { return false }
+                return Relations.claimTokens(r).contains { token in
+                    nameWords.contains(token) || (token.count >= 8 && nameKey.contains(token)) || label.contains(token)
+                }
+            }
+        }
+        // a first contact at a public address: nothing from this address before, never written to it
+        let publics = try publicAddresses ?? self.publicAddresses()
+        if !publics.isEmpty {
+            let recipients = Set([row.2, row.3, row.4].compactMap { $0 }.flatMap { $0.split(separator: ",") }
+                .map { $0.trimmingCharacters(in: .whitespaces).lowercased() })
+            if let hit = publics.first(where: { recipients.contains($0.lowercased()) }), let profile = try senderProfile(of: messageID),
+               profile.mails == 0, profile.youWrote == 0 {
+                check.firstContactAt = hit
+            }
+        }
+        return check
     }
 }

@@ -39,6 +39,23 @@ as context for unsolicited first contacts.
    that names a known entity but comes from another domain *raises* it. Derived items never
    become rules on their own (ADR-0005). First contact at the bait address is unsolicited, not
    spam; personal details found online are no proof of legitimacy.
+   *As built (6.3, 2026-10-12):* schema v12 indexes the topmost `Authentication-Results`
+   (authserv-id, dkim, spf, dmarc, `header.from`) and `Delivered-To` — at ingest, for older mail by
+   a background pass over the headers only (42k in under five minutes). The own server per account
+   is learned (the authserv-id of most of its mail, ≥ 50 %, ≥ 5); results from any other server
+   count for nothing ("foreign"). Relations are memory items of kind `relation` (name, registrable
+   domains, since, until), journalled; a rejected suggestion is stored inactive so it is not
+   suggested again. Suggestions need positive evidence (mails the user wrote to the domain, the
+   user's "kein Spam" or category, ≥ 2 authenticated transactional mails), never freemail or the
+   user's own domains, never where spam and phishing outweigh; named after the domain unless one
+   non-generic sender name stands for most of its mails and is not the user's own; one name with
+   several domains is one suggestion. Per mail a deterministic check: known relation (with the own
+   server's verdict), look-alike (the sender name or domain label carries a relation's name or
+   domain words — never single words of a person's name — from another domain), failed check of
+   the own server, first contact at a public address (notes with subject `public:<address>`; no
+   mail before, never written to). The reader shows it as "Echtheit" (with "… gehört doch dazu"
+   for a look-alike the user knows), the model gets it outside the fence and sees only the own
+   server's results. Settings › Beziehungen.
 7. **Later — report phishing:** forward a mail as a complete `.eml` attachment to an address the
    user configures (e.g. `phishing@verbraucherzentrale.nrw`). Needs a sending path (SMTP, not in
    MailKeeper yet); always explicit, per mail, logged.

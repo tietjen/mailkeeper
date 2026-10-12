@@ -457,6 +457,8 @@ final class AppModel {
         guard let reader else { return }
         junkReview = try? reader.junkReview()
         memoryItems = (try? reader.memoryItems()) ?? []
+        authServersCache = nil
+        relations = (try? reader.relations(includeRejected: true)) ?? []
         contentGeneration += 1
         reloadAccounts(reader.layout)
         accounts = (try? reader.accounts()) ?? []
@@ -1379,6 +1381,30 @@ final class AppModel {
             (relations, relationSuggestions) = result
         }
     }
+
+    private var authServersCache: [String: String]?
+
+    /// The register's and the own server's word on a message (reader "Echtheit").
+    func relationCheck(_ messageID: Int64) -> RelationCheck? {
+        guard let reader else { return nil }
+        if authServersCache == nil { authServersCache = try? reader.ownAuthServers() }
+        return try? reader.relationCheck(of: messageID, relations: relations.isEmpty ? nil : relations.filter(\.confirmed),
+                                         servers: authServersCache)
+    }
+
+    /// "Gehört dazu": the sender's domain joins the relation it was taken for a look-alike of.
+    func addDomain(_ domain: String, to relation: Relation) async -> String? {
+        await saveRelation(id: relation.id, name: relation.name, domains: relation.domains + [domain], since: relation.since, until: relation.until)
+    }
+
+    func addPublicAddress(_ address: String) async -> String? {
+        let a = address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard a.contains("@"), !a.contains(" ") else { return String(localized: "Bitte eine Mailadresse eingeben, z. B. kontakt@beispiel.de") }
+        return await saveNote(id: nil, kind: .preference, text: String(localized: "Öffentliche Adresse – Erstkontakte dort sind unaufgefordert"),
+                              subject: "public:" + a, scope: "")
+    }
+
+    var publicAddressItems: [MemoryItem] { memoryItems.filter { $0.subject.hasPrefix("public:") } }
 
     func saveRelation(id: String?, name: String, domains: [String], since: Date?, until: Date?) async -> String? {
         let problem = await writeNow { writer in try await writer.saveRelation(id: id, name: name, domains: domains, since: since, until: until) }

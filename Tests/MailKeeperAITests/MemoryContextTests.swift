@@ -92,6 +92,26 @@ struct MemoryContextTests {
         #expect(plain.sources.isEmpty)
     }
 
+    @Test("6.3b: the register's lines stand outside the fence; only the own server's results reach the model")
+    func theRegisterAndTheOwnServer() async throws {
+        let answer = #"{"category":"spam","reason":"Nachahmer","phishing":"ja","phishing_reason":"fremde Domain"}"#
+        let p = ScriptedProvider([answer, answer])
+        let classifier = MailClassifier(router: AIRouter(config: AIConfig(enabled: true), endpoint: nil, onDevice: p,
+                                                         log: AICallLog(url: tempDir().appending(path: "l.jsonl"))))
+        let mail = MailSnapshot(from: "x@sparkasse-kundenportal.example", subject: "Konto", text: "t", authentication: "dkim=pass spf=pass dmarc=pass")
+        var ctx = MemoryContext()
+        ctx.relation = ["Gibt sich als „Sparkasse“ aus, kommt aber von sparkasse-kundenportal.example – Sparkasse schreibt von sparkasse.example."]
+        ctx.server = .foreign
+        _ = try await classifier.classify(mail, memory: ctx)
+        let request = try #require(await p.requests.first)
+        let fence = try #require(request.user.range(of: "<<<MAIL-"))
+        #expect(request.user[..<fence.lowerBound].contains("MailKeepers Prüfung") && request.user[..<fence.lowerBound].contains("Gibt sich als"))
+        #expect(!request.user.contains("dmarc=pass"))  // the mail's own claim is gone
+        ctx.server = .failed("dkim=fail spf=fail dmarc=fail")
+        _ = try await classifier.classify(mail, memory: ctx)
+        #expect(await p.requests.last?.user.contains("Prüfung des eigenen Servers: dkim=fail spf=fail dmarc=fail") == true)
+    }
+
     @Test func theSearchKnowsTheUsersTerms() {
         let system = QueryTranslator.instructions(context: QueryContext(accounts: ["proton"], vocabulary: ["Firma = Konto proton"]), now: Date())
         #expect(system.contains("Begriffe des Nutzers (sie gelten): Firma = Konto proton"))
