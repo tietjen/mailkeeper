@@ -2,45 +2,28 @@ import AppKit
 import Foundation
 import MailKeeperKit
 
-/// RFC 8058 one-click: one POST `List-Unsubscribe=One-Click` to the https target — no cookies, no
-/// cache, no redirects (a redirect is answered by opening the page instead), 20 s at most.
-enum OneClickUnsubscribe {
-    final class NoRedirects: NSObject, URLSessionTaskDelegate {
-        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                        newRequest request: URLRequest) async -> URLRequest? { nil }
-    }
-
-    /// The HTTP status.
-    static func post(_ url: URL) async throws -> Int {
-        guard url.scheme?.lowercased() == "https" else { throw URLError(.unsupportedURL) }
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.httpCookieAcceptPolicy = .never
-        configuration.httpShouldSetCookies = false
-        configuration.timeoutIntervalForRequest = 20
-        configuration.timeoutIntervalForResource = 20
-        let session = URLSession(configuration: configuration, delegate: NoRedirects(), delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data("List-Unsubscribe=One-Click".utf8)
-        let (_, response) = try await session.data(for: request)
-        return (response as? HTTPURLResponse)?.statusCode ?? 0
-    }
-}
-
 extension AppModel {
-    func unsubscribeAssessment(_ id: Int64) -> UnsubscribeAssessment? {
-        try? reader?.unsubscribeAssessment(for: id)
-    }
-
-    /// "Abmelden" (6.5c): checked again at the click, then one click, the page or a mail; logged
-    /// (audit) and remembered (a note for the list or sender: further newsletters are unwanted).
-    func unsubscribe(_ id: Int64) async -> String {
-        guard let reader, let assessment = try? reader.unsubscribeAssessment(for: id) else {
+    /// "Abmelden" (6.5c): checked again at the click — it must still say what the user confirmed
+    /// (review 6.5c C1) — and the host must lead into the public internet (S1); then one click,
+    /// the page or a mail; logged (audit) and remembered once (a note for the list or sender:
+    /// further newsletters are unwanted).
+    func unsubscribe(_ id: Int64, confirmed: UnsubscribeAssessment) async -> String {
+        guard let reader, let assessment = unsubscribeAssessment(id) else {
             return String(localized: "Diese Mail bietet keine Abmeldung an.")
         }
         guard !assessment.isBlocked else { return assessment.blocked.joined(separator: " ") }
+        guard assessment.method == confirmed.method else {
+            return String(localized: "Die Prüfung sagt inzwischen etwas anderes als eben – sieh dir die Abmeldung bitte noch einmal an.")
+        }
+        switch assessment.method {
+        case .oneClick(let url), .web(let url):
+            switch await PublicHost.resolvesPublicly(url.host() ?? "") {
+            case true?: break
+            case false?: return String(localized: "\(assessment.target) führt in ein lokales Netz – MailKeeper ruft das nicht auf.")
+            case nil: return String(localized: "\(assessment.target) ist nicht erreichbar (der Name löst sich nicht auf).")
+            }
+        case .mail: break
+        }
         var message: String
         var done = true
         switch assessment.method {
@@ -69,26 +52,38 @@ extension AppModel {
         }
         let detail = try? reader.detail(id)
         let summary = summaries([id]).first
-        // the audit log: what was done where (no content)
+        // the audit log: how and where, by domain (no content, no list address with its token —
+        // review 6.5c C3); one click is done when the server said so, a page or mail only opened
         if let detail {
-            var item = ActionItem(id: 0, sha256: detail.primaryBlob, messageID: detail.messageID, size: detail.summary.size, date: detail.summary.date,
-                                  location: nil, identity: nil, state: done ? .done : .failed, reason: assessment.target)
-            item.reason = assessment.target
-            let job = ActionJob(kind: .unsubscribe, title: summary?.fromDisplay ?? assessment.target, query: nil, graceDays: nil, items: [item])
+            let how: String = switch assessment.method {
+            case .oneClick: "one-click"
+            case .web: "web (geöffnet)"
+            case .mail: "mail (vorbereitet)"
+            }
+            let domain = LinkCheck.registrableDomain(String(assessment.target.split(separator: "@").last ?? ""))
+            let item = ActionItem(id: 0, sha256: detail.primaryBlob, messageID: detail.messageID, size: detail.summary.size, date: detail.summary.date,
+                                  location: nil, identity: nil, state: done ? .done : .failed, reason: "\(how): \(domain)")
+            let job = ActionJob(kind: .unsubscribe, title: domain, query: nil, graceDays: nil, items: [item])
             try? AuditLog().append(job: job, item: item)
         }
-        // remembered: further newsletters of this list or sender are unwanted (the model sees it)
-        if done, let address = summary?.fromAddress?.lowercased() {
-            let subject = detail?.listID.map { "list:" + $0.lowercased() } ?? "sender:" + address
-            let how: String = switch assessment.method {
-            case .oneClick: String(localized: "abgemeldet")
-            case .web: String(localized: "Abmeldung auf der Webseite angestoßen")
-            case .mail: String(localized: "Abmelde-Mail vorbereitet")
+        // remembered once: further newsletters of this list or sender are unwanted (the model sees it)
+        if done, let address = summary?.fromAddress {
+            let subject = UnsubscribeAssessment.memorySubject(listID: detail?.listID, fromAddress: address)
+            let known = ((try? reader.memoryItems()) ?? []).contains {
+                $0.kind == .preference && $0.subject == subject && ($0.content.text?.contains(UnsubscribeAssessment.noteMarker) ?? false)
             }
-            let date = Date.now.formatted(date: .numeric, time: .omitted)
-            _ = await saveNote(id: nil, kind: .preference,
-                               text: String(localized: "Am \(date) vom Newsletter \(how) (MailKeeper). Weitere Newsletter von hier sind unerwünscht."),
-                               subject: subject, scope: "")
+            if !known {
+                let how: String = switch assessment.method {
+                case .oneClick: String(localized: "abgemeldet")
+                case .web: String(localized: "Abmeldung auf der Webseite angestoßen")
+                case .mail: String(localized: "Abmelde-Mail vorbereitet")
+                }
+                let date = Date.now.formatted(date: .numeric, time: .omitted)
+                let text = String(localized: "Am \(date) vom Newsletter \(how) \(UnsubscribeAssessment.noteMarker). Weitere Newsletter von hier sind unerwünscht.")
+                if let problem = await saveNote(id: nil, kind: .preference, text: text, subject: subject, scope: "") {
+                    message += " " + String(localized: "Die Notiz fürs Gedächtnis ließ sich gerade nicht speichern: \(problem)")
+                }
+            }
         }
         return message
     }

@@ -169,7 +169,7 @@ struct UnsubscribeRow: View {
         .confirmationDialog("Vom Newsletter abmelden?", isPresented: $confirming, titleVisibility: .visible) {
             Button(Self.action(assessment)) {
                 running = true
-                Task { result = await model.unsubscribe(messageID); running = false }
+                Task { result = await model.unsubscribe(messageID, confirmed: assessment); running = false }
             }
             Button("Abbrechen", role: .cancel) {}
         } message: {

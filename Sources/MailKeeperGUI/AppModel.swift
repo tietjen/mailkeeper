@@ -474,6 +474,7 @@ final class AppModel {
         suspiciousCount = (try? reader.count(MessageFilter(base: "is:verdächtig -is:junk"))) ?? 0
         memoryItems = (try? reader.memoryItems()) ?? []
         authServersCache = nil
+        ownDomainsCache = nil
         relations = (try? reader.relations(includeRejected: true)) ?? []
         contentGeneration += 1
         reloadAccounts(reader.layout)
@@ -1558,6 +1559,7 @@ final class AppModel {
     }
 
     private var authServersCache: [String: Set<String>]?
+    private var ownDomainsCache: Set<String>?
     private var warningsRefreshed = false
 
     /// The register's and the own server's word on a message (reader "Echtheit").
@@ -1566,6 +1568,16 @@ final class AppModel {
         if authServersCache == nil { authServersCache = try? reader.ownAuthServers() }
         return try? reader.relationCheck(of: messageID, relations: relations.isEmpty ? nil : relations.filter(\.confirmed),
                                          servers: authServersCache)
+    }
+
+    /// "Abmelden" (6.5c): the check, with the cached own servers, relations and own domains
+    /// (review 6.5c S2 — it runs for every message shown and every cleanup group).
+    func unsubscribeAssessment(_ id: Int64) -> UnsubscribeAssessment? {
+        guard let reader else { return nil }
+        if authServersCache == nil { authServersCache = try? reader.ownAuthServers() }
+        if ownDomainsCache == nil { ownDomainsCache = try? reader.ownDomains() }
+        return try? reader.unsubscribeAssessment(for: id, relations: relations.isEmpty ? nil : relations.filter(\.confirmed),
+                                                 servers: authServersCache, ownDomains: ownDomainsCache)
     }
 
     /// "Gehört dazu": the sender's domain joins the relation it was taken for a look-alike of.

@@ -10,6 +10,9 @@ struct GroupDetailView: View {
     @State private var saving: SavedSearch?
     @State private var confirmingUnsubscribe = false
     @State private var unsubscribeResult: String?
+    /// Computed once per group, not in `body` (review 6.5c S2).
+    @State private var unsubscribe: UnsubscribeAssessment?
+    @State private var unsubscribing = false
     @State private var ruleDraft: RuleDraft?
 
     private var group: MessageGroup { detail.group }
@@ -33,12 +36,24 @@ struct GroupDetailView: View {
         .sheet(item: $ruleDraft) { d in RuleEditor(model: model, draft: d) { _ in ruleDraft = nil } }
         .confirmationDialog(unsubscribeTitle, isPresented: $confirmingUnsubscribe, titleVisibility: .visible) {
             // 6.5c: checked again and done (one click, page or mail) the same way as in the reader
-            if let id = detail.unsubscribeMessageID, let assessment = model.unsubscribeAssessment(id), !assessment.isBlocked {
-                Button(UnsubscribeRow.action(assessment)) { Task { unsubscribeResult = await model.unsubscribe(id) } }
+            if let id = detail.unsubscribeMessageID, let assessment = unsubscribe, !assessment.isBlocked {
+                Button(UnsubscribeRow.action(assessment)) {
+                    unsubscribing = true
+                    Task {
+                        let result = await model.unsubscribe(id, confirmed: assessment)
+                        if detail.unsubscribeMessageID == id { unsubscribeResult = result }
+                        unsubscribing = false
+                    }
+                }
             }
             Button("Abbrechen", role: .cancel) {}
         } message: {
             Text(unsubscribeMessage)
+        }
+        // a new group: its own check, no result of the one before (review 6.5c S3)
+        .task(id: "\(group.id)-\(detail.unsubscribeMessageID ?? 0)-\(model.contentGeneration)") {
+            unsubscribeResult = nil
+            unsubscribe = detail.unsubscribeMessageID.flatMap { model.unsubscribeAssessment($0) }
         }
     }
 
@@ -197,12 +212,13 @@ struct GroupDetailView: View {
         HStack(spacing: 8) {
             Button("Mails anzeigen") { model.openGroup(group) }
             Button("Als Ansicht sichern …") { saving = model.savedSearch(for: group) }
-            if let id = detail.unsubscribeMessageID, let assessment = model.unsubscribeAssessment(id) {
+            if let assessment = unsubscribe {
                 if assessment.isBlocked {
                     Button("Abmelden gesperrt") {}.disabled(true)
                         .help(assessment.blocked.joined(separator: "\n"))
                 } else {
-                    Button("Abmelden …") { confirmingUnsubscribe = true }
+                    Button(unsubscribing ? "Melde ab …" : "Abmelden …") { confirmingUnsubscribe = true }
+                        .disabled(unsubscribing)
                         .help(UnsubscribeRow.how(assessment))
                 }
             }
@@ -226,7 +242,7 @@ struct GroupDetailView: View {
     }
 
     private var unsubscribeMessage: String {
-        guard let id = detail.unsubscribeMessageID, let assessment = model.unsubscribeAssessment(id) else { return "" }
+        guard let assessment = unsubscribe else { return "" }
         return ([UnsubscribeRow.explain(assessment)] + assessment.notes).map(DisplayText.safe).joined(separator: "\n\n")
     }
 

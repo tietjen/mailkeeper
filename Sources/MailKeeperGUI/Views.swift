@@ -374,7 +374,10 @@ struct ReaderView: View {
                  $0.isOnServer ? "server.rack" : "archivebox")
             })
             if let list = d.listID { filterRow("Liste", [(list, MessageFilters.list(list), list, nil)]) }
-            if let unsubscribe { UnsubscribeRow(model: model, messageID: d.summary.id, assessment: unsubscribe) }
+            if let unsubscribe {
+                // its own state per message: a result or a running request does not carry over (review 6.5c S3)
+                UnsubscribeRow(model: model, messageID: d.summary.id, assessment: unsubscribe).id(d.summary.id)
+            }
             if thread.count > 1 {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text("Verlauf").foregroundStyle(.secondary).frame(width: 64, alignment: .trailing).font(.callout)

@@ -88,6 +88,16 @@ as context for unsolicited first contacts.
    dmarc passed; else the page opens in the browser or a mail is prepared. Logged in the audit
    (`unsubscribe`) and remembered as a note for the list or sender (further newsletters are
    unwanted). The model sees the unsubscribe target with its findings.
+   *Review 6.5c (Fable):* a replayed signed newsletter with List-Unsubscribe put on top passes
+   DKIM and DMARC — a verifier checks the bottom-most instance (RFC 6376 §5.4.2). So: the last
+   instance is taken, more than one locks the button, and one click also needs a `DKIM-Signature`
+   of the From domain (relaxed) whose `h=` lists List-Unsubscribe and List-Unsubscribe-Post as
+   often as they occur (RFC 8058 §4; which signature passed is not known, what it covers is).
+   https targets must be ordinary public names (no numbers in disguise, `%`, single labels, local
+   suffixes, the user's own domains) and resolve to public addresses right before the request or
+   the browser opens (DNS rebinding in between stays out of reach); `mailto:` is rebuilt from one
+   address and the subject. The click re-checks and must find what the user confirmed; the note
+   is written once and a failure to write it is said; the audit names how and the domain only.
 7. **Later — report phishing:** forward a mail as a complete `.eml` attachment to an address the
    user configures (e.g. `phishing@verbraucherzentrale.nrw`). Needs a sending path (SMTP, not in
    MailKeeper yet); always explicit, per mail, logged.

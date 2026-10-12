@@ -578,7 +578,7 @@ extension ArchiveReader {
     }
 
     /// The domains the user writes from (sent mail).
-    func ownDomains() throws -> Set<String> {
+    public func ownDomains() throws -> Set<String> {
         var out: Set<String> = []
         try db.forEach("SELECT DISTINCT lower(m.from_addr) FROM messages m WHERE m.id IN (SELECT l.message_id FROM locations l WHERE \(QuerySQL.sentLocation))") { r in
             if let a = r.text(0), let i = a.lastIndex(of: "@") { out.insert(LinkCheck.registrableDomain(String(a[a.index(after: i)...]))) }

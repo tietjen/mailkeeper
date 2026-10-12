@@ -50,6 +50,7 @@ usage: mkctl [--archive <dir>] <command>
   similar <id> [--limit n] | meaning <text…>  mails like a message / by meaning (needs embed)
   summarize <id> [--thread]                   KI: summary of a message or its whole conversation
   relations [list | suggest]                   relationship register: confirmed ones, or suggestions from the history
+  unsubscribe [query] [--limit N]              how "Abmelden" judges the newest list mails (read-only)
   cleanup                                     cleanup suggestions: where deleting pays off (read-only)
   rules [list | suggest]                      the user's rules (with what is ready), or suggestions from repeated decisions
   memory [list | note <text…> | term <text…> | forget <id>… | export [file] | import <file>]
@@ -455,6 +456,28 @@ func summarize(_ p: ImportProgress, start: Date) {
             print("   \(clean(s.reason))")
             print("   \(s.query)")
         }
+
+    case "unsubscribe":
+        let reader = try ArchiveReader(layout: try ArchiveLayout.open(at: root, create: false))
+        let limit = Int(option("--limit") ?? "30") ?? 30
+        let showSignatures = args.contains("--dkim")
+        let query = args.filter { $0 != "--dkim" }.joined(separator: " ")
+        let servers = try reader.ownAuthServers(), own = try reader.ownDomains(), relations = try reader.relations()
+        var tally: [String: Int] = [:]
+        for id in try reader.messageIDs(MessageFilter(text: "(\(query.isEmpty ? "is:list" : query)) ")).prefix(limit) {
+            guard let a = try reader.unsubscribeAssessment(for: id, relations: relations, servers: servers, ownDomains: own) else { continue }
+            let method = switch a.method { case .oneClick: "ein-klick"; case .web: "webseite"; case .mail: "mail" }
+            let how = a.isBlocked ? "gesperrt" : method
+            tally[how, default: 0] += 1
+            print("\(how.padding(toLength: 10, withPad: " ", startingAt: 0)) \(clean(a.target).prefix(40).padding(toLength: 40, withPad: " ", startingAt: 0)) \(clean(a.blocked.first ?? a.notes.first ?? "").prefix(90))")
+            if showSignatures, let headers = try reader.parsedMessage(id)?.headers {  // what the sender signed (review 6.5c B1)
+                for sig in headers.all("DKIM-Signature").compactMap(DKIMSignature.parse) {
+                    let listed = ["list-unsubscribe", "list-unsubscribe-post"].map { f in "\(f)×\(sig.signedFields.filter { $0 == f }.count)" }
+                    print("           d=\(clean(sig.domain)) \(listed.joined(separator: " ")) (im Kopf: \(headers.all("List-Unsubscribe").count)/\(headers.all("List-Unsubscribe-Post").count))")
+                }
+            }
+        }
+        print(tally.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: " · "))
 
     case "relations":
         let reader = try ArchiveReader(layout: try ArchiveLayout.open(at: root, create: false))

@@ -4,12 +4,44 @@ import Foundation
 /// `mailto` targets are kept: anything else (http, javascript:, data:) is dropped.
 public struct UnsubscribeInfo: Sendable, Equatable {
     public var https: URL?
+    /// Rebuilt from the address and the subject alone: other fields (to, cc, bcc, body) are dropped.
     public var mailto: URL?
     /// `List-Unsubscribe-Post: List-Unsubscribe=One-Click` was present (used in Phase 4).
     public var oneClick: Bool
+    /// More than one List-Unsubscribe or List-Unsubscribe-Post header: one was probably put on
+    /// top of a signed mail on the way (a DKIM replay, review 6.5c B1).
+    public var duplicated = false
 
     /// The target to open: the web page first, else a mail to the list.
     public var preferred: URL? { https ?? mailto }
+
+    /// From a mail's headers. A DKIM verifier checks the bottom-most instance of a header
+    /// (RFC 6376 §5.4.2) — one added on top is not signed — so the last one is taken, and more
+    /// than one is said (RFC 8058 wants exactly one).
+    public static func parse(headers: HeaderList) -> UnsubscribeInfo? {
+        let lists = headers.all("List-Unsubscribe"), posts = headers.all("List-Unsubscribe-Post")
+        guard var info = parse(listUnsubscribe: lists.last, post: posts.last) else { return nil }
+        info.duplicated = lists.count > 1 || posts.count > 1
+        return info
+    }
+
+    /// `mailto:` with one plain address and at most a subject (RFC 2369 needs no more); nil for
+    /// several addresses or anything that could smuggle header lines into the mail program.
+    static func cleanMailto(_ url: URL) -> URL? {
+        guard let c = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let address = c.path
+        let parts = address.split(separator: "@", omittingEmptySubsequences: false)
+        guard address.count <= 254, parts.count == 2, !parts[0].isEmpty, parts[1].contains("."),
+              address.allSatisfy({ $0.isASCII && !$0.isWhitespace && !$0.isNewline && ($0.asciiValue ?? 0) > 32 && !",;:<>\"()[]\\%".contains($0) })
+        else { return nil }
+        var out = URLComponents()
+        out.scheme = "mailto"
+        out.path = address
+        let subject = c.queryItems?.first { $0.name.lowercased() == "subject" }?.value
+            .map { String($0.filter { !$0.isNewline && ($0.asciiValue.map { $0 >= 32 && $0 != 127 } ?? true) }.prefix(200)) }
+        if let subject, !subject.isEmpty { out.queryItems = [URLQueryItem(name: "subject", value: subject)] }
+        return out.url
+    }
 
     public static func parse(listUnsubscribe: String?, post: String?) -> UnsubscribeInfo? {
         guard let raw = listUnsubscribe, raw.count <= 4_096 else { return nil }
@@ -21,7 +53,7 @@ public struct UnsubscribeInfo: Sendable, Equatable {
             guard candidate.count <= 2_048, !candidate.contains(where: { $0.isWhitespace || $0.isNewline }),
                   let url = URL(string: candidate), let scheme = url.scheme?.lowercased() else { continue }
             if scheme == "https", url.host?.isEmpty == false, info.https == nil { info.https = url }
-            if scheme == "mailto", info.mailto == nil { info.mailto = url }
+            if scheme == "mailto", info.mailto == nil { info.mailto = cleanMailto(url) }
         }
         info.oneClick = post.map { $0.lowercased().replacingOccurrences(of: " ", with: "") == "list-unsubscribe=one-click" } ?? false
         return info.preferred == nil ? nil : info
@@ -140,7 +172,7 @@ extension ArchiveReader {
            let (id, blob) = try db.queryOne("SELECT m.id, m.primary_blob FROM messages m\(whereClause) AND m.list_unsubscribe = 1 ORDER BY m.date DESC NULLS LAST LIMIT 1",
                                             params, { ($0.int(0), $0.text(1)) }), let blob {
             let headers = HeaderParser.parse(try layout.blobs.readHead(blob)).0
-            unsubscribe = UnsubscribeInfo.parse(listUnsubscribe: headers["List-Unsubscribe"], post: headers["List-Unsubscribe-Post"])
+            unsubscribe = UnsubscribeInfo.parse(headers: headers)
             unsubscribeMessageID = id
         }
         var listDescription: String?
