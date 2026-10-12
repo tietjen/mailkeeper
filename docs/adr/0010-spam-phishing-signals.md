@@ -1,6 +1,6 @@
 # ADR-0010: Spam and phishing — separate signals, the user decides
 
-- Status: proposed (2026-10-11) — §1–5 built in Phase 5.5/5.6; §6–7 for Phase 6 and later
+- Status: accepted (TJ, 2026-10-12) — §1–5 built in Phase 5.5/5.6; §6 in Phase 6, §7 later
 - Deciders: TJ
 
 ## Context
@@ -32,7 +32,7 @@ as context for unsolicited first contacts.
 5. **The user decides, and it sticks:** "Ist Spam" / "Kein Spam" are journalled (`classified`)
    and survive a rebuild; no rule or model overrides them. "Kein Spam → Posteingang" moves the
    mail on the server (ADR-0006 §8) — one click for one mail, the plan sheet for several.
-6. **Phase 6 — relationship register** (proposed): entities (a bank, a school, a shop) with the
+6. **Phase 6 — relationship register:** entities (a bank, a school, a shop) with the
    authenticated sender domains they actually used and the start/end of the relationship,
    suggested from history (replies in Sent, "Kein Spam", DMARC-pass transactional mail),
    confirmed by the user. A prior that may *lower* caution only with positive evidence; a mail

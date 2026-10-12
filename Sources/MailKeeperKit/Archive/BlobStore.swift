@@ -7,6 +7,8 @@ public enum ArchiveError: Error, CustomStringConvertible, Sendable {
     case locked(path: String)
     case notAnArchive(path: String)
     case unsupportedFormat(Int)
+    /// Input the archive refuses (a message for the user, German like the UI).
+    case invalid(String)
 
     public var description: String {
         switch self {
@@ -15,6 +17,7 @@ public enum ArchiveError: Error, CustomStringConvertible, Sendable {
         case .locked(let path): "archive is in use by another process (\(path)) — the MailKeeper app may be importing, fetching or indexing PDFs"
         case .notAnArchive(let path): "\(path) is not a MailKeeper archive"
         case .unsupportedFormat(let v): "archive format \(v) is newer than this version supports"
+        case .invalid(let message): message
         }
     }
 }

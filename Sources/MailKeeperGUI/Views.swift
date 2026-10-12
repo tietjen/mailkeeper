@@ -373,6 +373,16 @@ struct ReaderView: View {
             } else {
                 Text(category == nil ? "noch nicht eingeordnet" : "offen – keine Regel passt").foregroundStyle(.secondary)
             }
+            // 6.1: the user's own category — journalled, and an example for what MailKeeper learns
+            Menu(category?.category == nil ? "Art festlegen" : "Ändern") {
+                ForEach(MailCategory.allCases, id: \.self) { c in
+                    Button { model.setUserCategory(c, ids: [messageID]) } label: { Label(c.label, systemImage: c.icon) }
+                        .disabled(category?.source == .user && category?.category == c)
+                }
+            }
+            .menuStyle(.button).controlSize(.small).fixedSize()
+            .help("Die Art selbst festlegen – keine Regel und kein Modell ändert sie danach; MailKeeper lernt daraus")
+            .disabled(model.actionRunning)
             if model.aiConfig.enabled, category?.source != .user {
                 Button(category?.category == nil ? "Mit KI einordnen" : "Neu einordnen") { model.classifySelection() }
                     .controlSize(.small).disabled(model.actionRunning)

@@ -13,6 +13,7 @@ public struct JournalEvent: Codable, Sendable, Equatable {
         case untrashed // ... and came back
         case purged    // ... and was deleted for good: tombstoned, never fetched or imported again
         case classified // the user decided a message's category (5.5: "Ist Spam" / "Kein Spam")
+        case memory    // the user wrote, changed or forgot a memory item (6.1) — the user's words, no mail content
     }
 
     /// Archive-wide events (trash, purge) live under this pseudo account.
@@ -43,6 +44,29 @@ public struct JournalEvent: Codable, Sendable, Equatable {
     public var category: String?
     /// `classified`: the user's spam verdict, "spam" or "ham".
     public var verdict: String?
+    /// `memory`: the item as the user left it (a forgotten one with `active: false`).
+    public var memory: MemoryRecord?
+
+    /// A memory item in the journal: a note or term the user wrote, or "forget this" for any item.
+    public struct MemoryRecord: Codable, Sendable, Equatable {
+        public var id: String
+        public var kind: String?
+        public var scope: String?
+        public var subject: String?
+        public var text: String?
+        public var active: Bool
+
+        public init(id: String, kind: String? = nil, scope: String? = nil, subject: String? = nil, text: String? = nil, active: Bool = true) {
+            self.id = id
+            self.kind = kind
+            self.scope = scope
+            self.subject = subject
+            self.text = text
+            self.active = active
+        }
+
+        enum CodingKeys: String, CodingKey { case id, kind = "k", scope = "sc", subject = "su", text = "tx", active = "on" }
+    }
 
     /// An IMAP location of a purged message: sync must not fetch it again.
     public struct Tombstone: Codable, Sendable, Equatable, Hashable {
@@ -58,7 +82,7 @@ public struct JournalEvent: Codable, Sendable, Equatable {
         case kind = "k", time = "t", account = "a", accountKind = "ak", accountName = "an"
         case mailbox = "mb", uidValidity = "uv", uid = "u", providerID = "pid", sha256 = "sha"
         case internalDate = "id", flags = "f", labels = "l", identity = "idn", shas = "shas", locations = "locs", who = "who"
-        case category = "cat", verdict = "vd"
+        case category = "cat", verdict = "vd", memory = "mem"
     }
 
     public static func trash(_ kind: Kind, identity: String, time: Double = Date().timeIntervalSince1970) -> JournalEvent {
@@ -73,6 +97,10 @@ public struct JournalEvent: Codable, Sendable, Equatable {
     public static func classified(identity: String, category: String?, verdict: String? = nil,
                                   time: Double = Date().timeIntervalSince1970) -> JournalEvent {
         JournalEvent(kind: .classified, time: time, account: archiveAccount, identity: identity, category: category, verdict: verdict)
+    }
+
+    public static func memory(_ record: MemoryRecord, time: Double = Date().timeIntervalSince1970) -> JournalEvent {
+        JournalEvent(kind: .memory, time: time, account: archiveAccount, memory: record)
     }
 
     public static func account(_ id: String, kind: String, name: String, time: Double = Date().timeIntervalSince1970) -> JournalEvent {

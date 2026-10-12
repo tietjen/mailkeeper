@@ -19,6 +19,8 @@ struct MailKeeperApp: App {
                     .tabItem { Label("Konten", systemImage: "person.crop.circle") }
                 AISettings(model: model)
                     .tabItem { Label("KI", systemImage: "sparkles") }
+                MemorySettings(model: model)
+                    .tabItem { Label("Gedächtnis", systemImage: "brain") }
             }
         }
         .commands {

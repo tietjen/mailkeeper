@@ -5,6 +5,8 @@ import MailKeeperIMAP
 import MailKeeperKit
 import Observation
 import SwiftUI
+import UniformTypeIdentifiers
+import Synchronization
 
 /// The content column: the message list, or the cleanup view grouped one way.
 enum ViewMode: String, CaseIterable, Identifiable {
@@ -454,6 +456,7 @@ final class AppModel {
     func refresh() {
         guard let reader else { return }
         junkReview = try? reader.junkReview()
+        memoryItems = (try? reader.memoryItems()) ?? []
         contentGeneration += 1
         reloadAccounts(reader.layout)
         accounts = (try? reader.accounts()) ?? []
@@ -1325,24 +1328,86 @@ final class AppModel {
 
     /// A short writer job (trash, untrash, purge): pauses the PDF queue, refreshes afterwards.
     private func withWriter(_ work: @escaping @Sendable (ArchiveWriter) async throws -> Void) {
-        guard let root = archiveRoot, !actionRunning, !syncRunning, !importRunning else { return }
+        Task {
+            if let problem = await writeNow(work) { actionError = problem }
+            selectedMessageIDs = []
+        }
+    }
+
+    /// Runs `work` with the archive's writer (background indexing paused meanwhile) and says what
+    /// went wrong — also that MailKeeper is busy, which used to drop the request silently.
+    private func writeNow(_ work: @escaping @Sendable (ArchiveWriter) async throws -> Void) async -> String? {
+        guard let root = archiveRoot else { return nil }
+        guard !actionRunning, !syncRunning, !importRunning else {
+            return String(localized: "MailKeeper ist gerade beschäftigt (Abruf, Import oder eine Aktion) – bitte gleich noch einmal.")
+        }
         actionRunning = true
         let indexing = pauseTextIndexing()
-        Task.detached { [weak self] in
+        let problem: String? = await Task.detached {
             await indexing?.value
-            var problem: String?
-            do { try await work(try ArchiveWriter(layout: try ArchiveLayout.open(at: root, create: false))) } catch {
-                problem = "\(error)"
+            do {
+                try await work(try ArchiveWriter(layout: try ArchiveLayout.open(at: root, create: false)))
+                return nil
+            } catch {
+                return "\(error)"
             }
-            await MainActor.run {
-                guard let self else { return }
-                self.actionRunning = false
-                if let problem { self.actionError = problem }
-                self.selectedMessageIDs = []
-                self.refresh()
-                self.startTextIndexing()
-            }
+        }.value
+        actionRunning = false
+        guard archiveRoot == root else { return problem }
+        refresh()
+        startTextIndexing()
+        return problem
+    }
+
+    // MARK: Memory (6.1, ADR-0005)
+
+    private(set) var memoryItems: [MemoryItem] = []
+
+    func reloadMemory() {
+        memoryItems = (try? reader?.memoryItems()) ?? []
+    }
+
+    /// "Art ändern": the user's category for these mails — journalled, an example for the memory.
+    func setUserCategory(_ category: MailCategory, ids: [Int64]) {
+        guard let reader, let identities = try? reader.identities(of: Array(ids.prefix(Self.maxClassify))), !identities.isEmpty else { return }
+        withWriter { writer in
+            for identity in identities { try await writer.setUserClassification(identity: identity, category: category) }
         }
+    }
+
+    func saveNote(id: String?, kind: MemoryKind, text: String, subject: String, scope: String) async -> String? {
+        await writeNow { writer in try await writer.saveNote(id: id, kind: kind, text: text, subject: subject, scope: scope) }
+    }
+
+    func forgetMemory(_ ids: [String]) async -> String? {
+        await writeNow { writer in try await writer.forgetMemory(ids) }
+    }
+
+    func exportMemory() -> String? {
+        guard let reader else { return nil }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "MailKeeper-Gedaechtnis.json"
+        panel.allowedContentTypes = [.json]
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        do {
+            try reader.exportMemory().write(to: url, options: [.atomic])
+            return nil
+        } catch {
+            return "\(error)"
+        }
+    }
+
+    /// Notes and terms from a file; returns a message for the view.
+    func importMemory() async -> String? {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        guard let data = try? Data(contentsOf: url) else { return String(localized: "Die Datei ließ sich nicht lesen.") }
+        let count = Mutex(0)
+        if let problem = await writeNow({ writer in let n = try await writer.importMemory(data); count.withLock { $0 = n } }) { return problem }
+        let n = count.withLock { $0 }
+        return n == 0 ? String(localized: "Nichts Neues in der Datei.") : String(localized: "\(n) Notizen und Begriffe übernommen.")
     }
 
     // MARK: PDF text (ADR-0009)

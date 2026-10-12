@@ -38,6 +38,19 @@ into authority — time-shifted prompt injection is the threat (Standard v2 §5)
 7. **Measured, not assumed:** a gold set of labelled mails; consolidation or prompt changes
    must not reduce gold-set accuracy (regression check).
 
+*As built (6.1, 2026-10-12):* schema v11 `memory_items` (+ `suggestion_sources` for 6.2). The
+index stays a projection (ADR-0001): notes and terms the user writes are journalled as `memory`
+events (id, kind, scope, subject, text; "forget" = the same id with `active: false`) and replayed
+by time with the other archive events; examples are not stored twice — each journalled decision
+(`classified`: "Art ändern", "Ist Spam", "Kein Spam") refreshes its example `ex:<identity>`
+(sender, domain, list, subject, category/verdict), live and in a rebuild, so a rebuild reproduces
+them and a new decision brings a forgotten example back. Sources are message identities, never
+ids. Notes are bounded (500 characters, no control characters) and only notes and terms can be
+written or imported; examples and derived items belong to their archive. "Art ändern" is the
+user's category (journalled `classified` with a category): it keeps a "kein Spam" and ends a
+"Spam". Settings › Gedächtnis: list by kind, write, edit, forget, export/import JSON, forget all;
+`mkctl memory`. Not yet used in prompts (6.2).
+
 ## Consequences
 
 - Memory never leaves the Mac except as prompt context to the configured local endpoint.

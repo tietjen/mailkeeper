@@ -178,6 +178,33 @@ enum Schema {
             model TEXT NOT NULL, dim INTEGER NOT NULL, vector BLOB NOT NULL, created REAL NOT NULL
         );
         """,
+        // v11: the user's memory (ADR-0005, 6.1). Notes are journalled (`memory` events); examples
+        // are a projection of the user's journalled decisions, refreshed with each of them; the
+        // ids are stable across rebuilds ("ex:" + identity). Suggestion sources for "Warum?".
+        """
+        CREATE TABLE memory_items(
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            scope TEXT NOT NULL DEFAULT '',
+            subject TEXT NOT NULL DEFAULT '',
+            content TEXT NOT NULL,
+            provenance TEXT NOT NULL,
+            sources TEXT NOT NULL DEFAULT '',
+            weight REAL NOT NULL DEFAULT 1,
+            created REAL NOT NULL,
+            updated REAL NOT NULL,
+            last_used REAL,
+            active INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE INDEX memory_items_subject ON memory_items(subject);
+        CREATE TABLE suggestion_sources(
+            message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+            memory_id TEXT NOT NULL,
+            PRIMARY KEY(message_id, memory_id)
+        ) WITHOUT ROWID;
+        INSERT INTO memory_items(id, kind, subject, content, provenance, sources, created, updated)
+        \(Memory.exampleSelect) WHERE c.source = 'user' OR c.verdict IS NOT NULL;
+        """,
     ]
 
     static var currentVersion: Int { migrations.count }

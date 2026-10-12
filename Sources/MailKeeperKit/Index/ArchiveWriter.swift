@@ -353,13 +353,17 @@ public actor ArchiveWriter {
                     }
                 case .gone:
                     try markGoneRow(event)
-                case .trashed, .untrashed, .purged, .classified:
+                case .trashed, .untrashed, .purged, .classified, .memory:
                     archiveEvents.append(event)
                 }
             }
             // by time; equal times keep their journal order
             let ordered = archiveEvents.enumerated().sorted { ($0.element.time, $0.offset) < ($1.element.time, $1.offset) }.map(\.element)
             for event in ordered {
+                if event.kind == .memory {
+                    if let record = event.memory { try applyMemory(record, time: event.time) } else { report.skippedEvents += 1 }
+                    continue
+                }
                 guard let identity = event.identity else { report.skippedEvents += 1; continue }
                 if event.kind == .purged {
                     try applyPurge(identity: identity, shas: event.shas ?? [], locations: event.locations ?? [], who: event.who,
@@ -735,12 +739,16 @@ public actor ArchiveWriter {
     /// A `classified` event: with a category the user set the category (source user); a verdict
     /// alone ("ham") only marks the verdict.
     private func applyUserDecision(identity: String, category: String?, verdict: String?, time: Double) throws {
+        defer { try? refreshExample(identity: identity, time: time) }  // the decision is an example (6.1)
         if let category {
+            // "Art ändern" (6.1): another category than spam keeps a "kein Spam", and ends a "Spam"
             try db.run("""
                 INSERT INTO classifications(message_id, category, source, rule, model, reason, version, created, verdict)
                 SELECT id, ?, 'user', NULL, NULL, NULL, 0, ?, ? FROM messages WHERE identity = ?
                 ON CONFLICT(message_id) DO UPDATE SET category = excluded.category, source = 'user', rule = NULL, model = NULL,
-                    reason = NULL, created = excluded.created, verdict = excluded.verdict
+                    reason = NULL, created = excluded.created,
+                    verdict = CASE WHEN excluded.verdict IS NOT NULL THEN excluded.verdict
+                                   WHEN classifications.verdict = 'spam' THEN NULL ELSE classifications.verdict END
                 """, [.text(category), .double(time), .optional(verdict), .text(identity)])
         } else {
             try db.run("""
@@ -857,5 +865,86 @@ public actor ArchiveWriter {
             }
         }
         return bad.sorted()
+    }
+}
+
+// MARK: - Memory (6.1, ADR-0005) — here for the private journal and database
+
+extension ArchiveWriter {
+    /// A note or term of the user (new, or changed when `id` names one): journalled, so it
+    /// survives a rebuild. Returns its id.
+    @discardableResult
+    public func saveNote(id: String? = nil, kind: MemoryKind, text: String, subject: String = "", scope: String = "") throws -> String {
+        guard kind == .preference || kind == .vocabulary else { throw ArchiveError.invalid("Nur Notizen und Begriffe lassen sich schreiben") }
+        let clean = Memory.cleanText(text)
+        guard !clean.isEmpty else { throw ArchiveError.invalid("Leere Notiz") }
+        let record = JournalEvent.MemoryRecord(id: id ?? Memory.newID(), kind: kind.rawValue, scope: scope,
+                                               subject: Memory.cleanText(subject), text: clean, active: true)
+        let time = Date().timeIntervalSince1970
+        try journal.append(.memory(record, time: time))
+        try journal.sync()
+        try applyMemory(record, time: time)
+        return record.id
+    }
+
+    /// "Vergessen": the item is no longer used and no longer shown — journalled (also for an
+    /// example: the decision on the mail stays, only its use as an example ends).
+    public func forgetMemory(_ ids: [String]) throws {
+        guard !ids.isEmpty else { return }
+        let time = Date().timeIntervalSince1970
+        for id in ids { try journal.append(.memory(JournalEvent.MemoryRecord(id: id, active: false), time: time)) }
+        try journal.sync()
+        try db.transaction {
+            for id in ids { try applyMemory(JournalEvent.MemoryRecord(id: id, active: false), time: time) }
+        }
+    }
+
+    /// Notes and terms from an export file; examples and derived items are not imported (they
+    /// belong to the messages and the history of the archive they came from). Returns the count.
+    public func importMemory(_ data: Data) throws -> Int {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard data.count < 4 << 20, let file = try? decoder.decode(MemoryExport.self, from: data), file.format == "mailkeeper-memory" else {
+            throw ArchiveError.invalid("Keine MailKeeper-Gedächtnisdatei")
+        }
+        let existing = Set(try ArchiveReader(layout: layout).memoryItems().compactMap { item in
+            item.provenance == .user ? "\(item.kind.rawValue)|\(item.subject)|\(item.content.text ?? "")" : nil
+        })
+        var added = 0
+        for item in file.items.prefix(2_000) {
+            guard let kind = MemoryKind(rawValue: item.kind), kind == .preference || kind == .vocabulary,
+                  let text = item.content.text, !Memory.cleanText(text).isEmpty,
+                  !existing.contains("\(kind.rawValue)|\(Memory.cleanText(item.subject))|\(Memory.cleanText(text))") else { continue }
+            try saveNote(kind: kind, text: text, subject: item.subject, scope: item.scope)
+            added += 1
+        }
+        return added
+    }
+
+    /// A `memory` event, live or in a rebuild.
+    func applyMemory(_ record: JournalEvent.MemoryRecord, time: Double) throws {
+        if !record.active {
+            try db.run("UPDATE memory_items SET active = 0, updated = ? WHERE id = ?", [.double(time), .text(record.id)])
+            return
+        }
+        guard let kind = record.kind, let text = record.text else { return }
+        let content = String(decoding: try JSONEncoder().encode(MemoryContent(text: text)), as: UTF8.self)
+        try db.run("""
+            INSERT INTO memory_items(id, kind, scope, subject, content, provenance, sources, created, updated, active)
+            VALUES (?, ?, ?, ?, ?, 'user', '', ?, ?, 1)
+            ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, scope = excluded.scope, subject = excluded.subject,
+                content = excluded.content, updated = excluded.updated, active = 1
+            """, [.text(record.id), .text(kind), .text(record.scope ?? ""), .text(record.subject ?? ""), .text(content),
+                  .double(time), .double(time)])
+    }
+
+    /// The example of a decided message, after each decision (live and in a rebuild): a new
+    /// decision is new feedback, so a forgotten example comes back with it.
+    func refreshExample(identity: String, time: Double) throws {
+        try db.run("""
+            INSERT INTO memory_items(id, kind, subject, content, provenance, sources, created, updated)
+            \(Memory.exampleSelect) WHERE m.identity = ? AND (c.source = 'user' OR c.verdict IS NOT NULL)
+            ON CONFLICT(id) DO UPDATE SET subject = excluded.subject, content = excluded.content, updated = ?, active = 1
+            """, [.text(identity), .double(time)])
     }
 }

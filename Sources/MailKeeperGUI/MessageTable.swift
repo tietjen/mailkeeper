@@ -210,8 +210,20 @@ struct MessageTable: NSViewRepresentable {
                     add(menu, String(localized: "Kein Spam (→ Posteingang, wo auf dem Server)"), #selector(rescue))
                     add(menu, String(localized: "Ist Spam"), #selector(markSpam))
                 }
+                menu.addItem(.separator())
+                let kinds = NSMenu()
+                for c in MailCategory.allCases {
+                    let item = NSMenuItem(title: c.label, action: #selector(setCategory(_:)), keyEquivalent: "")
+                    item.target = self
+                    item.representedObject = c.rawValue
+                    item.image = NSImage(systemSymbolName: c.icon, accessibilityDescription: nil)
+                    kinds.addItem(item)
+                }
+                let kindItem = NSMenuItem(title: count == 1 ? String(localized: "Art festlegen") : String(localized: "Art festlegen für \(min(count, AppModel.maxClassify)) Mails"),
+                                          action: nil, keyEquivalent: "")
+                kindItem.submenu = kinds
+                menu.addItem(kindItem)
                 if model.aiConfig.enabled {
-                    menu.addItem(.separator())
                     add(menu, count == 1 ? String(localized: "Mit KI einordnen") : String(localized: "\(min(count, AppModel.maxClassify)) Mails mit KI einordnen"),
                         #selector(classify))
                 }
@@ -229,6 +241,10 @@ struct MessageTable: NSViewRepresentable {
         @objc private func restoreToServer() { model.planSelection(.restore) }
         @objc private func export() { model.exportSelection() }
         @objc private func classify() { model.classifySelection() }
+        @objc private func setCategory(_ sender: NSMenuItem) {
+            guard let raw = sender.representedObject as? String, let c = MailCategory(rawValue: raw) else { return }
+            model.setUserCategory(c, ids: model.actionSelection)
+        }
         @objc private func rescue() { model.rescueSelection() }
         @objc private func markSpam() { model.markSpamSelection() }
         @objc private func restore() { model.restoreSelection() }

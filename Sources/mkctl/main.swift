@@ -49,6 +49,8 @@ usage: mkctl [--archive <dir>] <command>
   embed                                       vectors for semantic search (endpoint), then categories from similar mails
   similar <id> [--limit n] | meaning <text…>  mails like a message / by meaning (needs embed)
   summarize <id> [--thread]                   KI: summary of a message or its whole conversation
+  memory [list | note <text…> | term <text…> | forget <id>… | export [file] | import <file>]
+                                              what MailKeeper learned: notes, terms, examples from your decisions
   ai status | test                            KI settings of the archive; connection test (endpoint, on-device)
   ai config [--on|--off] [--endpoint <url>] [--model <task>=<alias>]… [--on-device on|off]
                                               tasks: search classify summarize embed
@@ -424,6 +426,38 @@ func summarize(_ p: ImportProgress, start: Date) {
         for h in hits {
             guard let m = byID[h.id] else { continue }
             print(String(format: "%.3f  %6lld  ", h.score, h.id) + "\(m.date.map { $0.formatted(date: .numeric, time: .omitted) } ?? "—")  \(clean(m.fromDisplay).prefix(28))  \(clean(m.subject ?? "").prefix(60))")
+        }
+
+    case "memory":
+        let about = option("--about") ?? "", account = option("--account") ?? ""  // before the text is taken
+        let layout = try ArchiveLayout.open(at: root, create: false)
+        let sub = args.first ?? "list"
+        let rest = Array(args.dropFirst())
+        switch sub {
+        case "list":
+            for item in try ArchiveReader(layout: layout).memoryItems() {
+                let about = item.subject.isEmpty ? "" : "  [\(clean(item.subject))]"
+                print("\(item.id.padding(toLength: 22, withPad: " ", startingAt: 0)) \(item.kind.label.padding(toLength: 14, withPad: " ", startingAt: 0)) \(clean(item.summary).prefix(70))\(about)  (\(item.provenance.label))")
+            }
+        case "note", "term":
+            let text = rest.joined(separator: " ")
+            guard !text.isEmpty else { throw CLIError(description: "memory \(sub) <text…>") }
+            let id = try await ArchiveWriter(layout: layout).saveNote(kind: sub == "note" ? .preference : .vocabulary, text: text,
+                                                                      subject: about, scope: account)
+            print("gespeichert: \(id)")
+        case "forget":
+            guard !rest.isEmpty else { throw CLIError(description: "memory forget <id>…") }
+            try await ArchiveWriter(layout: layout).forgetMemory(rest)
+            print("vergessen: \(rest.count)")
+        case "export":
+            let data = try ArchiveReader(layout: layout).exportMemory()
+            if let path = rest.first { try data.write(to: URL(fileURLWithPath: path), options: [.atomic]) } else { FileHandle.standardOutput.write(data) }
+        case "import":
+            guard let path = rest.first else { throw CLIError(description: "memory import <file>") }
+            let n = try await ArchiveWriter(layout: layout).importMemory(try Data(contentsOf: URL(fileURLWithPath: path)))
+            print("übernommen: \(n)")
+        default:
+            throw CLIError(description: "memory [list | note <text…> | term <text…> | forget <id>… | export [file] | import <file>]")
         }
 
     case "summarize":
