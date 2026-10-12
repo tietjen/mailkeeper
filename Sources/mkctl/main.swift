@@ -49,6 +49,7 @@ usage: mkctl [--archive <dir>] <command>
   embed                                       vectors for semantic search (endpoint), then categories from similar mails
   similar <id> [--limit n] | meaning <text…>  mails like a message / by meaning (needs embed)
   summarize <id> [--thread]                   KI: summary of a message or its whole conversation
+  relations [list | suggest]                   relationship register: confirmed ones, or suggestions from the history
   memory [list | note <text…> | term <text…> | forget <id>… | export [file] | import <file>]
                                               what MailKeeper learned: notes, terms, examples from your decisions
   ai status | test                            KI settings of the archive; connection test (endpoint, on-device)
@@ -430,6 +431,19 @@ func summarize(_ p: ImportProgress, start: Date) {
         for h in hits {
             guard let m = byID[h.id] else { continue }
             print(String(format: "%.3f  %6lld  ", h.score, h.id) + "\(m.date.map { $0.formatted(date: .numeric, time: .omitted) } ?? "—")  \(clean(m.fromDisplay).prefix(28))  \(clean(m.subject ?? "").prefix(60))")
+        }
+
+    case "relations":
+        let reader = try ArchiveReader(layout: try ArchiveLayout.open(at: root, create: false))
+        if args.first == "suggest" {
+            print("eigener Prüfserver je Konto: " + (try reader.ownAuthServers()).map { "\($0.key)=\($0.value)" }.sorted().joined(separator: ", "))
+            for s in try reader.relationSuggestions(limit: Int(option("--limit") ?? "40") ?? 40) {
+                print("\(clean(s.name).prefix(32).padding(toLength: 32, withPad: " ", startingAt: 0)) \(s.domains.joined(separator: ", ").prefix(40).padding(toLength: 40, withPad: " ", startingAt: 0)) \(s.evidence)")
+            }
+        } else {
+            for r in try reader.relations(includeRejected: true) {
+                print("\(r.confirmed ? (r.ended ? "beendet " : "aktiv   ") : "abgelehnt") \(clean(r.name).prefix(32).padding(toLength: 32, withPad: " ", startingAt: 0)) \(r.domains.joined(separator: ", "))")
+            }
         }
 
     case "memory":

@@ -244,6 +244,7 @@ public actor ArchiveWriter {
                   .int(Int64(p.attachments.filter { !$0.isInline }.count)), .int(Int64(size)), .text(sha),
                   .text(SearchText.snippet(p.text)), .double(time)])
         let id = db.lastInsertRowID
+        try setHeaderFields(id, p.headers)
         for a in p.attachments {
             try db.run("INSERT INTO attachments(message_id, filename, mime_type, size, content_id, is_inline) VALUES (?, ?, ?, ?, ?, ?)",
                        [.int(id), .optional(a.filename), .text(a.mimeType), .int(Int64(a.size)), .optional(a.contentID), .bool(a.isInline)])
@@ -931,19 +932,54 @@ extension ArchiveWriter {
 
     /// A `memory` event, live or in a rebuild.
     func applyMemory(_ record: JournalEvent.MemoryRecord, time: Double) throws {
-        if !record.active {
+        if !record.active, record.content == nil {
             try db.run("UPDATE memory_items SET active = 0, updated = ? WHERE id = ?", [.double(time), .text(record.id)])
             return
         }
-        guard let kind = record.kind, let text = record.text else { return }
-        let content = String(decoding: try JSONEncoder().encode(MemoryContent(text: text)), as: UTF8.self)
+        guard let kind = record.kind else { return }
+        let body: MemoryContent
+        if let content = record.content { body = content } else if let text = record.text { body = MemoryContent(text: text) } else { return }
+        let content = String(decoding: try JSONEncoder().encode(body), as: UTF8.self)
+        // a rejected suggestion is stored inactive: it keeps its domains from being suggested again
         try db.run("""
             INSERT INTO memory_items(id, kind, scope, subject, content, provenance, sources, created, updated, active)
-            VALUES (?, ?, ?, ?, ?, 'user', '', ?, ?, 1)
+            VALUES (?, ?, ?, ?, ?, 'user', '', ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, scope = excluded.scope, subject = excluded.subject,
-                content = excluded.content, updated = excluded.updated, active = 1
+                content = excluded.content, updated = excluded.updated, active = excluded.active
             """, [.text(record.id), .text(kind), .text(record.scope ?? ""), .text(record.subject ?? ""), .text(content),
-                  .double(time), .double(time)])
+                  .double(time), .double(time), .bool(record.active)])
+    }
+
+    /// A relationship the user confirmed, edited or ended (ADR-0010 §6) — journalled. Domains are
+    /// registrable domains, lowercased; the name is bounded. Returns its id.
+    @discardableResult
+    public func saveRelation(id: String? = nil, name: String, domains: [String], since: Date?, until: Date?) throws -> String {
+        let record = try Self.relationRecord(id: id, name: name, domains: domains, since: since, until: until, active: true)
+        let time = Date().timeIntervalSince1970
+        try journal.append(.memory(record, time: time))
+        try journal.sync()
+        try applyMemory(record, time: time)
+        return record.id
+    }
+
+    /// "Ablehnen": these domains are not suggested again (journalled, an inactive relation).
+    public func rejectRelation(name: String, domains: [String]) throws {
+        let record = try Self.relationRecord(id: nil, name: name, domains: domains, since: nil, until: nil, active: false)
+        let time = Date().timeIntervalSince1970
+        try journal.append(.memory(record, time: time))
+        try journal.sync()
+        try applyMemory(record, time: time)
+    }
+
+    static func relationRecord(id: String?, name: String, domains: [String], since: Date?, until: Date?, active: Bool) throws -> JournalEvent.MemoryRecord {
+        let clean = Memory.cleanText(name).replacingOccurrences(of: "\n", with: " ")
+        let list = Relations.normalize(domains)
+        guard !clean.isEmpty else { throw ArchiveError.invalid("Die Beziehung braucht einen Namen") }
+        guard !list.isEmpty else { throw ArchiveError.invalid("Die Beziehung braucht mindestens eine Domain, z. B. sparkasse.de") }
+        return JournalEvent.MemoryRecord(id: id ?? "rel:" + UUID().uuidString.lowercased(), kind: MemoryKind.relation.rawValue, scope: "",
+                                         subject: "domain:" + list[0], active: active,
+                                         content: MemoryContent(name: String(clean.prefix(120)), domains: list,
+                                                                since: since?.timeIntervalSince1970, until: until?.timeIntervalSince1970))
     }
 
     /// The example of a decided message, after each decision (live and in a rebuild): a new
@@ -954,5 +990,36 @@ extension ArchiveWriter {
             \(Memory.exampleSelect) WHERE m.identity = ? AND (c.source = 'user' OR c.verdict IS NOT NULL)
             ON CONFLICT(id) DO UPDATE SET subject = excluded.subject, content = excluded.content, updated = ?, active = 1
             """, [.text(identity), .double(time)])
+    }
+}
+
+// MARK: - Header fields for the relationship register (6.3)
+
+extension ArchiveWriter {
+    /// Version of what `setHeaderFields` extracts; a higher one re-reads every header.
+    public static let headerFieldsVersion = 1
+
+    func setHeaderFields(_ id: Int64, _ headers: HeaderList) throws {
+        let auth = AuthResults.parse(headers["Authentication-Results"])
+        try db.run("""
+            UPDATE messages SET auth_server = ?, auth_dkim = ?, auth_spf = ?, auth_dmarc = ?, auth_from = ?, delivered_to = ?, headers_v = ?
+            WHERE id = ?
+            """, [.optional(auth?.server), .optional(auth?.dkim), .optional(auth?.spf), .optional(auth?.dmarc), .optional(auth?.fromDomain),
+                  .optional(DeliveredTo.address(headers)), .int(Int64(Self.headerFieldsVersion)), .int(id)])
+    }
+
+    /// Older messages: reads only the header of the primary blob, `batch` at a time. Returns how
+    /// many it looked at (0 = done).
+    public func indexHeaderFields(batch: Int = 500) throws -> Int {
+        let rows = try db.query("SELECT id, primary_blob FROM messages WHERE headers_v IS NULL OR headers_v < ? LIMIT ?",
+                                [.int(Int64(Self.headerFieldsVersion)), .int(Int64(batch))]) { ($0.int(0), $0.text(1) ?? "") }
+        guard !rows.isEmpty else { return 0 }
+        try db.transaction {
+            for (id, sha) in rows {
+                let head = (try? blobs.readHead(sha)) ?? Data()
+                try setHeaderFields(id, HeaderParser.parse(head).0)
+            }
+        }
+        return rows.count
     }
 }

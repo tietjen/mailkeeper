@@ -12,6 +12,8 @@ public enum MemoryKind: String, Codable, Sendable, CaseIterable {
     case senderProfile = "sender_profile"
     /// The user's words: "Firma" = the Proton account.
     case vocabulary
+    /// A real relationship (ADR-0010 §6): a bank, school, shop — with the domains it really used.
+    case relation
 
     public var label: String {
         switch self {
@@ -19,6 +21,7 @@ public enum MemoryKind: String, Codable, Sendable, CaseIterable {
         case .example: String(localized: "Beispiel")
         case .senderProfile: String(localized: "Absenderprofil")
         case .vocabulary: String(localized: "Begriff")
+        case .relation: String(localized: "Beziehung")
         }
     }
 }
@@ -48,9 +51,19 @@ public struct MemoryContent: Codable, Sendable, Equatable {
     public var domain: String?
     public var list: String?
     public var subject: String?
+    /// A relation: its name, the domains it used, and when it began and ended (seconds since 1970).
+    public var name: String?
+    public var domains: [String]?
+    public var since: Double?
+    public var until: Double?
 
     public init(text: String? = nil, category: String? = nil, verdict: String? = nil, sender: String? = nil, domain: String? = nil,
-                list: String? = nil, subject: String? = nil) {
+                list: String? = nil, subject: String? = nil, name: String? = nil, domains: [String]? = nil, since: Double? = nil,
+                until: Double? = nil) {
+        self.name = name
+        self.domains = domains
+        self.since = since
+        self.until = until
         self.text = text
         self.category = category
         self.verdict = verdict
@@ -87,6 +100,8 @@ public struct MemoryItem: Sendable, Equatable, Identifiable {
                 : content.verdict == "spam" && category != .spam ? String(localized: "Spam") : nil  // "Ist Spam" sets both
             let what = [category?.label, verdict].compactMap { $0 }.joined(separator: ", ")
             return "\(what) – \(content.subject ?? "")"
+        case .relation:
+            return "\(content.name ?? "") (\((content.domains ?? []).joined(separator: ", ")))"
         default:
             return content.text ?? ""
         }

@@ -55,8 +55,12 @@ public struct JournalEvent: Codable, Sendable, Equatable {
         public var subject: String?
         public var text: String?
         public var active: Bool
+        /// Structured kinds (a relation): the whole content.
+        public var content: MemoryContent?
 
-        public init(id: String, kind: String? = nil, scope: String? = nil, subject: String? = nil, text: String? = nil, active: Bool = true) {
+        public init(id: String, kind: String? = nil, scope: String? = nil, subject: String? = nil, text: String? = nil, active: Bool = true,
+                    content: MemoryContent? = nil) {
+            self.content = content
             self.id = id
             self.kind = kind
             self.scope = scope
@@ -65,7 +69,7 @@ public struct JournalEvent: Codable, Sendable, Equatable {
             self.active = active
         }
 
-        enum CodingKeys: String, CodingKey { case id, kind = "k", scope = "sc", subject = "su", text = "tx", active = "on" }
+        enum CodingKeys: String, CodingKey { case id, kind = "k", scope = "sc", subject = "su", text = "tx", active = "on", content = "c" }
     }
 
     /// An IMAP location of a purged message: sync must not fetch it again.

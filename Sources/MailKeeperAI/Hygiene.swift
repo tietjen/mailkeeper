@@ -77,14 +77,7 @@ public struct MailSnapshot: Sendable, Equatable {
 
     /// "dkim=pass spf=pass dmarc=fail" out of an Authentication-Results header.
     static func authentication(_ header: String?) -> String? {
-        guard let header = header?.lowercased() else { return nil }
-        var parts: [String] = []
-        for method in ["dkim", "spf", "dmarc"] {
-            guard let r = header.range(of: method + "=") else { continue }
-            let value = header[r.upperBound...].prefix { $0.isLetter }
-            if !value.isEmpty { parts.append("\(method)=\(value)") }
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " ")
+        AuthResults.parse(header)?.summary
     }
 
     /// Header lines and up to `maxText` characters of text, cleaned (no control or invisible

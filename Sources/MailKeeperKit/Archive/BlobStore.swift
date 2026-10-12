@@ -137,6 +137,14 @@ public struct BlobStore: Sendable {
         }
     }
 
+    /// The first `max` bytes of a blob — its header, without reading a large attachment.
+    public func readHead(_ sha: String, max: Int = 128 << 10) throws -> Data {
+        guard Self.isValidSHA(sha) else { throw ArchiveError.io("invalid blob id", path: sha) }
+        guard let handle = FileHandle(forReadingAtPath: url(for: sha).path) else { throw ArchiveError.io("read", path: url(for: sha).path) }
+        defer { try? handle.close() }
+        do { return try handle.read(upToCount: max) ?? Data() } catch { throw ArchiveError.io("read", path: url(for: sha).path) }
+    }
+
     /// Re-hashes a stored blob (streamed: verifying a 7 GB archive stays small).
     public func verify(_ sha: String) throws -> Bool {
         guard Self.isValidSHA(sha) else { throw ArchiveError.io("invalid blob id", path: sha) }

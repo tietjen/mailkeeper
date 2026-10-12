@@ -205,6 +205,19 @@ enum Schema {
         INSERT INTO memory_items(id, kind, subject, content, provenance, sources, created, updated)
         \(Memory.exampleSelect) WHERE c.source = 'user' OR c.verdict IS NOT NULL;
         """,
+        // v12: who checked a mail and what came out (topmost Authentication-Results) and where it
+        // was delivered (6.3, ADR-0010 §6). Derived from the blob: set at ingest, and for older
+        // messages by a background pass that reads only the header (`headers_v` NULL = not yet).
+        """
+        ALTER TABLE messages ADD COLUMN auth_server TEXT;
+        ALTER TABLE messages ADD COLUMN auth_dkim TEXT;
+        ALTER TABLE messages ADD COLUMN auth_spf TEXT;
+        ALTER TABLE messages ADD COLUMN auth_dmarc TEXT;
+        ALTER TABLE messages ADD COLUMN auth_from TEXT;
+        ALTER TABLE messages ADD COLUMN delivered_to TEXT;
+        ALTER TABLE messages ADD COLUMN headers_v INTEGER;
+        CREATE INDEX messages_headers_pending ON messages(headers_v) WHERE headers_v IS NULL;
+        """,
     ]
 
     static var currentVersion: Int { migrations.count }

@@ -1359,6 +1359,45 @@ final class AppModel {
         return problem
     }
 
+    // MARK: Relationship register (6.3, ADR-0010 §6)
+
+    private(set) var relations: [Relation] = []
+    private(set) var relationSuggestions: [RelationSuggestion] = []
+    private(set) var loadingRelations = false
+
+    /// Reads the register and computes the suggestions off the main thread.
+    func reloadRelations() {
+        guard let layout = reader?.layout, !loadingRelations else { return }
+        loadingRelations = true
+        Task {
+            let result = await Task.detached(priority: .userInitiated) { () -> ([Relation], [RelationSuggestion])? in
+                guard let r = try? ArchiveReader(layout: layout) else { return nil }
+                return ((try? r.relations(includeRejected: true)) ?? [], (try? r.relationSuggestions()) ?? [])
+            }.value
+            loadingRelations = false
+            guard reader?.layout.root == layout.root, let result else { return }
+            (relations, relationSuggestions) = result
+        }
+    }
+
+    func saveRelation(id: String?, name: String, domains: [String], since: Date?, until: Date?) async -> String? {
+        let problem = await writeNow { writer in try await writer.saveRelation(id: id, name: name, domains: domains, since: since, until: until) }
+        reloadRelations()
+        return problem
+    }
+
+    func rejectRelation(_ suggestion: RelationSuggestion) async -> String? {
+        let problem = await writeNow { writer in try await writer.rejectRelation(name: suggestion.name, domains: suggestion.domains) }
+        reloadRelations()
+        return problem
+    }
+
+    func forgetRelation(_ id: String) async -> String? {
+        let problem = await writeNow { writer in try await writer.forgetMemory([id]) }
+        reloadRelations()
+        return problem
+    }
+
     // MARK: Memory (6.1, ADR-0005)
 
     private(set) var memoryItems: [MemoryItem] = []
@@ -1445,12 +1484,13 @@ final class AppModel {
         textStats = try? reader.attachmentTextStats()
         let expired = (stats?.trashed ?? 0) > 0  // may hold mail older than 30 days to purge
         let rules = ((try? reader.heuristicPendingCount()) ?? 0) > 0  // categories by rule (5.4)
+        let headers = ((try? reader.headerFieldsPending()) ?? 0) > 0  // authentication and delivery (6.3)
         let pdfs = (textStats?.pending ?? 0) > 0 && PDFTextClient.isBundled
         // vectors for semantic search (5.7): only with an endpoint, never on the Mac's model
         let router = aiConfig.enabled && aiConfig.endpoint != nil && !embedFailed ? aiRouter() : nil
         let embeds = router != nil && ((try? reader.embeddingCounts(model: aiConfig.model(for: .embed))).map { $0.done < $0.total } ?? false)
         let similarDue = router != nil && ((try? reader.staleSimilarCount()) ?? 0) > 0  // a stricter vote decides again
-        guard pdfs || expired || rules || embeds || similarDue else { return }
+        guard pdfs || expired || rules || headers || embeds || similarDue else { return }
         let extractor = pdfText
         let token = UUID()
         textIndexToken = token
@@ -1462,6 +1502,9 @@ final class AppModel {
                 if rules {  // fast: headers only, no message is read
                     while try await writer.classifyHeuristically() > 0 { try Task.checkCancellation() }
                     await MainActor.run { self?.contentGeneration += 1 }
+                }
+                if headers {  // reads only each mail's header: a minute or two for 40k
+                    while try await writer.indexHeaderFields() > 0 { try Task.checkCancellation() }
                 }
                 if pdfs {
                     _ = try await AttachmentIndexer(writer: writer, extractor: extractor).run { p in
