@@ -43,6 +43,13 @@ struct HygieneTests {
         #expect(r.count < 400 && r.hasSuffix(" […]"))
     }
 
+    @Test("6.5c: the model sees where List-Unsubscribe leads, with MailKeeper's findings")
+    func theUnsubscribeTargetIsShown() {
+        var m = MailSnapshot(from: "news@shop.example", subject: "Sale", listUnsubscribe: true, text: "x")
+        m.unsubscribeTarget = LinkCheck(href: "https://bit.ly/abc", text: nil)
+        #expect(m.rendered().contains("Abmeldelink (List-Unsubscribe): vorhanden – Ziel bit.ly (Kurzlink"))
+    }
+
     func translator(_ answers: [String]) -> (QueryTranslator, ScriptedProvider) {
         let p = ScriptedProvider(answers)
         let router = AIRouter(config: AIConfig(enabled: true), endpoint: nil, onDevice: p, log: AICallLog(url: tempDir().appending(path: "l.jsonl")))

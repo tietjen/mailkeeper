@@ -266,6 +266,7 @@ struct ReaderView: View {
     @State private var rescuable = false
     @State private var hovered: LinkCheck?
     @State private var relation: RelationCheck?
+    @State private var unsubscribe: UnsubscribeAssessment?
     @State private var movableToJunk = false
     @State private var correcting: CorrectionTarget?
 
@@ -318,6 +319,7 @@ struct ReaderView: View {
                 rescuable = inJunk && model.canRescue(messageID)
                 lures = LinkExtractor.links(html: message.html, text: message.text).map { LinkCheck(href: $0.href, text: $0.text) }.filter(\.isSuspicious)
                 relation = model.relationCheck(messageID)
+                unsubscribe = model.unsubscribeAssessment(messageID)
                 movableToJunk = !inJunk && model.canMoveToJunk(messageID)
             }
         }
@@ -372,6 +374,7 @@ struct ReaderView: View {
                  $0.isOnServer ? "server.rack" : "archivebox")
             })
             if let list = d.listID { filterRow("Liste", [(list, MessageFilters.list(list), list, nil)]) }
+            if let unsubscribe { UnsubscribeRow(model: model, messageID: d.summary.id, assessment: unsubscribe) }
             if thread.count > 1 {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text("Verlauf").foregroundStyle(.secondary).frame(width: 64, alignment: .trailing).font(.callout)

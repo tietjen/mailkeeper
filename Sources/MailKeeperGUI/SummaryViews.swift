@@ -133,3 +133,74 @@ private struct SummaryBox: View {
         return parts.joined(separator: " · ")
     }
 }
+
+/// "Abmelden" (6.5c, TJ): locked with its reasons when the mail or its link looks wrong; else
+/// says how — one click by MailKeeper, the page in the browser, or a mail — and asks first.
+struct UnsubscribeRow: View {
+    let model: AppModel
+    let messageID: Int64
+    let assessment: UnsubscribeAssessment
+    @State private var confirming = false
+    @State private var running = false
+    @State private var result: String?
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("Abmelden").foregroundStyle(.secondary).frame(width: 64, alignment: .trailing)
+            VStack(alignment: .leading, spacing: 2) {
+                if assessment.isBlocked {
+                    Label("Abmelden gesperrt", systemImage: "hand.raised.fill").foregroundStyle(.red).fontWeight(.semibold)
+                    ForEach(Array(assessment.blocked.enumerated()), id: \.offset) { _, reason in
+                        Text(DisplayText.safe(reason)).foregroundStyle(.secondary).lineLimit(3)
+                            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                    }
+                } else {
+                    HStack(spacing: 6) {
+                        Button(running ? "Melde ab …" : "Vom Newsletter abmelden …") { confirming = true }
+                            .controlSize(.small).disabled(running)
+                        Text(Self.how(assessment)).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    if let result { Text(DisplayText.safe(result)).foregroundStyle(.secondary).lineLimit(2) }
+                }
+            }
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        }
+        .font(.callout)
+        .confirmationDialog("Vom Newsletter abmelden?", isPresented: $confirming, titleVisibility: .visible) {
+            Button(Self.action(assessment)) {
+                running = true
+                Task { result = await model.unsubscribe(messageID); running = false }
+            }
+            Button("Abbrechen", role: .cancel) {}
+        } message: {
+            Text(([Self.explain(assessment)] + assessment.notes).map(DisplayText.safe).joined(separator: "\n\n"))
+        }
+    }
+
+    static func how(_ a: UnsubscribeAssessment) -> String {
+        switch a.method {
+        case .oneClick: String(localized: "mit einem Klick bei \(a.target)")
+        case .web: String(localized: "Seite \(a.target) im Browser")
+        case .mail: String(localized: "Mail an \(a.target)")
+        }
+    }
+
+    static func action(_ a: UnsubscribeAssessment) -> String {
+        switch a.method {
+        case .oneClick: String(localized: "Jetzt abmelden")
+        case .web: String(localized: "Abmeldeseite öffnen")
+        case .mail: String(localized: "Abmelde-Mail vorbereiten")
+        }
+    }
+
+    static func explain(_ a: UnsubscribeAssessment) -> String {
+        switch a.method {
+        case .oneClick:
+            String(localized: "MailKeeper schickt \(a.target) die standardisierte Ein-Klick-Abmeldung (RFC 8058) – ohne Browser, ohne Cookies. Der Absender ist von deinem Server bestätigt.")
+        case .web:
+            String(localized: "MailKeeper öffnet die Abmeldeseite \(a.target) im Browser; dort schließt du die Abmeldung ab.")
+        case .mail:
+            String(localized: "MailKeeper bereitet in deinem Mailprogramm eine Abmelde-Mail an \(a.target) vor; du schickst sie ab.")
+        }
+    }
+}

@@ -9,6 +9,7 @@ struct GroupDetailView: View {
     let detail: GroupDetail
     @State private var saving: SavedSearch?
     @State private var confirmingUnsubscribe = false
+    @State private var unsubscribeResult: String?
     @State private var ruleDraft: RuleDraft?
 
     private var group: MessageGroup { detail.group }
@@ -23,6 +24,7 @@ struct GroupDetailView: View {
                 if !detail.members.isEmpty { members }
                 recent
                 actions
+                if let unsubscribeResult { Text(DisplayText.safe(unsubscribeResult)).font(.callout).foregroundStyle(.secondary) }
             }
             .padding(16)
             .frame(maxWidth: 560, alignment: .leading)
@@ -30,11 +32,9 @@ struct GroupDetailView: View {
         .sheet(item: $saving) { SavedSearchSheet(model: model, search: $0) }
         .sheet(item: $ruleDraft) { d in RuleEditor(model: model, draft: d) { _ in ruleDraft = nil } }
         .confirmationDialog(unsubscribeTitle, isPresented: $confirmingUnsubscribe, titleVisibility: .visible) {
-            if let https = detail.unsubscribe?.https {
-                Button("Abmeldeseite im Browser öffnen") { NSWorkspace.shared.open(https) }
-            }
-            if let mailto = detail.unsubscribe?.mailto {
-                Button("Abmelde-Mail vorbereiten") { NSWorkspace.shared.open(mailto) }
+            // 6.5c: checked again and done (one click, page or mail) the same way as in the reader
+            if let id = detail.unsubscribeMessageID, let assessment = model.unsubscribeAssessment(id), !assessment.isBlocked {
+                Button(UnsubscribeRow.action(assessment)) { Task { unsubscribeResult = await model.unsubscribe(id) } }
             }
             Button("Abbrechen", role: .cancel) {}
         } message: {
@@ -197,8 +197,14 @@ struct GroupDetailView: View {
         HStack(spacing: 8) {
             Button("Mails anzeigen") { model.openGroup(group) }
             Button("Als Ansicht sichern …") { saving = model.savedSearch(for: group) }
-            if detail.unsubscribe != nil {
-                Button("Abmelden …") { confirmingUnsubscribe = true }
+            if let id = detail.unsubscribeMessageID, let assessment = model.unsubscribeAssessment(id) {
+                if assessment.isBlocked {
+                    Button("Abmelden gesperrt") {}.disabled(true)
+                        .help(assessment.blocked.joined(separator: "\n"))
+                } else {
+                    Button("Abmelden …") { confirmingUnsubscribe = true }
+                        .help(UnsubscribeRow.how(assessment))
+                }
             }
             Menu("Aufräumen …") {
                 Button("Auf dem Server löschen …") { model.planGroup(.serverDelete, group) }
@@ -220,11 +226,8 @@ struct GroupDetailView: View {
     }
 
     private var unsubscribeMessage: String {
-        var lines: [String] = []
-        if let https = detail.unsubscribe?.https { lines.append(String(localized: "Seite: \(DisplayText.safe(describe(https)))")) }
-        if let mailto = detail.unsubscribe?.mailto { lines.append(String(localized: "Mail an: \(DisplayText.safe(describe(mailto)))")) }
-        lines.append(String(localized: "MailKeeper öffnet das Ziel nur. Bei Spam bestätigt eine Abmeldung dem Absender, dass deine Adresse existiert — dann lieber löschen als abmelden."))
-        return lines.joined(separator: "\n\n")
+        guard let id = detail.unsubscribeMessageID, let assessment = model.unsubscribeAssessment(id) else { return "" }
+        return ([UnsubscribeRow.explain(assessment)] + assessment.notes).map(DisplayText.safe).joined(separator: "\n\n")
     }
 
     /// Host and path for https (the host is what matters), the address for mailto.

@@ -74,6 +74,15 @@ as context for unsolicited first contacts.
    (journalled "kein Spam"), may add a relation as the firm rule and a note for the sender's
    domain, and have this mail and the other model-flagged mails of these domains judged again.
    A Reply-To inside the same confirmed relation is no warning sign any more (paypal.de → paypal.com).
+   *Unsubscribe (6.5c, TJ):* "Vom Newsletter abmelden" in the reader and the cleanup group, checked
+   first and again at the click: locked (with the reasons) when a model holds the mail for
+   phishing, the register sees a look-alike or the own server's check failed, the mail is spam (a
+   user or model verdict, or in a spam folder without "kein Spam" — unsubscribing only confirms
+   the address), or the List-Unsubscribe link has findings. One click (RFC 8058: one POST, no
+   cookies, no redirects — a redirect opens the page instead) only when the own server's dkim and
+   dmarc passed; else the page opens in the browser or a mail is prepared. Logged in the audit
+   (`unsubscribe`) and remembered as a note for the list or sender (further newsletters are
+   unwanted). The model sees the unsubscribe target with its findings.
 7. **Later — report phishing:** forward a mail as a complete `.eml` attachment to an address the
    user configures (e.g. `phishing@verbraucherzentrale.nrw`). Needs a sending path (SMTP, not in
    MailKeeper yet); always explicit, per mail, logged.

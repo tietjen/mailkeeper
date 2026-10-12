@@ -63,6 +63,8 @@ public struct GroupDetail: Sendable {
     /// Senders inside a domain or list group (empty for a sender group).
     public var members: [Member]
     public var unsubscribe: UnsubscribeInfo?
+    /// The newest mail that offers it — the one "Abmelden" checks and acts on (6.5c).
+    public var unsubscribeMessageID: Int64?
     /// For a list: the description from `List-Id: description <id>` of the newest message.
     public var listDescription: String?
 
@@ -133,11 +135,13 @@ extension ArchiveReader {
 
         // The newest message that offers an unsubscribe link; its headers come from the blob.
         var unsubscribe: UnsubscribeInfo?
+        var unsubscribeMessageID: Int64?
         if group.unsubscribe,
-           let blob = try db.queryOne("SELECT m.primary_blob FROM messages m\(whereClause) AND m.list_unsubscribe = 1 ORDER BY m.date DESC NULLS LAST LIMIT 1",
-                                      params, { $0.text(0) }) ?? nil {
-            let headers = HeaderParser.parse(try layout.blobs.read(blob)).0
+           let (id, blob) = try db.queryOne("SELECT m.id, m.primary_blob FROM messages m\(whereClause) AND m.list_unsubscribe = 1 ORDER BY m.date DESC NULLS LAST LIMIT 1",
+                                            params, { ($0.int(0), $0.text(1)) }), let blob {
+            let headers = HeaderParser.parse(try layout.blobs.readHead(blob)).0
             unsubscribe = UnsubscribeInfo.parse(listUnsubscribe: headers["List-Unsubscribe"], post: headers["List-Unsubscribe-Post"])
+            unsubscribeMessageID = id
         }
         var listDescription: String?
         if group.mode == .list, let newest = recentIDs.first,
@@ -147,7 +151,7 @@ extension ArchiveReader {
 
         return GroupDetail(group: group, months: months, lastYear: lastYear, places: places, onServer: onServer,
                            onServerBytes: onServerBytes, withAttachments: withAttachments, largest: largest,
-                           recent: try summaries(recentIDs), members: members, unsubscribe: unsubscribe,
+                           recent: try summaries(recentIDs), members: members, unsubscribe: unsubscribe, unsubscribeMessageID: unsubscribeMessageID,
                            listDescription: listDescription)
     }
 

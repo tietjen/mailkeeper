@@ -170,7 +170,7 @@ struct PlanSheet: View {
             String(localized: "Die Mails wandern auf dem Server aus dem Spam-Ordner in den Posteingang, das Archiv merkt sich den neuen Ort und deine Entscheidung „Kein Spam“. Vorher prüft MailKeeper jede einzelne: noch dieselbe Mail im Spam-Ordner.")
         case .moveToJunk:
             String(localized: "Die Mails wandern auf dem Server in den Spam-Ordner ihres Kontos, das Archiv behält sie und merkt sich deine Entscheidung „Spam“. Vorher prüft MailKeeper jede einzelne: noch dieselbe Mail am selben Ort. Aus Gesendet, Entwürfen und dem Papierkorb verschiebt es nichts.")
-        case .export:
+        case .export, .unsubscribe:
             ""
         }
     }

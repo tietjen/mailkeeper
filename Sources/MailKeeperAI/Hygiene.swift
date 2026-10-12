@@ -51,6 +51,8 @@ public struct MailSnapshot: Sendable, Equatable {
     public var replyToRelation: String?
     /// dkim/spf/dmarc from the topmost Authentication-Results header (added by the own server).
     public var authentication: String?
+    /// Where List-Unsubscribe leads, with MailKeeper's link findings (6.5c).
+    public var unsubscribeTarget: LinkCheck?
 
     public init(from: String, fromName: String? = nil, to: [String] = [], subject: String, date: Date? = nil, listID: String? = nil,
                 listUnsubscribe: Bool = false, autoSubmitted: String? = nil, attachments: [String] = [], text: String,
@@ -76,6 +78,9 @@ public struct MailSnapshot: Sendable, Equatable {
                   attachments: p.attachments.filter { !$0.isInline }.compactMap(\.filename), text: p.text,
                   links: LinkExtractor.links(html: p.html, text: p.text).map { LinkCheck(href: $0.href, text: $0.text) },
                   replyTo: p.replyTo.first?.address, authentication: Self.authentication(p.headers.text("Authentication-Results")))
+        if let target = UnsubscribeInfo.parse(listUnsubscribe: p.headers["List-Unsubscribe"], post: p.headers["List-Unsubscribe-Post"])?.preferred {
+            unsubscribeTarget = LinkCheck(href: target.absoluteString, text: nil)
+        }
     }
 
     /// "dkim=pass spf=pass dmarc=fail" out of an Authentication-Results header.
@@ -95,7 +100,13 @@ public struct MailSnapshot: Sendable, Equatable {
         lines.append("Betreff: \(PromptText.line(subject, max: 200))")
         if let date { lines.append("Datum: \(date.formatted(.iso8601.year().month().day()))") }
         if let listID { lines.append("List-Id: \(PromptText.line(listID, max: 120))") }
-        lines.append("Abmeldelink (List-Unsubscribe): \(listUnsubscribe ? "vorhanden" : "fehlt")")
+        if let target = unsubscribeTarget {
+            let place = target.host ?? String(target.target.dropFirst("mailto:".count).prefix { $0 != "?" })
+            lines.append("Abmeldelink (List-Unsubscribe): vorhanden – Ziel \(PromptText.line(place, max: 80))"
+                         + (target.isSuspicious ? " (" + target.findings.map(\.text).joined(separator: "; ") + ")" : ""))
+        } else {
+            lines.append("Abmeldelink (List-Unsubscribe): \(listUnsubscribe ? "vorhanden" : "fehlt")")
+        }
         if let autoSubmitted { lines.append("Auto-Submitted: \(PromptText.line(autoSubmitted, max: 40))") }
         let fromDomain = from.split(separator: "@").last.map { LinkCheck.registrableDomain(String($0)) }
         if let replyTo, let reply = replyTo.split(separator: "@").last.map({ LinkCheck.registrableDomain(String($0)) }), reply != fromDomain {
