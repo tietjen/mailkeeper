@@ -1029,13 +1029,18 @@ extension ArchiveWriter {
 extension ArchiveWriter {
     /// Marks messages as looked at by the screening, with the register's or the own server's
     /// warning (derived data, not journalled).
-    public func setScreened(_ items: [ScreeningCandidate]) throws {
+    /// `markScreened: false` stores only the warning (a model's candidate is marked after its answer).
+    public func setScreened(_ items: [ScreeningCandidate], markScreened: Bool = true) throws {
         guard !items.isEmpty else { return }
         let now = Date().timeIntervalSince1970
         try db.transaction {
             for item in items {
-                try db.run("UPDATE classifications SET screened = ?, warning = ? WHERE message_id = ?",
-                           [.double(now), .optional(item.warning), .int(item.id)])
+                if markScreened {
+                    try db.run("UPDATE classifications SET screened = ?, warning = ? WHERE message_id = ?",
+                               [.double(now), .optional(item.warning), .int(item.id)])
+                } else {
+                    try db.run("UPDATE classifications SET warning = ? WHERE message_id = ?", [.optional(item.warning), .int(item.id)])
+                }
             }
         }
     }

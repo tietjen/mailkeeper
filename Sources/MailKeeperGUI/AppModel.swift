@@ -302,7 +302,7 @@ final class AppModel {
     }
 
     func switchTo(_ archive: KnownArchive) {
-        guard archive.path != archiveRoot?.path else { return }
+        guard archive.path != archiveRoot?.path, !refuseSwitchWhileBusy() else { return }
         var url = URL(fileURLWithPath: archive.path)
         if let data = archive.bookmark {
             var stale = false
@@ -324,9 +324,8 @@ final class AppModel {
             actionError = String(localized: "In „\(abbreviated(url.path))“ liegt kein MailKeeper-Archiv. Ein neues legst du mit „Neues Archiv anlegen …“ an.")
             return
         }
-        guard !actionRunning, !syncRunning, !importRunning else {
+        guard !refuseSwitchWhileBusy() else {
             if accessing { url.stopAccessingSecurityScopedResource() }
-            actionError = String(localized: "Erst wenn Import, Abruf oder Aktion fertig sind, lässt sich das Archiv wechseln.")
             return
         }
         guard open(url, create: false) else {
@@ -338,7 +337,20 @@ final class AppModel {
         remember(url)
     }
 
+    /// Whether another archive may be opened now; says why not (TJ: asked mid-check). The
+    /// running job writes only into the archive it started in, so it must end first.
+    var archiveSwitchBlocked: Bool { actionRunning || syncRunning || importRunning }
+
+    private func refuseSwitchWhileBusy() -> Bool {
+        guard archiveSwitchBlocked else { return false }
+        actionError = actionRunning
+            ? String(localized: "Gerade läuft „\(actionProgress?.title ?? String(localized: "eine Aktion"))“. Das Archiv lässt sich wechseln, sobald sie fertig ist – oder halte sie mit × unten in der Statusleiste an; was fertig ist, bleibt.")
+            : String(localized: "Erst wenn Import oder Abruf fertig sind, lässt sich das Archiv wechseln.")
+        return true
+    }
+
     func openArchive() {
+        guard !refuseSwitchWhileBusy() else { return }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -351,6 +363,7 @@ final class AppModel {
 
     /// A new archive, only in an empty folder.
     func createArchive() {
+        guard !refuseSwitchWhileBusy() else { return }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -370,7 +383,7 @@ final class AppModel {
             actionError = String(localized: "„\(abbreviated(url.path))“ ist nicht leer. Ein neues Archiv braucht einen leeren Ordner.")
             return
         }
-        guard !actionRunning, !syncRunning, !importRunning, open(url, create: true) else {
+        guard !refuseSwitchWhileBusy(), open(url, create: true) else {  // was silent while busy
             if accessing { url.stopAccessingSecurityScopedResource() }
             return
         }
@@ -1676,12 +1689,17 @@ final class AppModel {
         actionTask = Task.detached { [weak self] in
             await indexing?.value
             var problem: String?
+            var stopped = false
             var failed = 0
             do {
                 let layout = try ArchiveLayout.open(at: root, create: false)
                 let reader = try ArchiveReader(layout: layout)
                 let writer = try ArchiveWriter(layout: layout)
-                try await writer.setScreened(screened)  // 6.4: looked at, with the register's warnings
+                // 6.4: the register's warnings at once; "looked at" for a model's candidate only
+                // after its answer — a stopped run leaves the rest for the next one
+                try await writer.setScreened(screened.filter { !$0.needsModel })
+                try await writer.setScreened(screened.filter(\.needsModel), markScreened: false)
+                let screenedAfter = Dictionary(screened.filter(\.needsModel).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
                 let classifier = MailClassifier(router: router)
                 let memory = try MemoryRetriever(reader: reader, embedModel: embedModel)  // 6.2: what the user taught
                 for (n, id) in ids.enumerated() {
@@ -1696,6 +1714,7 @@ final class AppModel {
                         try await writer.setClassification(messageID: id, category: c.category,
                                                            source: c.path == .onDevice ? .onDevice : .endpoint, model: c.model, reason: c.reason,
                                                            phishing: c.phishing, phishingReason: c.phishingReason, sources: c.sources)
+                        if let candidate = screenedAfter[id] { try await writer.setScreened([candidate]) }
                     } catch let error as AIError {
                         failed += 1
                         if case .notConfigured = error { throw error }
@@ -1705,7 +1724,8 @@ final class AppModel {
                     await MainActor.run { self?.actionProgress?.done = done; self?.actionProgress?.failed = f }
                 }
             } catch is CancellationError {
-                problem = String(localized: "Einordnen angehalten; was fertig war, bleibt.")
+                problem = String(localized: "Angehalten; was fertig war, bleibt.")
+                stopped = true
             } catch {
                 problem = "\(error)"
             }
@@ -1716,8 +1736,8 @@ final class AppModel {
                 self.actionProgress = nil
                 self.actionTask = nil
                 if let message {
-                    if automatic {  // quietly in the status line; no further automatic run this session
-                        self.autoJunkFailed = true
+                    if automatic {  // quietly in the status line; after a failure (not the user's stop) no further automatic run this session
+                        if !stopped { self.autoJunkFailed = true }
                         self.syncMessage = [self.syncMessage, String(localized: "Spam-Prüfung: \(message)")].compactMap { $0 }.joined(separator: "\n")
                     } else {
                         self.actionError = message

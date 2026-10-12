@@ -277,6 +277,11 @@ struct InboxSpamTests {
         #expect(byID[try id("n3")]?.needsModel == false)  // a newsletter
         #expect(candidates.count == 3)  // older mail and mail in Sent are not screened
 
+        // a stopped run: warnings stored, the model's candidates still open for the next run
+        try await writer.setScreened(candidates.filter { !$0.needsModel })
+        try await writer.setScreened(candidates.filter(\.needsModel), markScreened: false)
+        #expect(try r.screeningCandidates(since: Date.now.addingTimeInterval(-2 * 86_400), limit: 20).map(\.id) == [lure])
+        #expect(try r.messageIDs(MessageFilter(text: "is:verdächtig ")) == [lure])
         try await writer.setScreened(candidates)
         #expect(try r.screeningCandidates(since: Date.now.addingTimeInterval(-2 * 86_400), limit: 20).isEmpty)
         #expect(try r.screeningCandidates(since: Date.now.addingTimeInterval(-2 * 86_400), limit: 20, again: true).count == 3)

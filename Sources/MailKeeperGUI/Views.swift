@@ -35,6 +35,8 @@ struct ContentView: View {
                                 Button("Archiv öffnen …") { model.openArchive() }
                             if model.knownArchives.count > 1 {
                                 Menu("Archiv wechseln") { ArchiveMenuItems(model: model) }.fixedSize()
+                                    .disabled(model.archiveSwitchBlocked)
+                                    .help(model.archiveSwitchBlocked ? "Erst wenn die laufende Aktion fertig oder angehalten ist (× in der Statusleiste)" : "")
                             }
                             }
                         } else if let error = model.listError {

@@ -29,8 +29,11 @@ struct MailKeeperApp: App {
             CommandGroup(after: .newItem) {
                 Button("Archiv öffnen …") { model.openArchive() }
                     .keyboardShortcut("o", modifiers: [.command, .shift])
+                    .disabled(model.archiveSwitchBlocked)
                 Button("Neues Archiv anlegen …") { model.createArchive() }
+                    .disabled(model.archiveSwitchBlocked)
                 Menu("Archiv wechseln") { ArchiveMenuItems(model: model) }
+                    .disabled(model.archiveSwitchBlocked)
                 Menu("Importieren") {
                     ForEach(ImportKind.allCases) { kind in
                         Button(kind.title) { model.startImport(kind) }
