@@ -318,23 +318,47 @@ struct SelectionSummaryView: View {
             Image(systemName: "envelope.stack").font(.system(size: 40)).foregroundStyle(.secondary)
             Text("\(ids.count.formatted()) Mails ausgewählt").font(.title3.weight(.semibold))
             Text(bytes.formatted(.byteCount(style: .file))).foregroundStyle(.secondary)
-            HStack {
+            // TJ: one under the other, full text and a tooltip — side by side they were cut off
+            VStack(spacing: 6) {
                 if model.sidebarSelection == .trash {
-                    Button("Wiederherstellen") { model.restoreSelection() }
-                    Button("Endgültig löschen …", role: .destructive) { Task { await model.purgeSelection() } }
+                    action("Wiederherstellen", "arrow.uturn.backward", "Zurück aus dem Papierkorb ins Archiv") { model.restoreSelection() }
+                    action("Endgültig löschen …", "trash.slash", "Aus dem Archiv entfernen – nicht rückgängig zu machen; vorher kommt eine Übersicht",
+                           role: .destructive) { Task { await model.purgeSelection() } }
                 } else {
-                    Button("Auf dem Server löschen …") { model.planSelection(.serverDelete) }
-                    Button("Aus dem Archiv löschen …") { model.planSelection(.archiveDelete) }
-                    Button("Auf den Server zurückspielen …") { model.planSelection(.restore) }
+                    action("Auf dem Server löschen …", "server.rack",
+                           "In den Papierkorb des Servers verschieben – das Archiv behält die Mails; vorher kommt eine Übersicht") {
+                        model.planSelection(.serverDelete)
+                    }
+                    action("Aus dem Archiv löschen …", "archivebox",
+                           "In den Papierkorb des Archivs (30 Tage) – nur Mails, die auf keinem Server mehr liegen; vorher kommt eine Übersicht") {
+                        model.planSelection(.archiveDelete)
+                    }
+                    action("Auf den Server zurückspielen …", "arrow.up.to.line",
+                           "Mails, die nur noch im Archiv liegen, wieder auf einen Server hochladen; vorher kommt eine Übersicht") {
+                        model.planSelection(.restore)
+                    }
                 }
-                Button("Exportieren …") { model.exportSelection() }
+                action("Exportieren …", "square.and.arrow.up", "Als .eml-Dateien oder als eine mbox-Datei sichern") { model.exportSelection() }
                 if model.aiConfig.enabled {
-                    Button("Mit KI einordnen") { model.classifySelection() }
+                    action("Mit KI einordnen", "sparkles",
+                           "Die KI bestimmt Art und Phishing-Verdacht (höchstens \(AppModel.maxClassify) Mails); deine eigenen Entscheidungen bleiben") {
+                        model.classifySelection()
+                    }
                 }
             }
+            .frame(width: 280)
             .disabled(model.actionRunning)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func action(_ title: LocalizedStringKey, _ icon: String, _ help: LocalizedStringKey, role: ButtonRole? = nil,
+                        _ run: @escaping () -> Void) -> some View {
+        Button(role: role, action: run) {
+            Label(title, systemImage: icon).frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .controlSize(.large)
+        .help(help)
     }
 }
 
