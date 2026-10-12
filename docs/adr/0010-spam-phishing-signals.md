@@ -65,7 +65,10 @@ as context for unsolicited first contacts.
    the spam-folder check). `is:verdächtig` = phishing or spam by a model, or a stored warning,
    unless the user said "kein Spam" or gave another category; sidebar "Verdächtig" with
    "Posteingang prüfen" (14 / 90 / 365 days) for older mail. "Ist Spam → Spam-Ordner" per
-   ADR-0006 §9.
+   ADR-0006 §9. *"Einschätzung korrigieren" (6.4b, TJ):* the user calls a flagged mail genuine
+   (journalled "kein Spam"), may add a relation as the firm rule and a note for the sender's
+   domain, and have this mail and the other model-flagged mails of these domains judged again.
+   A Reply-To inside the same confirmed relation is no warning sign any more (paypal.de → paypal.com).
 7. **Later — report phishing:** forward a mail as a complete `.eml` attachment to an address the
    user configures (e.g. `phishing@verbraucherzentrale.nrw`). Needs a sending path (SMTP, not in
    MailKeeper yet); always explicit, per mail, logged.
