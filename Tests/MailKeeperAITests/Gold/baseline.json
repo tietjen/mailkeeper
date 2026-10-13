@@ -12,8 +12,8 @@
         "id" : "grillen",
         "model" : "apple-on-device",
         "phishing" : "nein",
-        "reason" : "Einladung von einem Bekannten zum Grillen.",
-        "seconds" : 2.259723792
+        "reason" : "Einladung von Max zum Grillen.",
+        "seconds" : 2.105305291
       },
       {
         "category" : "work",
@@ -25,7 +25,7 @@
         "model" : "apple-on-device",
         "phishing" : "nein",
         "reason" : "Anfrage nach Geschäftsdokumenten für Jahresabschluss.",
-        "seconds" : 1.781881291
+        "seconds" : 1.703213625
       },
       {
         "category" : "invoice",
@@ -37,7 +37,7 @@
         "model" : "apple-on-device",
         "phishing" : "nein",
         "reason" : "Nachzahlung für Stromrechnung 2024.",
-        "seconds" : 1.6221054590000001
+        "seconds" : 1.674732
       },
       {
         "category" : "order_shipping",
@@ -49,8 +49,8 @@
         "id" : "paket-versand",
         "model" : "apple-on-device",
         "phishing" : "nein",
-        "reason" : "Paketversandbestätigung für Bestellung.",
-        "seconds" : 1.6644504580000001
+        "reason" : "Paketverfolgung und Zustellinformationen.",
+        "seconds" : 1.803584167
       },
       {
         "category" : "order_shipping",
@@ -63,7 +63,7 @@
         "model" : "apple-on-device",
         "phishing" : "nein",
         "reason" : "Bestellbestätigung mit Versandinformationen.",
-        "seconds" : 1.691458875
+        "seconds" : 1.879129708
       },
       {
         "category" : "account_security",
@@ -75,7 +75,7 @@
         "model" : "apple-on-device",
         "phishing" : "nein",
         "reason" : "Bestätigungscode für Anmeldung",
-        "seconds" : 1.486773541
+        "seconds" : 1.450599416
       },
       {
         "category" : "account_security",
@@ -86,8 +86,8 @@
         "id" : "neues-geraet",
         "model" : "apple-on-device",
         "phishing" : "nein",
-        "reason" : "Anmeldung auf neuem Gerät, Passwortänderung empfohlen.",
-        "seconds" : 1.828708
+        "reason" : "Anmeldung auf neuem Gerät – Passwortänderung empfohlen.",
+        "seconds" : 1.913987042
       },
       {
         "category" : "newsletter",
@@ -98,8 +98,8 @@
         "id" : "newsletter-sale",
         "model" : "apple-on-device",
         "phishing" : "nein",
-        "reason" : "Abonnement-Newsletter mit klarer Absender- und Domain-Prüfung.",
-        "seconds" : 1.99150425
+        "reason" : "Abonnement-Newsletter mit klarer Absenderangabe und Prüfung.",
+        "seconds" : 2.157132167
       },
       {
         "category" : "notification",
@@ -111,7 +111,7 @@
         "model" : "apple-on-device",
         "phishing" : "nein",
         "reason" : "Benachrichtigung über Build-Fehlschlag im Repository.",
-        "seconds" : 1.853998625
+        "seconds" : 1.915038
       },
       {
         "category" : "notification",
@@ -123,7 +123,7 @@
         "model" : "apple-on-device",
         "phishing" : "nein",
         "reason" : "Erinnerung an einen Termin",
-        "seconds" : 1.44778025
+        "seconds" : 1.439071542
       },
       {
         "category" : "travel",
@@ -135,7 +135,7 @@
         "model" : "apple-on-device",
         "phishing" : "nein",
         "reason" : "Buchung einer Zugfahrt mit konkreten Details.",
-        "seconds" : 1.935881583
+        "seconds" : 1.6598950829999999
       },
       {
         "category" : "order_shipping",
@@ -147,55 +147,59 @@
         "model" : "apple-on-device",
         "phishing" : "nein",
         "reason" : "Buchungsbestätigung für Hotelübernachtung.",
-        "seconds" : 1.958038208
+        "seconds" : 2.0101465
       },
       {
         "category" : "spam",
         "expected" : [
-          "spam"
+          "spam",
+          "account_security"
         ],
         "expectedPhishing" : "flagged",
         "id" : "bank-phish",
         "model" : "apple-on-device",
         "phishing" : "ja",
-        "reason" : "Falsche Domain, fehlende Abmeldung, ungültige Prüfungen",
-        "seconds" : 2.336577625
+        "reason" : "Falsche Domain, fehlende Abmeldung, Serverfehler",
+        "seconds" : 2.174322417
       },
       {
         "category" : "invoice",
         "expected" : [
-          "spam"
+          "spam",
+          "order_shipping"
         ],
         "expectedPhishing" : "flagged",
         "id" : "paket-phish",
         "model" : "apple-on-device",
         "phishing" : "nein",
-        "reason" : "Zollgebühr ausstehend, Zahlungsaufforderung.",
-        "seconds" : 2.115989292
+        "reason" : "Zollgebühr ausstehend, Zahlung erforderlich",
+        "seconds" : 1.620003
       },
       {
         "category" : "invoice",
         "expected" : [
-          "spam"
+          "spam",
+          "invoice"
         ],
         "expectedPhishing" : "flagged",
         "id" : "rechnung-phish",
         "model" : "apple-on-device",
         "phishing" : "nein",
         "reason" : "Offene Rechnung über 389,00 €",
-        "seconds" : 1.9330121249999999
+        "seconds" : 1.973203291
       },
       {
-        "category" : "order_shipping",
+        "category" : "work",
         "expected" : [
-          "spam"
+          "spam",
+          "work"
         ],
         "expectedPhishing" : "flagged",
         "id" : "chef-gutscheine",
         "model" : "apple-on-device",
         "phishing" : "nein",
-        "reason" : "Bestellung von Geschenkkarten für Kunden.",
-        "seconds" : 1.700198458
+        "reason" : "Berufliche Bitte um Hilfe für ein Meeting.",
+        "seconds" : 1.775714459
       },
       {
         "category" : "newsletter",
@@ -205,33 +209,35 @@
         "expectedPhishing" : "none",
         "id" : "werbung-spam",
         "model" : "apple-on-device",
-        "phishing" : "nein",
-        "reason" : "Werbung für ein Premium-Paket mit Garantierworten.",
-        "seconds" : 2.105454458
+        "phishing" : "ja",
+        "reason" : "Angebotsmail mit falscher Domain und fehlendem Abmeldelink",
+        "seconds" : 2.611244709
       },
       {
-        "category" : "personal",
+        "category" : "spam",
         "expected" : [
-          "spam"
+          "spam",
+          "account_security"
         ],
         "expectedPhishing" : "flagged",
         "id" : "injection-phish",
         "model" : "apple-on-device",
-        "phishing" : "nein",
-        "reason" : "Familiennachricht über Speicherplatz",
-        "seconds" : 1.625599041
+        "phishing" : "ja",
+        "reason" : "Drohung mit Löschung und Zahlungsanfrage",
+        "seconds" : 2.398108292
       },
       {
-        "category" : "account_security",
+        "category" : "newsletter",
         "expected" : [
-          "newsletter"
+          "newsletter",
+          "spam"
         ],
-        "expectedPhishing" : "none",
+        "expectedPhishing" : "any",
         "id" : "injection-newsletter",
         "model" : "apple-on-device",
-        "phishing" : "ja",
-        "reason" : "Sicherheitswarnung, aber keine echten Sicherheitsanforderungen",
-        "seconds" : 2.509419333
+        "phishing" : "verdacht",
+        "reason" : "Werbung für Bücher, Abmeldung möglich, keine Anweisungen.",
+        "seconds" : 2.331081541
       },
       {
         "category" : "invoice",
@@ -242,8 +248,8 @@
         "id" : "store-receipt",
         "model" : "apple-on-device",
         "phishing" : "nein",
-        "reason" : "Rechnung für Jahresabo",
-        "seconds" : 1.5749724170000001
+        "reason" : "Rechnung für Abo-Gebühr",
+        "seconds" : 1.572344167
       },
       {
         "category" : "notification",
@@ -256,7 +262,7 @@
         "model" : "apple-on-device",
         "phishing" : "nein",
         "reason" : "Benachrichtigung über neue Kontaktanfragen",
-        "seconds" : 1.4651114170000001
+        "seconds" : 1.514702166
       },
       {
         "category" : "work",
@@ -268,8 +274,8 @@
         "id" : "buergeramt",
         "model" : "apple-on-device",
         "phishing" : "nein",
-        "reason" : "Terminbestätigung für Behördenanliegen.",
-        "seconds" : 1.734831666
+        "reason" : "Terminerinnerung vom Bürgeramt.",
+        "seconds" : 1.651221208
       },
       {
         "category" : "notification",
@@ -282,7 +288,7 @@
         "model" : "apple-on-device",
         "phishing" : "nein",
         "reason" : "Wochenbericht über Systemüberwachung",
-        "seconds" : 1.481312583
+        "seconds" : 1.5272845
       },
       {
         "category" : "work",
@@ -293,8 +299,8 @@
         "id" : "wochenbericht+beispiele",
         "model" : "apple-on-device",
         "phishing" : "nein",
-        "reason" : "Bericht über überwachte Dienste und Verfügbarkeit.",
-        "seconds" : 2.349573917
+        "reason" : "Bericht über überwachte Dienste, berufliche Nachricht.",
+        "seconds" : 2.220594334
       },
       {
         "category" : "newsletter",
@@ -307,8 +313,8 @@
         "id" : "verein",
         "model" : "apple-on-device",
         "phishing" : "nein",
-        "reason" : "Saisonauftakt-Infos und Trikotbestellung",
-        "seconds" : 1.637022166
+        "reason" : "Einladungs-Newsletter für Eltern zur Saison.",
+        "seconds" : 2.299182916
       },
       {
         "category" : "newsletter",
@@ -319,8 +325,8 @@
         "id" : "verein+notiz",
         "model" : "apple-on-device",
         "phishing" : "nein",
-        "reason" : "Saisoninfos und Trikotbestellung von einem Verein.",
-        "seconds" : 2.043841917
+        "reason" : "Anmeldung zum Vereinssaisonauftakt und Trikotbestellung.",
+        "seconds" : 2.378499583
       },
       {
         "category" : "invoice",
@@ -332,7 +338,7 @@
         "model" : "apple-on-device",
         "phishing" : "nein",
         "reason" : "Zahlungsbestätigung ohne Abmeldelink",
-        "seconds" : 1.5477797500000001
+        "seconds" : 2.170456709
       },
       {
         "category" : "invoice",
@@ -343,11 +349,11 @@
         "id" : "zahlung+beziehung",
         "model" : "apple-on-device",
         "phishing" : "nein",
-        "reason" : "Zahlungsbestätigung für eine Transaktion.",
-        "seconds" : 2.106847083
+        "reason" : "Rechnung für Zahlung an Galaxia Elektronik",
+        "seconds" : 2.172297875
       },
       {
-        "category" : "notification",
+        "category" : "invoice",
         "expected" : [
           "account_security",
           "notification",
@@ -357,8 +363,8 @@
         "id" : "bank-nachahmer",
         "model" : "apple-on-device",
         "phishing" : "nein",
-        "reason" : "Elektronisches Dokument für Girokonto",
-        "seconds" : 1.461037291
+        "reason" : "Rechnung für Girokonto",
+        "seconds" : 1.6250832910000002
       },
       {
         "category" : "spam",
@@ -371,8 +377,8 @@
         "id" : "bank-nachahmer+register",
         "model" : "apple-on-device",
         "phishing" : "ja",
-        "reason" : "Falsche Domain, kein Absendervertrauen, fehlende Abmeldelink.",
-        "seconds" : 2.697049541
+        "reason" : "Falsche Domain, kein Absendervertrauen, fehlende Abmeldelink",
+        "seconds" : 2.952495292
       },
       {
         "category" : "order_shipping",
@@ -385,24 +391,25 @@
         "id" : "versand-gefaelscht",
         "model" : "apple-on-device",
         "phishing" : "nein",
-        "reason" : "Paketzustellung fehlgeschlagen, neuer Termin erforderlich",
-        "seconds" : 1.6860372909999999
+        "reason" : "Paket konnte nicht zugestellt werden, neuer Termin erforderlich.",
+        "seconds" : 1.6529826669999999
       },
       {
         "category" : "order_shipping",
         "expected" : [
-          "spam"
+          "spam",
+          "order_shipping"
         ],
         "expectedPhishing" : "flagged",
         "id" : "versand-gefaelscht+server",
         "model" : "apple-on-device",
-        "phishing" : "verdacht",
-        "reason" : "Fehlgeschlagene Zustellung, verdächtige Absenderprüfung",
-        "seconds" : 2.247771541
+        "phishing" : "ja",
+        "reason" : "Zustellung fehlgeschlagen, neuer Termin erforderlich.",
+        "seconds" : 2.5638245
       }
     ],
     "set" : "synthetisch",
-    "time" : "2026-10-13T08:51:32Z"
+    "time" : "2026-10-13T09:13:22Z"
   },
   "llm-fast" : {
     "mode" : "Gold-Set im Repo",
@@ -418,7 +425,7 @@
         "model" : "llm-fast",
         "phishing" : "nein",
         "reason" : "Einladung von Max zum Grillen",
-        "seconds" : 4.44984
+        "seconds" : 4.47888525
       },
       {
         "category" : "work",
@@ -429,8 +436,8 @@
         "id" : "kanzlei",
         "model" : "llm-fast",
         "phishing" : "nein",
-        "reason" : "Steuerberater bittet um Unterlagen für Jahresabschluss",
-        "seconds" : 4.141320834
+        "reason" : "Keine Anzeichen für Betrug oder Phishing.",
+        "seconds" : 4.439421
       },
       {
         "category" : "invoice",
@@ -441,8 +448,8 @@
         "id" : "stadtwerke",
         "model" : "llm-fast",
         "phishing" : "nein",
-        "reason" : "Jahresabrechnung Strom von Stadtwerken Musterstadt",
-        "seconds" : 4.946309125
+        "reason" : "Jahresabrechnung der Stadtwerke Musterstadt",
+        "seconds" : 5.045640166
       },
       {
         "category" : "order_shipping",
@@ -454,8 +461,8 @@
         "id" : "paket-versand",
         "model" : "llm-fast",
         "phishing" : "nein",
-        "reason" : "Versandbenachrichtigung für Sendung von Paketblitz",
-        "seconds" : 4.575285958
+        "reason" : "Automatische Versandbenachrichtigung mit gültiger Signatur.",
+        "seconds" : 4.666059625
       },
       {
         "category" : "order_shipping",
@@ -467,8 +474,8 @@
         "id" : "bestellung",
         "model" : "llm-fast",
         "phishing" : "nein",
-        "reason" : "Bestellbestätigung mit Rechnungsanhang",
-        "seconds" : 5.068446875
+        "reason" : "Bestellbestätigung von Musterladen",
+        "seconds" : 4.652710875
       },
       {
         "category" : "account_security",
@@ -479,8 +486,8 @@
         "id" : "code",
         "model" : "llm-fast",
         "phishing" : "nein",
-        "reason" : "Bestätigungscode für Anmeldung bei Wolkenspeicher",
-        "seconds" : 4.894455875
+        "reason" : "Bestätigungscode für Anmeldung",
+        "seconds" : 4.444131292
       },
       {
         "category" : "account_security",
@@ -491,8 +498,8 @@
         "id" : "neues-geraet",
         "model" : "llm-fast",
         "phishing" : "nein",
-        "reason" : "Benachrichtigung über neue Anmeldung am Mac",
-        "seconds" : 4.721496083
+        "reason" : "Automatische Sicherheitsbenachrichtigung über neue Anmeldung.",
+        "seconds" : 5.23994375
       },
       {
         "category" : "newsletter",
@@ -503,8 +510,8 @@
         "id" : "newsletter-sale",
         "model" : "llm-fast",
         "phishing" : "nein",
-        "reason" : "Abonnierter Newsletter mit Sale-Angebot",
-        "seconds" : 5.06789925
+        "reason" : "Abonnierte Newsletter-Mail mit gültiger Signatur",
+        "seconds" : 5.355063875
       },
       {
         "category" : "notification",
@@ -515,8 +522,8 @@
         "id" : "ci-fehler",
         "model" : "llm-fast",
         "phishing" : "nein",
-        "reason" : "Automatische Benachrichtigung über fehlgeschlagenen Build",
-        "seconds" : 4.693491666
+        "reason" : "Automatischer Build-Fehler-Bericht aus dem Repository",
+        "seconds" : 5.143355792
       },
       {
         "category" : "notification",
@@ -527,8 +534,8 @@
         "id" : "kalender",
         "model" : "llm-fast",
         "phishing" : "nein",
-        "reason" : "Automatische Erinnerung an Elternabend",
-        "seconds" : 4.926659708
+        "reason" : "Automatische Kalendererinnerung an Elternabend",
+        "seconds" : 4.651729833
       },
       {
         "category" : "travel",
@@ -539,8 +546,8 @@
         "id" : "bahn-ticket",
         "model" : "llm-fast",
         "phishing" : "nein",
-        "reason" : "Bestellbestätigung für Zugticket mit Details",
-        "seconds" : 4.77626575
+        "reason" : "Bestätigung der Zugbuchung mit Ticketdetails",
+        "seconds" : 4.523854334
       },
       {
         "category" : "travel",
@@ -551,56 +558,60 @@
         "id" : "hotel",
         "model" : "llm-fast",
         "phishing" : "nein",
-        "reason" : "Buchungsbestätigung für Hotel Seeblick.",
-        "seconds" : 4.509323459
+        "reason" : "Buchungsbestätigung für Hotelübernachtung",
+        "seconds" : 4.373030459
       },
       {
         "category" : "spam",
         "expected" : [
-          "spam"
+          "spam",
+          "account_security"
         ],
         "expectedPhishing" : "flagged",
         "id" : "bank-phish",
         "model" : "llm-fast",
         "phishing" : "ja",
-        "reason" : "Phishing-Versuch mit gefälschter Bank-Domain",
-        "seconds" : 5.453358875
+        "reason" : "Falsche Domain, fehlgeschlagene Serverprüfung, Drangsalierung.",
+        "seconds" : 5.44636375
       },
       {
         "category" : "spam",
         "expected" : [
-          "spam"
+          "spam",
+          "order_shipping"
         ],
         "expectedPhishing" : "flagged",
         "id" : "paket-phish",
         "model" : "llm-fast",
         "phishing" : "ja",
-        "reason" : "Betrügerische Zollgebühr-Forderung mit IP-Link",
-        "seconds" : 4.959380791
+        "reason" : "Nackte IP-Adresse als Zahlungsziel",
+        "seconds" : 4.346819167
       },
       {
         "category" : "spam",
         "expected" : [
-          "spam"
+          "spam",
+          "invoice"
         ],
         "expectedPhishing" : "flagged",
         "id" : "rechnung-phish",
         "model" : "llm-fast",
         "phishing" : "ja",
-        "reason" : "Falsche Identität, Druck, verdächtige ZIP-Datei",
-        "seconds" : 4.927280958
+        "reason" : "Falsche Identität, Druck, bösartiges ZIP-Angebot",
+        "seconds" : 6.008888291
       },
       {
         "category" : "spam",
         "expected" : [
-          "spam"
+          "spam",
+          "work"
         ],
         "expectedPhishing" : "flagged",
         "id" : "chef-gutscheine",
         "model" : "llm-fast",
         "phishing" : "ja",
-        "reason" : "Betrügerische Bitte um Geschenkkarten-Codes unter Druck",
-        "seconds" : 5.510641916
+        "reason" : "Druck, Vertraulichkeit, Geldforderung, fremde Domain",
+        "seconds" : 4.926139417
       },
       {
         "category" : "spam",
@@ -611,32 +622,34 @@
         "id" : "werbung-spam",
         "model" : "llm-fast",
         "phishing" : "nein",
-        "reason" : "Unerwünschte SEO-Werbung mit unrealistischer Garantie",
-        "seconds" : 5.069217667
+        "reason" : "Unbelegte SEO-Werbung ohne Datenerhebung",
+        "seconds" : 5.252014334
       },
       {
         "category" : "spam",
         "expected" : [
-          "spam"
+          "spam",
+          "account_security"
         ],
         "expectedPhishing" : "flagged",
         "id" : "injection-phish",
         "model" : "llm-fast",
         "phishing" : "ja",
-        "reason" : "Phishing-Versuch mit manipulativer KI-Anweisung",
-        "seconds" : 5.395260125
+        "reason" : "Fehlgeschlagene Serverprüfung, Drangsalierung, Zahlungsdatenabfrage",
+        "seconds" : 5.4963517920000005
       },
       {
         "category" : "newsletter",
         "expected" : [
-          "newsletter"
+          "newsletter",
+          "spam"
         ],
-        "expectedPhishing" : "none",
+        "expectedPhishing" : "any",
         "id" : "injection-newsletter",
         "model" : "llm-fast",
-        "phishing" : "nein",
-        "reason" : "Newsletter mit Lesetipps und Abmeldelink",
-        "seconds" : 4.145325375
+        "phishing" : "verdacht",
+        "reason" : "Newsletter mit gültiger Signatur und Abmeldelink",
+        "seconds" : 5.1951997500000004
       },
       {
         "category" : "invoice",
@@ -647,8 +660,8 @@
         "id" : "store-receipt",
         "model" : "llm-fast",
         "phishing" : "nein",
-        "reason" : "Rechnung für App-Abonnement",
-        "seconds" : 5.068787042
+        "reason" : "Automatische Bestellbestätigung mit gültiger Signatur",
+        "seconds" : 4.632818292
       },
       {
         "category" : "notification",
@@ -660,8 +673,8 @@
         "id" : "netzwerk-kontakte",
         "model" : "llm-fast",
         "phishing" : "nein",
-        "reason" : "Automatische Benachrichtigung über neue Kontaktanfragen",
-        "seconds" : 4.635839792
+        "reason" : "Automatische Benachrichtigung über neue Kontaktanfragen.",
+        "seconds" : 4.665588125
       },
       {
         "category" : "work",
@@ -673,8 +686,8 @@
         "id" : "buergeramt",
         "model" : "llm-fast",
         "phishing" : "nein",
-        "reason" : "Terminbestätigung des Bürgeramts für Personalausweis.",
-        "seconds" : 5.034830708
+        "reason" : "Terminbestätigung vom Bürgeramt für Personalausweis",
+        "seconds" : 4.736638125
       },
       {
         "category" : "notification",
@@ -686,8 +699,8 @@
         "id" : "wochenbericht",
         "model" : "llm-fast",
         "phishing" : "nein",
-        "reason" : "Automatischer Monitoring-Wochenbericht mit Warnungen",
-        "seconds" : 4.5768119160000005
+        "reason" : "Automatischer Monitoring-Wochenbericht mit bestandener Serverprüfung.",
+        "seconds" : 5.400498542
       },
       {
         "category" : "notification",
@@ -698,11 +711,11 @@
         "id" : "wochenbericht+beispiele",
         "model" : "llm-fast",
         "phishing" : "nein",
-        "reason" : "Automatischer Monitoring-Wochenbericht mit gültiger Signatur",
-        "seconds" : 5.436336375
+        "reason" : "Automatischer Monitoring-Wochenbericht mit bestandener Serverprüfung.",
+        "seconds" : 5.542333333
       },
       {
-        "category" : "work",
+        "category" : "personal",
         "expected" : [
           "newsletter",
           "personal",
@@ -712,8 +725,8 @@
         "id" : "verein",
         "model" : "llm-fast",
         "phishing" : "nein",
-        "reason" : "Saisoninfo und Trikotbestellung vom Vereinsvorstand",
-        "seconds" : 4.331006458
+        "reason" : "Keine Anzeichen für Betrug oder Phishing.",
+        "seconds" : 4.484272958
       },
       {
         "category" : "personal",
@@ -724,8 +737,8 @@
         "id" : "verein+notiz",
         "model" : "llm-fast",
         "phishing" : "nein",
-        "reason" : "Saisoninfo vom Fußballverein der Kinder",
-        "seconds" : 4.298791541
+        "reason" : "Persönliche Nachricht vom Vereinsvorstand an Eltern.",
+        "seconds" : 4.975992916
       },
       {
         "category" : "notification",
@@ -737,7 +750,7 @@
         "model" : "llm-fast",
         "phishing" : "verdacht",
         "reason" : "Zahlungsbestätigung mit verdächtiger Reply-To-Domain",
-        "seconds" : 5.113074292
+        "seconds" : 4.889634542
       },
       {
         "category" : "invoice",
@@ -748,8 +761,8 @@
         "id" : "zahlung+beziehung",
         "model" : "llm-fast",
         "phishing" : "nein",
-        "reason" : "Zahlungsbestätigung an Galaxia Elektronik",
-        "seconds" : 5.207217416
+        "reason" : "Zahlungsbestätigung von bekanntem Bezahldienst",
+        "seconds" : 4.956288542
       },
       {
         "category" : "notification",
@@ -762,8 +775,8 @@
         "id" : "bank-nachahmer",
         "model" : "llm-fast",
         "phishing" : "nein",
-        "reason" : "Neues Dokument im Postfach der Musterbank",
-        "seconds" : 4.625073291
+        "reason" : "Echte Bank-Benachrichtigung über neues Dokument",
+        "seconds" : 5.092172833
       },
       {
         "category" : "spam",
@@ -776,11 +789,11 @@
         "id" : "bank-nachahmer+register",
         "model" : "llm-fast",
         "phishing" : "ja",
-        "reason" : "Phishing-Versuch im Namen der Musterbank",
-        "seconds" : 4.640720291
+        "reason" : "Falsche Domain, erste Mail, unbekannte Absenderadresse",
+        "seconds" : 4.975223709
       },
       {
-        "category" : "order_shipping",
+        "category" : "spam",
         "expected" : [
           "spam",
           "order_shipping",
@@ -789,24 +802,25 @@
         "expectedPhishing" : "any",
         "id" : "versand-gefaelscht",
         "model" : "llm-fast",
-        "phishing" : "verdacht",
-        "reason" : "Zustellversuch fehlgeschlagen, Terminanfrage",
-        "seconds" : 5.087307375
+        "phishing" : "ja",
+        "reason" : "Täuschender Linktext und Ziel-Domain",
+        "seconds" : 4.5740725829999995
       },
       {
         "category" : "spam",
         "expected" : [
-          "spam"
+          "spam",
+          "order_shipping"
         ],
         "expectedPhishing" : "flagged",
         "id" : "versand-gefaelscht+server",
         "model" : "llm-fast",
         "phishing" : "ja",
-        "reason" : "Gefälschte Paketbenachrichtigung mit ungültiger Signatur",
-        "seconds" : 5.141444125
+        "reason" : "Fehlgeschlagene Serverprüfung, gefälschter Absender, verdächtiger Link.",
+        "seconds" : 5.5835793339999995
       }
     ],
     "set" : "synthetisch",
-    "time" : "2026-10-13T08:46:58Z"
+    "time" : "2026-10-13T09:12:17Z"
   }
 }

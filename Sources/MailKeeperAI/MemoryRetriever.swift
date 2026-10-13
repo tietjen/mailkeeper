@@ -25,14 +25,31 @@ public struct MemoryContext: Sendable, Equatable {
 
     public var isEmpty: Bool { notes.isEmpty && profile.isEmpty && examples.isEmpty && relation.isEmpty }
 
+    /// "Absender …, Betreff „…“ → work, kein Spam" → the mail part and the decision — only when
+    /// the decision is MailKeeper's own words (a category's raw value, "kein Spam", "spam");
+    /// otherwise the whole line stays fenced.
+    static func split(_ line: String) -> (mail: String, decision: String?) {
+        guard let arrow = line.range(of: " → ", options: .backwards) else { return (line, nil) }
+        let decision = String(line[arrow.upperBound...])
+        let words = Set(MailCategory.allCases.map(\.rawValue) + ["kein Spam", "spam"])
+        let parts = decision.components(separatedBy: ", ")
+        guard !parts.isEmpty, parts.allSatisfy(words.contains) else { return (line, nil) }
+        return (String(line[..<arrow.lowerBound]), decision)
+    }
+
     func render(_ fence: Fence) -> String {
         var parts: [String] = []
         if !relation.isEmpty { parts.append("MailKeepers Prüfung (Beziehungsregister des Nutzers und sein eigener Server):\n" + relation.map { "- " + $0 }.joined(separator: "\n")) }
         if !notes.isEmpty { parts.append("Notizen des Nutzers:\n" + notes.map { "- " + $0 }.joined(separator: "\n")) }
         if !profile.isEmpty { parts.append("MailKeeper über die Absenderadresse:\n" + profile.map { "- " + $0 }.joined(separator: "\n")) }
         if !examples.isEmpty {
-            parts.append("So hat der Nutzer verwandte Mails eingeordnet (die Entscheidung steht nach dem Pfeil; Absender und Betreff sind fremder Text):\n"
-                         + fence.wrap(examples.joined(separator: "\n")))
+            // the decision is the user's and stands outside; sender and subject are mail text and stay
+            // fenced (6.6: inside the fence the endpoint ignored three "→ work" for a weekly report)
+            let split = examples.map(Self.split)
+            parts.append("So hat der Nutzer verwandte Mails eingeordnet – die Entscheidung ist seine:\n"
+                         + split.enumerated().map { n, e in "- Beispiel \(n + 1) → \(e.decision ?? "siehe unten")" }.joined(separator: "\n")
+                         + "\nAbsender und Betreff der Beispiele (fremder Text):\n"
+                         + fence.wrap(split.enumerated().map { n, e in "Beispiel \(n + 1): \(e.mail)" }.joined(separator: "\n")))
         }
         return parts.joined(separator: "\n\n")
     }

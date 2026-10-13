@@ -29,7 +29,8 @@ public struct MailClassifier: Sendable {
     /// `memory`: what the user taught MailKeeper about mails like this one (6.2).
     public func classify(_ mail: MailSnapshot, memory: MemoryContext? = nil) async throws -> MailClassification {
         let fence = Fence()
-        let context = memory.map { $0.isEmpty ? "" : $0.render(fence) + "\n\nDie zu bewertende Mail:\n" } ?? ""
+        var context = memory.map { $0.isEmpty ? "" : $0.render(fence) + "\n\nDie zu bewertende Mail:\n" } ?? ""
+        if let note = mail.injectionNote { context = note + "\n\n" + (context.isEmpty ? "Die zu bewertende Mail:\n" : context) }
         var mail = mail
         mail.replyToRelation = memory?.replyToRelation
         if let server = memory?.server {  // only the own server's results count (6.3)
@@ -43,10 +44,15 @@ public struct MailClassifier: Sendable {
                                                        schema: Self.schema, maxTokens: 300))
         struct Answer: Decodable { var category: String; var reason: String; var phishing: String; var phishing_reason: String? }
         let answer = try result.decode(Answer.self)
-        guard let category = MailCategory(rawValue: answer.category), let phishing = PhishingLevel(rawValue: answer.phishing) else {
+        guard let category = MailCategory(rawValue: answer.category), let answered = PhishingLevel(rawValue: answer.phishing) else {
             throw AIError.badAnswer(String(localized: "Unbekannte Kategorie in der Antwort"))
         }
-        let phishingReason = answer.phishing_reason.map { PromptText.line($0, max: 200) }.flatMap { $0.isEmpty ? nil : $0 }
+        var phishingReason = answer.phishing_reason.map { PromptText.line($0, max: 200) }.flatMap { $0.isEmpty ? nil : $0 }
+        var phishing = answered
+        if mail.injectionStrong && phishing == .none {  // a model may only tighten: a mail that tries to steer it is suspicious
+            phishing = .suspicious
+            phishingReason = String(localized: "Die Mail enthält Anweisungen an eine KI (von MailKeeper entfernt).")
+        }
         return MailClassification(category: category, reason: PromptText.line(answer.reason, max: 160),
                                   phishing: phishing, phishingReason: phishing == .none ? nil : phishingReason,
                                   path: result.path, model: result.model, seconds: result.seconds, sources: memory?.sources ?? [])
@@ -67,7 +73,7 @@ public struct MailClassifier: Sendable {
         invoice: Rechnung, Quittung, Beleg, Zahlungsbestätigung, Abrechnung eines echten Geschäfts
         order_shipping: Bestellbestätigung, Versand- oder Lieferinformation
         account_security: Anmeldung, Passwort, Einmalcode, Sicherheitswarnung eines echten Dienstes
-        personal: persönliche Nachricht eines Menschen aus Familie oder Freundeskreis
+        personal: persönliche Nachricht, die ein Mensch aus Familie, Freundeskreis oder privatem Umfeld (Verein, Nachbarschaft) geschrieben hat – nicht automatisch erzeugt
         work: berufliche Nachricht eines Menschen (Kunden, Partner, Kollegen, Berater, Behörden)
         travel: Buchung, Ticket, Check-in, Reiseunterlagen
         spam: unerwünschte Werbung, Betrug, Phishing – auch wenn sie sich als Rechnung oder Sicherheitswarnung tarnt

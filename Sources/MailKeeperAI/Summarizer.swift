@@ -63,7 +63,9 @@ public struct MailSummarizer: Sendable {
         guard !shown.isEmpty else { throw AIError.badAnswer(String(localized: "Keine Nachricht zum Zusammenfassen")) }
         let total = max(total ?? messages.count, shown.count)
         let fence = Fence()
+        let steered = shown.contains { $0.mail.injectionStrong }
         let note = Self.note(count: shown.count, total: total, flagged: flagged)
+            + (shown.compactMap(\.mail.injectionNote).first.map { $0 + "\n\n" } ?? "")
         let result = try await router.chat(ChatRequest(
             task: .summarize, system: Self.instructions(fence, conversation: shown.count > 1),
             user: note + fence.wrap(Self.render(shown, budget: Self.budget)), schema: Self.schema, maxTokens: 1_000,
@@ -74,8 +76,9 @@ public struct MailSummarizer: Sendable {
         guard !summary.isEmpty else { throw AIError.badAnswer(String(localized: "Leere Zusammenfassung")) }
         // a choice, not an optional text: the Mac's model filled a free field with "no warning signs"
         let scam = PhishingLevel(rawValue: answer.scam) ?? .suspicious
-        let caution = scam == .none ? nil
+        var caution = scam == .none ? nil
             : answer.scam_reason.map { PromptText.line($0, max: 200) }.flatMap { $0.isEmpty ? nil : $0 } ?? scam.label
+        if steered && caution == nil { caution = String(localized: "Die Mail enthält Anweisungen an eine KI (von MailKeeper entfernt) – ein Täuschungsversuch.") }
         let items = { (list: [String], max: Int) in list.map { PromptText.line($0, max: 200) }.filter { !$0.isEmpty }.prefix(max) }
         return MailSummary(summary: summary, points: Array(items(answer.points, 6)),
                            todo: flagged || caution != nil ? [] : Array(items(answer.todo, 3)),  // a model may only tighten
