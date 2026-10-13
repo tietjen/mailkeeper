@@ -86,6 +86,29 @@ Settings › Regeln, Gedächtnis, "Warum?" — takes its labels with it; the rul
 in parentheses (an OR stays inside) and set-based, and a query the parser no longer takes stops
 only its own rule.
 
+*As built (6.6, 2026-10-13):* two gold sets, one runner (`MailKeeperAI/Gold.swift`). **In the
+repo** (`Tests/MailKeeperAITests/Gold`): 27 fictional mails as `.eml` files and 32 cases in
+`cases.json` — every category, phishing, spam without phishing, two prompt injections, and five
+pairs of one mail without and with memory (examples, a note, a confirmed relation, a look-alike
+in the register, the own server's dmarc=fail); the label is a list of acceptable categories (a
+phishing mail may carry its disguise — the phishing flag is judged apart) and a phishing
+expectation. Offline checks always run (well-formed, every address made up); the live run
+(`MAILKEEPER_AI=1 MAILKEEPER_GOLD=1`) compares with `baseline.json` per model. Models do not
+answer alike twice even at temperature 0 (two of 32 flipped between three identical runs), so
+the category may lose two mails before a run counts as worse; phishing caught and false alarms
+may not move. **In the user's archive**: labels from Settings › Messung (one mail per sender
+domain, in turn from every bucket; MailKeeper's own category hidden while labelling) are stored
+by identity in `gold.json` beside the archive — never journalled, never in the memory, so a run
+with memory cannot see its own answer. A run measures "MailKeeper heute" (what the archive
+shows, no model), the model without and with memory, and keeps each run in `gold-runs.jsonl`.
+First findings on the repo set: llm-fast 29/32 (phishing 7/7, no false alarm); the Mac's model
+24/32, phishing 3/7, and it followed both injections — hence `PromptInjection` (passages that
+address an AI are removed before any model reads the mail and reported outside the fence;
+strong signs make it at least "Verdacht"), example decisions outside the fence, and a sharper
+`personal`; other prompt tweaks measured no gain and were dropped. Now llm-fast 30/32, the
+Mac's model 25/32. Examples do not override a strong category (a monitoring report stays a
+notification against three "→ work"): that is what rules (6.5b) are for.
+
 ## Consequences
 
 - Memory never leaves the Mac except as prompt context to the configured local endpoint.
