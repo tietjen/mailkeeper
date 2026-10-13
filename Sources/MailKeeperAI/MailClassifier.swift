@@ -75,7 +75,7 @@ public struct MailClassifier: Sendable {
         account_security: Anmeldung, Passwort, Einmalcode, Sicherheitswarnung eines echten Dienstes
         personal: persönliche Nachricht, die ein Mensch aus Familie, Freundeskreis oder privatem Umfeld (Verein, Nachbarschaft) geschrieben hat – nicht automatisch erzeugt
         work: berufliche Nachricht eines Menschen (Kunden, Partner, Kollegen, Berater, Behörden)
-        travel: Buchung, Ticket, Check-in, Reiseunterlagen
+        travel: Buchung oder Ticket für unterwegs – Bahn, Flug, Hotel, Ferienwohnung, Mietwagen, Check-in, Reiseunterlagen (nicht Friseur, Kurs, Restaurant)
         spam: unerwünschte Werbung, Betrug, Phishing – auch wenn sie sich als Rechnung oder Sicherheitswarnung tarnt
         Die Begründung ist ein Stichwortsatz von höchstens zehn Wörtern, z. B. „Einladung von Max zum Grillen“.
 

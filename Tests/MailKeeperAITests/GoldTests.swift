@@ -96,6 +96,9 @@ struct GoldSetTests {
         // the category may wobble by the tolerance, phishing may not
         let oneFlip = GoldReport(set: "t", mode: "m", model: "x", outcomes: [o("a", [.work], .personal)] + before.outcomes.dropFirst())
         #expect(oneFlip.comparison(since: before).worse.isEmpty && oneFlip.comparison(since: before, tolerance: 0).worse.count == 1)
+        let missedOne = GoldReport(set: "t", mode: "m", model: "x", outcomes: before.outcomes.map { o in
+            var o = o; if o.id == "b" { o.phishing = PhishingLevel.none }; return o })
+        #expect(missedOne.comparison(since: before, tolerance: 4).worse.count == 1 && missedOne.comparison(since: before, tolerance: 4, phishingTolerance: 1).worse.isEmpty)
     }
 }
 
@@ -104,7 +107,7 @@ struct GoldSetTests {
 @Suite("AILive gold", .enabled(if: ProcessInfo.processInfo.environment["MAILKEEPER_AI"] == "1"
                                && ProcessInfo.processInfo.environment["MAILKEEPER_GOLD"] == "1"), .serialized)
 struct AILiveGoldTests {
-    func run(_ config: AIConfig, key: String?, model: String, mustAnswer: Bool = false) async throws {
+    func run(_ config: AIConfig, key: String?, model: String, mustAnswer: Bool = false, phishingTolerance: Int = 0) async throws {
         let classifier = MailClassifier(router: AIRouter(config: config, apiKey: key, log: AICallLog(url: tempDir().appending(path: "ai.jsonl"))))
         let report = await GoldRunner(classifier: classifier).run(try GoldSet.cases().map(\.item), set: "synthetisch", mode: "Gold-Set im Repo", model: model)
         for line in report.summary + report.misses { print(line) }
@@ -112,7 +115,7 @@ struct AILiveGoldTests {
             try GoldSet.save(report)
             print("als Basislinie gesichert: \(GoldSet.baselineURL.lastPathComponent)")
         } else if let base = GoldSet.baseline()[model] {
-            let (worse, flips) = report.comparison(since: base)
+            let (worse, flips) = report.comparison(since: base, phishingTolerance: phishingTolerance)
             for line in flips { print("seit der Basislinie: \(line)") }
             for line in worse { print("Rückschritt: \(line)") }
             #expect(worse.isEmpty, "\(worse)")
@@ -131,7 +134,7 @@ struct AILiveGoldTests {
     // down a club's mail with a note about the children) — that counts as wrong, not as a failure
 
     @Test(.enabled(if: OnDeviceProvider.availability.available)) func theMacsModel() async throws {
-        try await run(AIConfig(enabled: true, endpoint: nil), key: nil, model: "apple-on-device")
+        try await run(AIConfig(enabled: true, endpoint: nil), key: nil, model: "apple-on-device", phishingTolerance: 1)
     }
 }
 

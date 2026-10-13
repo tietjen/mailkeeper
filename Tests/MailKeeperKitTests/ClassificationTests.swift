@@ -20,7 +20,11 @@ struct ClassificationTests {
         #expect(rule("billing@telekom.example", "Ihre Rechnung für März", pdf: true) == .invoice)
         #expect(rule("billing@telekom.example", "Ihre Rechnung für März") == nil)  // no PDF: a model decides
         #expect(rule("shop@amazon.example", "Ihre Bestellung wurde versandt") == .orderShipping)
-        #expect(rule("buchung@bahn.example", "Ihre Buchungsbestätigung") == .travel)
+        #expect(rule("buchung@bahn.example", "Ihre Fahrkarte für den 24.10.") == .travel)
+        #expect(rule("reise@flug.example", "Ihre Flugbuchung und Bordkarte") == .travel)
+        // a booking alone is no travel (TJ's gold set: hairdresser, bowling, climbing park) — a model decides
+        #expect(rule("termine@friseur.example", "Ihre Buchung bei Salon Schnitt") == nil)
+        #expect(rule("info@bowling.example", "Ihre Reservierung (17.10.)") == nil)
         #expect(rule("deals@x.example", "Lieferung gratis!", list: "deals.x.example") == .newsletter)  // a list wins over words
         #expect(rule("notifications@github.example", "[repo] PR merged", list: "repo.github.example", unsubscribe: true) == .notification)
         #expect(rule("noreply@newsletter.example", "Wochenrückblick", list: "news.example") == .newsletter)  // plain noreply: still a newsletter

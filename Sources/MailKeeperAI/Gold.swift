@@ -166,7 +166,9 @@ public struct GoldReport: Sendable, Codable, Equatable {
     /// `worse` fails a check, `flips` are the mails that changed, said either way.
     /// Only the mails both runs have are compared (review 6.6 S3: a private set grows — 30 more
     /// labels are no "regression"); a change of the set is said as a flip line.
-    public func comparison(since earlier: GoldReport, tolerance: Int = 2) -> (worse: [String], flips: [String]) {
+    /// `phishingTolerance`: 0 for a stable model; the Mac's model flipped one phishing case
+    /// (a forged parcel mail with the own server's dmarc=fail) in five of eight identical runs.
+    public func comparison(since earlier: GoldReport, tolerance: Int = 2, phishingTolerance: Int = 0) -> (worse: [String], flips: [String]) {
         let before = Dictionary(earlier.outcomes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let common = Set(outcomes.map(\.id)).intersection(before.keys)
         let now = GoldReport(set: set, mode: mode, model: model, time: time, outcomes: outcomes.filter { common.contains($0.id) })
@@ -175,7 +177,7 @@ public struct GoldReport: Sendable, Codable, Equatable {
         var worse: [String] = []
         if now.right < then.right - tolerance { worse.append("weniger richtig: \(now.right) statt \(then.right) (von \(now.total))") }
         if now.falseAlarms > then.falseAlarms { worse.append("mehr Fehlalarme: \(now.falseAlarms) statt \(then.falseAlarms)") }
-        if now.phishingCaught < then.phishingCaught { worse.append("weniger Phishing erkannt: \(now.phishingCaught) statt \(then.phishingCaught)") }
+        if now.phishingCaught < then.phishingCaught - phishingTolerance { worse.append("weniger Phishing erkannt: \(now.phishingCaught) statt \(then.phishingCaught)") }
         var flips: [String] = []
         if common.count != total || common.count != earlier.total {
             flips.append("Gold-Set geändert: \(earlier.total) → \(total) Mails; verglichen werden die \(common.count) gemeinsamen")

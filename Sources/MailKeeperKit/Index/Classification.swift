@@ -147,7 +147,9 @@ public struct HeuristicFeatures: Sendable, Equatable {
 public enum Heuristics {
     /// Raise when the rules change: older heuristic results are computed again.
     /// 2: a sender named for notifications or alerts wins over list headers (GitHub, LinkedIn).
-    public static let version = 2
+    /// 3: travel only by travel words — "Ihre Buchung" put the hairdresser, the bowling alley
+    ///    and the climbing park under travel (TJ's gold set, 6.6); a booking alone is a model's call.
+    public static let version = 3
 
     public static func classify(_ f: HeuristicFeatures) -> (category: MailCategory, rule: String)? {
         let subject = (f.subject ?? "").lowercased()
@@ -169,7 +171,7 @@ public enum Heuristics {
             return (.orderShipping, String(localized: "Betreff nennt Bestellung oder Versand"))
         }
         if !list, travelWords.contains(where: subject.contains) {
-            return (.travel, String(localized: "Betreff nennt Buchung oder Ticket"))
+            return (.travel, String(localized: "Betreff nennt Fahrkarte, Flug, Hotel oder Check-in"))
         }
         if notifierWords.contains(where: local.contains) { return (.notification, String(localized: "Absender „\(local)“")) }
         if list { return (.newsletter, String(localized: "Mailingliste (List-Id)")) }
@@ -187,9 +189,11 @@ public enum Heuristics {
     static let orderWords = ["bestellung", "bestellbestätigung", "versandbestätigung", "ihr paket", "ihre sendung",
                              "sendungsverfolgung", "lieferung", "zustellung", "your order", "order confirmation",
                              "has shipped", "wurde versandt", "out for delivery", "versendet"]
-    static let travelWords = ["buchungsbestätigung", "reservierungsbestätigung", "ihre buchung", "ihre reservierung",
-                              "fahrkarte", "online-ticket", "boarding", "check-in", "reiseplan", "itinerary",
-                              "booking confirmation", "flugbestätigung", "ihre reise"]
+    /// Being on the way: rail, flight, hotel, rental car — not every booking (a hairdresser, a
+    /// course, a table are no travel; TJ, 6.6).
+    static let travelWords = ["fahrkarte", "online-ticket", "bahnticket", "zugticket", "boarding", "bordkarte", "check-in",
+                              "reiseplan", "itinerary", "flugbestätigung", "flugbuchung", "flight confirmation", "hotelbuchung",
+                              "hotelreservierung", "zimmerreservierung", "mietwagen", "car rental", "ihre reise"]
     /// Senders that announce themselves as notifications — stronger than list headers, which
     /// notification services (GitHub, LinkedIn) send as well.
     static let notifierWords = ["notification", "notifications", "notify", "alert", "benachrichtigung"]
