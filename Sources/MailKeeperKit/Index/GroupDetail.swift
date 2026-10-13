@@ -144,8 +144,8 @@ extension ArchiveReader {
         let lastYear = months.suffix(12).reduce(0) { $0 + $1.count }
 
         let places = try db.query("""
-            SELECT l.account_id, l.mailbox, count(DISTINCT l.message_id) FROM locations l
-            WHERE l.message_id IN (\(inGroup)) GROUP BY 1, 2 ORDER BY 3 DESC, 1, 2 LIMIT 8
+            SELECT f.account_id, f.mailbox, count(DISTINCT f.message_id) FROM (\(QuerySQL.filedRows)) f
+            WHERE f.message_id IN (\(inGroup)) GROUP BY 1, 2 ORDER BY 3 DESC, 1, 2 LIMIT 8
             """, params) { GroupDetail.Place(account: $0.text(0) ?? "", mailbox: $0.text(1) ?? "", count: Int($0.int(2))) }
 
         let (onServer, onServerBytes, withAttachments, largest) = try db.queryOne("""

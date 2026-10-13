@@ -103,10 +103,10 @@ struct QuerySQL {
         // Folding: mk_lower (Unicode, see Database) on the column, lowercased() on the value.
         case .account(let id):
             return location("mk_lower(l.account_id) = ?", .text(id.lowercased()))
-        case .folder(let name, prefix: false):
-            return location("mk_lower(l.mailbox) = ?", .text(name.lowercased()))
+        case .folder(let name, prefix: false):  // the archive's placement (ADR-0011)
+            return filed("mk_lower(f.mailbox) = ?", .text(name.lowercased()))
         case .folder(let name, prefix: true):
-            return location("mk_lower(l.mailbox) LIKE ? ESCAPE '\\'", .text(Self.escapeLike(name.lowercased()) + "%"))
+            return filed("mk_lower(f.mailbox) LIKE ? ESCAPE '\\'", .text(Self.escapeLike(name.lowercased()) + "%"))
         case .label(let label):
             return location("instr(char(31) || mk_lower(l.labels) || char(31), char(31) || ? || char(31)) > 0",
                             .text(label.lowercased()))
@@ -121,7 +121,7 @@ struct QuerySQL {
         case .isSent:
             return location(Self.sentLocation)
         case .inJunk:
-            return location(Self.currentJunkLocation)
+            return "(" + location(Self.currentJunkLocation) + " OR " + Self.placedInJunk + ")"
         case .wasInJunk:
             return location(Self.junkLocation)
         case .isFalsePositive:  // in parentheses: "-is:fehlalarm" negates all of it
@@ -188,8 +188,26 @@ struct QuerySQL {
         + " AND NOT " + draftsLocation + " AND NOT " + role("all")
 
     /// A spam folder the mail lies in now: on the server, or the folder an import came from — not
-    /// one it has left (6.8: a rescued mail kept its gone Junk row and stayed "is:junk").
-    static let currentJunkLocation: String = "(" + junkLocation + ") AND (l.uid IS NULL OR l.on_server = 1)"
+    /// one it has left (6.8: a rescued mail kept its gone Junk row and stayed "is:junk"), nor one
+    /// the archive filed it out of (6.9: an import's place is the archive's placement).
+    static let currentJunkLocation: String = "(" + junkLocation + ") AND ((l.uid IS NOT NULL AND l.on_server = 1) OR (l.uid IS NULL AND "
+        + unplaced + "))"
+
+    /// The location row has no placement for its account: the archive files the mail there.
+    /// Uncorrelated (a row-value IN, evaluated once): a correlated EXISTS per row is what the
+    /// query-plan guard forbids.
+    static let unplaced = "(l.message_id, l.account_id) NOT IN (SELECT p.message_id, p.account_id FROM placements p)"
+
+    /// Where the archive files each mail (ADR-0011): its locations where it has no placement for
+    /// that account, and its placements — columns account_id, mailbox, message_id (alias `f`).
+    static let filedRows = """
+        SELECT l.account_id AS account_id, l.mailbox AS mailbox, l.message_id AS message_id FROM locations l WHERE \(unplaced)
+        UNION ALL SELECT p.account_id, p.mailbox, p.message_id FROM placements p
+        """
+
+    /// Filed into a folder with a spam name (an archive-only placement has no server role).
+    static let placedInJunk = "m.id IN (SELECT p.message_id FROM placements p WHERE "
+        + junkNames.map { "mk_lower(p.mailbox) = '\($0)' OR mk_lower(p.mailbox) LIKE '%/\($0)' OR mk_lower(p.mailbox) LIKE '%.\($0)'" }.joined(separator: " OR ") + ")"
 
     static let junkLocation: String = "(" + role("junk") + " OR ((" + names(junkNames).joined(separator: " OR ")
         + ") AND l.account_id NOT IN (SELECT account_id FROM mailbox_roles WHERE instr(roles, ' junk ') > 0)))"
@@ -220,6 +238,11 @@ struct QuerySQL {
     private mutating func location(_ condition: String, _ value: SQLValue? = nil) -> String {
         if let value { params.append(value) }
         return "m.id IN (SELECT l.message_id FROM locations l WHERE \(condition))"
+    }
+
+    private mutating func filed(_ condition: String, _ value: SQLValue) -> String {
+        params.append(value)
+        return "m.id IN (SELECT f.message_id FROM (\(Self.filedRows)) f WHERE \(condition))"
     }
 
     private func attachment(_ condition: String) -> String {

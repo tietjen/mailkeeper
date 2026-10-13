@@ -224,6 +224,18 @@ enum Schema {
         ALTER TABLE classifications ADD COLUMN screened REAL;
         ALTER TABLE classifications ADD COLUMN warning TEXT;
         """,
+        // v14: the archive's own placement of a mail per account (6.9, ADR-0011) — journalled
+        // (`placed`), a projection like the user's other decisions.
+        """
+        CREATE TABLE placements(
+            message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+            account_id TEXT NOT NULL,
+            mailbox TEXT NOT NULL,
+            time REAL NOT NULL,
+            PRIMARY KEY(message_id, account_id)
+        );
+        CREATE INDEX placements_mailbox ON placements(account_id, mailbox);
+        """,
     ]
 
     static var currentVersion: Int { migrations.count }

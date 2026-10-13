@@ -98,7 +98,7 @@ struct MemoryTests {
             DROP INDEX messages_headers_pending; ALTER TABLE messages DROP COLUMN auth_server; ALTER TABLE messages DROP COLUMN auth_dkim;
             ALTER TABLE messages DROP COLUMN auth_spf; ALTER TABLE messages DROP COLUMN auth_dmarc; ALTER TABLE messages DROP COLUMN auth_from;
             ALTER TABLE messages DROP COLUMN delivered_to; ALTER TABLE messages DROP COLUMN headers_v;
-            DROP TABLE suggestion_sources; DROP TABLE memory_items; PRAGMA user_version = 10;
+            DROP TABLE placements; DROP TABLE suggestion_sources; DROP TABLE memory_items; PRAGMA user_version = 10;
             """)
         try ArchiveReader.migrate(layout)
         #expect(try ArchiveReader(layout: layout).memoryItems().map(\.content.category) == ["work"])

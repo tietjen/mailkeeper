@@ -220,6 +220,7 @@ struct MessageTable: NSViewRepresentable {
                     item.image = NSImage(systemSymbolName: c.icon, accessibilityDescription: nil)
                     kinds.addItem(item)
                 }
+                add(menu, count == 1 ? String(localized: "Ablage ändern …") : String(localized: "Ablage von \(count) Mails ändern …"), #selector(place))
                 let kindItem = NSMenuItem(title: count == 1 ? String(localized: "Art festlegen") : String(localized: "Art festlegen für \(min(count, AppModel.maxClassify)) Mails"),
                                           action: nil, keyEquivalent: "")
                 kindItem.submenu = kinds
@@ -247,6 +248,7 @@ struct MessageTable: NSViewRepresentable {
             model.setUserCategory(c, ids: model.actionSelection)
         }
         @objc private func rescue() { model.rescueSelection() }
+        @objc private func place() { model.askPlacement(Array(model.actionSelection)) }
         @objc private func markSpam() { model.markSpamSelection() }
         @objc private func restore() { model.restoreSelection() }
         @objc private func purge() { Task { await model.purgeSelection() } }

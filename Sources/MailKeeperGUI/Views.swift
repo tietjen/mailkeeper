@@ -173,6 +173,7 @@ struct ContentView: View {
             }
         }
         .sheet(item: $model.pendingPlan) { PlanSheet(model: model, plan: $0) }
+        .sheet(item: $model.placing) { PlacementSheet(model: model, request: $0) }
         .sheet(item: $model.actionResult) { ResultSheet(model: model, job: $0) }
         .sheet(item: $model.pendingExport) { ExportSheet(model: model, request: $0) }
         .alert("Export fertig", isPresented: Binding(get: { model.exportResult != nil }, set: { if !$0 { model.exportResult = nil } }),
@@ -371,10 +372,11 @@ struct ReaderView: View {
             categoryRow()
             phishingRow(m)
             if let relation, !relation.isEmpty { echtheitRow(relation) }
-            filterRow("Ablage", d.locations.map {
+            // where the archive files it (6.9, ADR-0011) — the server's place is under "Ort"
+            filterRow("Ablage", d.filed.map {
                 ("\($0.account) › \($0.mailbox)", MessageFilters.place(account: $0.account, mailbox: $0.mailbox), nil,
-                 $0.isOnServer ? "server.rack" : "archivebox")
-            })
+                 $0.onServer ? "server.rack" : "archivebox")
+            }, actions: d.trashed == nil ? [AttributeAction(title: String(localized: "Ablage ändern …")) { model.askPlacement([d.summary.id]) }] : [])
             if let list = d.listID { filterRow("Liste", [(list, MessageFilters.list(list), list, nil)]) }
             if let unsubscribe {
                 // its own state per message: a result or a running request does not carry over (review 6.5c S3)
@@ -602,12 +604,13 @@ struct ReaderView: View {
     }
 
     /// A header row whose values open filter menus.
-    private func filterRow(_ label: LocalizedStringKey, _ values: [(text: String, options: [FilterOption], copy: String?, icon: String?)]) -> some View {
+    private func filterRow(_ label: LocalizedStringKey, _ values: [(text: String, options: [FilterOption], copy: String?, icon: String?)],
+                           actions: [AttributeAction] = []) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(label).foregroundStyle(.secondary).frame(width: 64, alignment: .trailing)
             WrapLayout(spacing: 10) {
                 ForEach(Array(values.prefix(12).enumerated()), id: \.offset) { _, v in
-                    AttributeMenu(model: model, text: v.text, options: v.options, copy: v.copy, systemImage: v.icon)
+                    AttributeMenu(model: model, text: v.text, options: v.options, copy: v.copy, systemImage: v.icon, actions: actions)
                 }
                 if values.count > 12 { Text("+\(values.count - 12)").foregroundStyle(.secondary) }
             }

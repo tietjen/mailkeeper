@@ -354,7 +354,7 @@ public actor ArchiveWriter {
                     }
                 case .gone:
                     try markGoneRow(event)
-                case .trashed, .untrashed, .purged, .classified, .memory:
+                case .trashed, .untrashed, .purged, .classified, .memory, .placed:
                     archiveEvents.append(event)
                 }
             }
@@ -372,6 +372,8 @@ public actor ArchiveWriter {
                     missing.subtract(event.shas ?? [])  // deleted on purpose, not lost
                 } else if event.kind == .classified {
                     try applyUserDecision(identity: identity, category: event.category, verdict: event.verdict, time: event.time)
+                } else if event.kind == .placed {
+                    try applyPlacement(account: event.account, identity: identity, mailbox: event.mailbox, time: event.time)
                 } else {
                     try applyTrash(event.kind, identity: identity, time: event.time)
                 }
@@ -1150,6 +1152,52 @@ extension ArchiveWriter {
         content.rejected = active ? nil : true  // "Ablehnen", not "Löschen": only that keeps it from coming back (review 6 R3)
         return JournalEvent.MemoryRecord(id: id ?? "rule:" + UUID().uuidString.lowercased(), kind: MemoryKind.rule.rawValue, scope: "",
                                          subject: "rule", active: active, content: content)
+    }
+
+    // MARK: The archive's placement (6.9, ADR-0011)
+
+    /// Files the messages in the archive under `mailbox` — for each account a message lies in, or
+    /// only `account`; nil puts them back where they were seen. Journalled. Returns how many
+    /// placements changed.
+    @discardableResult
+    public func place(identities: [String], mailbox: String?, account: String? = nil) throws -> Int {
+        let name = mailbox.map { Memory.cleanText($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        if let name, name.isEmpty || name.count > 200 { throw ArchiveError.invalid(String(localized: "Ein Ordner braucht einen Namen (höchstens 200 Zeichen).")) }
+        let time = Date().timeIntervalSince1970
+        var events: [JournalEvent] = []
+        for identity in Set(identities) {
+            let accounts = try db.query("""
+                SELECT DISTINCT l.account_id FROM locations l JOIN messages m ON m.id = l.message_id
+                WHERE m.identity = ? AND m.trashed IS NULL
+                """, [.text(identity)]) { $0.text(0) }.compactMap { $0 }
+            for a in accounts where account == nil || a == account {
+                events.append(.placed(account: a, identity: identity, mailbox: name, time: time))
+            }
+        }
+        guard !events.isEmpty else { return 0 }
+        for event in events { try journal.append(event) }
+        try journal.sync()
+        var changed = 0
+        try db.transaction {
+            for event in events {
+                changed += try applyPlacement(account: event.account, identity: event.identity!, mailbox: event.mailbox, time: event.time)
+            }
+        }
+        return changed
+    }
+
+    @discardableResult
+    func applyPlacement(account: String, identity: String, mailbox: String?, time: Double) throws -> Int {
+        if let mailbox {
+            try db.run("""
+                INSERT INTO placements(message_id, account_id, mailbox, time) SELECT id, ?, ?, ? FROM messages WHERE identity = ?
+                ON CONFLICT(message_id, account_id) DO UPDATE SET mailbox = excluded.mailbox, time = excluded.time
+                """, [.text(account), .text(mailbox), .double(time), .text(identity)])
+        } else {
+            try db.run("DELETE FROM placements WHERE account_id = ? AND message_id IN (SELECT id FROM messages WHERE identity = ?)",
+                       [.text(account), .text(identity)])
+        }
+        return db.changes
     }
 
     /// Before the screening of new mail (6.4): the rules and the user's category rules first —

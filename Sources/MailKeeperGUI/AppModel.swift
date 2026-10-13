@@ -1554,7 +1554,7 @@ final class AppModel {
 
     /// Runs `work` with the archive's writer (background indexing paused meanwhile) and says what
     /// went wrong — also that MailKeeper is busy, which used to drop the request silently.
-    private func writeNow(_ work: @escaping @Sendable (ArchiveWriter) async throws -> Void) async -> String? {
+    func writeNow(_ work: @escaping @Sendable (ArchiveWriter) async throws -> Void) async -> String? {
         guard let root = archiveRoot else { return nil }
         guard !actionRunning, !syncRunning, !importRunning else {
             return String(localized: "MailKeeper ist gerade beschäftigt (Abruf, Import oder eine Aktion) – bitte gleich noch einmal.")
@@ -1934,6 +1934,9 @@ final class AppModel {
         aiKeyStored = aiConfig.secretKey.map(credentials.secretExists) ?? false
         aiRouterCache = nil
     }
+
+    /// "Ablage ändern" (6.9, ADR-0011): the mails whose archive placement is being chosen.
+    var placing: PlacementRequest?
 
     // MARK: Gold set (6.6, ADR-0005 §7) — the views and runs live in GoldSettings.swift
 

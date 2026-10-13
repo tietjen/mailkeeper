@@ -61,6 +61,20 @@ public struct MessageDetail: Sendable {
     public var locations: [MessageLocation]
     /// When it went to the archive trash.
     public var trashed: Date?
+    /// The archive's own placement per account (6.9, ADR-0011): account → folder.
+    public var placements: [String: String] = [:]
+
+    /// Where the archive files the mail: per account its placement, else its locations there.
+    public var filed: [(account: String, mailbox: String, onServer: Bool)] {
+        let accounts = Array(Set(locations.map(\.account))).sorted()
+        return accounts.flatMap { account -> [(account: String, mailbox: String, onServer: Bool)] in
+            let here = locations.filter { $0.account == account }
+            if let placed = placements[account] {
+                return [(account, placed, here.contains { $0.mailbox == placed && $0.isOnServer })]
+            }
+            return here.map { ($0.account, $0.mailbox, $0.isOnServer) }
+        }
+    }
 
     public var place: MessagePlace {
         if trashed != nil { return .trash }
@@ -204,7 +218,7 @@ public final class ArchiveReader {
     public func accounts() throws -> [AccountSummary] {
         let db = try self.db
         let boxes = try db.query("""
-            SELECT account_id, mailbox, count(DISTINCT message_id) FROM locations
+            SELECT account_id, mailbox, count(DISTINCT message_id) FROM (\(QuerySQL.filedRows))
             WHERE message_id NOT IN (SELECT id FROM messages WHERE trashed IS NOT NULL)
             GROUP BY account_id, mailbox ORDER BY account_id, mailbox COLLATE NOCASE
             """) { MailboxSummary(account: $0.text(0) ?? "", name: $0.text(1) ?? "", count: Int($0.int(2))) }
@@ -333,13 +347,13 @@ public final class ArchiveReader {
         // Uncorrelated IN, evaluated once. A correlated EXISTS let SQLite pick the (account,
         // mailbox) index per message: 60 s for a 39k INBOX (43k × 39k rows).
         if let account = filter.account {
-            var c = "m.id IN (SELECT l.message_id FROM locations l WHERE l.account_id = ?"
-            params.append(.text(account))
-            if let mailbox = filter.mailbox {
-                c += " AND l.mailbox = ?"
-                params.append(.text(mailbox))
+            if let mailbox = filter.mailbox {  // a folder of the sidebar: where the archive files it (ADR-0011)
+                conditions.append("m.id IN (SELECT f.message_id FROM (\(QuerySQL.filedRows)) f WHERE f.account_id = ? AND f.mailbox = ?)")
+                params += [.text(account), .text(mailbox)]
+            } else {
+                conditions.append("m.id IN (SELECT l.message_id FROM locations l WHERE l.account_id = ?)")
+                params.append(.text(account))
             }
-            conditions.append(c + ")")
         }
         // ADR-0008 query language; an invalid query throws QueryError instead of widening.
         for text in [filter.base, filter.text].compactMap({ $0 }) + filter.also {
@@ -388,8 +402,12 @@ public final class ArchiveReader {
                             internalDate: row.optionalDouble(5).map(Date.init(timeIntervalSince1970:)),
                             onServer: row.bool(6), sha256: row.text(7) ?? "")
         }
-        return MessageDetail(summary: summary, messageID: mid, listID: list, primaryBlob: blob, locations: locations,
-                             trashed: trashed.map(Date.init(timeIntervalSince1970:)))
+        var detail = MessageDetail(summary: summary, messageID: mid, listID: list, primaryBlob: blob, locations: locations,
+                                   trashed: trashed.map(Date.init(timeIntervalSince1970:)))
+        try db.forEach("SELECT account_id, mailbox FROM placements WHERE message_id = ?", [.int(id)]) { row in
+            if let a = row.text(0), let m = row.text(1) { detail.placements[a] = m }
+        }
+        return detail
     }
 
     /// Parses the stored message for the reader.

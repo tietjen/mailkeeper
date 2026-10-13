@@ -11,10 +11,16 @@ struct AttributeMenu: View {
     var copy: String?
     /// e.g. server or archive for a folder.
     var systemImage: String?
+    /// Actions beside the filters (the folder: "Ablage ändern …", 6.9).
+    var actions: [AttributeAction] = []
 
     var body: some View {
         Menu {
             AttributeMenuItems(model: model, options: options, copy: copy)
+            if !actions.isEmpty {
+                Divider()
+                ForEach(actions) { a in Button(a.title, action: a.action) }
+            }
         } label: {
             HStack(spacing: 3) {
                 if let systemImage { Image(systemName: systemImage).foregroundStyle(.secondary).font(.caption) }
@@ -28,6 +34,12 @@ struct AttributeMenu: View {
         .fixedSize()
         .help("Klicken: nach diesem Merkmal filtern")
     }
+}
+
+struct AttributeAction: Identifiable {
+    var id: String { title }
+    var title: String
+    var action: () -> Void
 }
 
 struct AttributeMenuItems: View {

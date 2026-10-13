@@ -14,6 +14,7 @@ public struct JournalEvent: Codable, Sendable, Equatable {
         case purged    // ... and was deleted for good: tombstoned, never fetched or imported again
         case classified // the user decided a message's category (5.5: "Ist Spam" / "Kein Spam")
         case memory    // the user wrote, changed or forgot a memory item (6.1) — the user's words, no mail content
+        case placed    // the user filed a message in the archive for an account (6.9, ADR-0011); no mailbox: back to where it was seen
     }
 
     /// Archive-wide events (trash, purge) live under this pseudo account.
@@ -101,6 +102,12 @@ public struct JournalEvent: Codable, Sendable, Equatable {
     public static func classified(identity: String, category: String?, verdict: String? = nil,
                                   time: Double = Date().timeIntervalSince1970) -> JournalEvent {
         JournalEvent(kind: .classified, time: time, account: archiveAccount, identity: identity, category: category, verdict: verdict)
+    }
+
+    /// In the account's own journal, like `seen` and `gone` — but applied with the user's other
+    /// decisions, after all `seen` events, in time order.
+    public static func placed(account: String, identity: String, mailbox: String?, time: Double = Date().timeIntervalSince1970) -> JournalEvent {
+        JournalEvent(kind: .placed, time: time, account: account, mailbox: mailbox, identity: identity)
     }
 
     public static func memory(_ record: MemoryRecord, time: Double = Date().timeIntervalSince1970) -> JournalEvent {
