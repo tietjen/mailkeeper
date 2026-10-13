@@ -37,6 +37,14 @@ public struct RemoteMailbox: Sendable, Hashable {
     /// Sent or drafts by their usual names ("Ist Spam" never moves out of them — review 6 S6).
     public static func looksLikeSentOrDrafts(_ name: String) -> Bool { (sentNames + draftsNames).contains(lastComponent(name)) }
 
+    /// Where "Ablage ändern" may move a mail *from* on a server (6.9b): any selectable mailbox but
+    /// trash, sent, drafts and All Mail — by role and by name (the spam folder may give: its
+    /// filter learns "ham").
+    public static func mayGiveForMove(name: String, uses: Set<SpecialUse>, selectable: Bool) -> Bool {
+        selectable && uses.isDisjoint(with: [.trash, .sent, .drafts, .all])
+            && !trashNames.contains(lastComponent(name)) && !looksLikeSentOrDrafts(name) && !viewNames.contains(lastComponent(name))
+    }
+
     /// Where "Kein Spam" may move a mail (6.8) — the one rule for the executor and the IMAP
     /// session: INBOX, or a selectable mailbox other than the source with no role but Archive,
     /// whose name is no spam, trash, sent, drafts or a Gmail-like view (review 6.8 B1/S2).

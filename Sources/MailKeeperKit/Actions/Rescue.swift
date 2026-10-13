@@ -15,6 +15,9 @@ public protocol ServerRescueActions: Sendable {
     func junkMailbox() async throws -> String?
     /// Moves UIDs of the selected ordinary mailbox into the spam mailbox. `ServerRefusal` on NO.
     func moveToJunk(_ uids: [UInt32]) async throws
+    /// 6.9b: moves UIDs of the selected mailbox (no trash, sent, drafts, All Mail) into an
+    /// ordinary folder. `ServerRefusal` on NO.
+    func moveToFolder(_ uids: [UInt32], to destination: String) async throws
     func present(_ uids: [UInt32]) async throws -> Set<UInt32>
     func search(messageID: String) async throws -> [UInt32]
     func fetch(_ uids: [UInt32]) async throws -> [RemoteMessage]
@@ -42,7 +45,7 @@ public struct RescueExecutor: Sendable {
     public func run(_ jobID: UUID, accounts: [AccountConfig], connect: @Sendable (String) async throws -> any ServerRescueActions,
                     progress: @escaping @Sendable (ServerDeleteProgress) -> Void = { _ in }) async throws -> ActionJob {
         var job = try store.load(jobID)
-        guard job.kind == .moveToInbox || job.kind == .moveToJunk, !job.cancelled else { return job }
+        guard [.moveToInbox, .moveToJunk, .moveToFolder].contains(job.kind), !job.cancelled else { return job }
         var p = ServerDeleteProgress(total: job.open.count)
         progress(p)
         let byAccount = Dictionary(grouping: job.open.filter { $0.location != nil }, by: { $0.location!.account })
@@ -71,6 +74,7 @@ public struct RescueExecutor: Sendable {
     private func run(items accountItems: [ActionItem], policy: SyncPolicy, server: any ServerRescueActions, job: inout ActionJob,
                      progress p: inout ServerDeleteProgress, notify progress: @Sendable (ServerDeleteProgress) -> Void) async throws {
         let toJunk = job.kind == .moveToJunk
+        let toFolder = job.kind == .moveToFolder  // 6.9b "Ablage ändern": no fallback, no verdict
         let boxes = try await server.mailboxes()
         let roles = boxes.contains { $0.specialUse.contains(.junk) }
         // the target: INBOX, or the spam mailbox
@@ -92,7 +96,7 @@ public struct RescueExecutor: Sendable {
         // "Kein Spam" (6.8): back where the mail came from when the plan knows it and the server
         // still lists it as an ordinary mailbox — else INBOX, and the result says so
         func destination(_ item: ActionItem) -> (name: String, note: String?) {
-            guard !toJunk, let wanted = item.target?.mailbox, wanted.uppercased() != "INBOX" else { return (fallback, nil) }
+            guard !toJunk, let wanted = item.target?.mailbox, toFolder || wanted.uppercased() != "INBOX" else { return (fallback, nil) }
             // the same rule as the IMAP session's (review 6.8 B1/S2)
             guard let box = boxes.first(where: { $0.name == wanted }),
                   RemoteMailbox.mayTakeRescued(name: box.name, uses: box.specialUse, selectable: box.selectable, source: item.location!.mailbox) else {
@@ -100,12 +104,21 @@ public struct RescueExecutor: Sendable {
             }
             return (box.name, nil)
         }
+        /// "Ablage ändern" knows no fallback: a target the server does not offer fails the item.
+        func refused(_ item: ActionItem) -> String? {
+            guard toFolder else { return nil }
+            let wanted = item.target?.mailbox ?? ""
+            guard let box = boxes.first(where: { $0.name == wanted }),
+                  RemoteMailbox.mayTakeRescued(name: box.name, uses: box.specialUse, selectable: box.selectable, source: item.location!.mailbox)
+            else { return String(localized: "„\(wanted)“ gibt es auf dem Server nicht oder ist kein gewöhnlicher Ordner – MailKeeper legt keine Ordner an") }
+            return nil
+        }
         // a target location is recorded only where the account also fetches that mailbox —
         // otherwise no sync would ever see it go (Gmail syncs All Mail; include lists; spam off)
         let synced = Set(policy.select(boxes).map(\.name))
         let byMailbox = Dictionary(grouping: accountItems, by: { $0.location!.mailbox })
         for mailbox in byMailbox.keys.sorted() {
-            let items = byMailbox[mailbox]!
+            var items = byMailbox[mailbox]!
             let box = boxes.first { $0.name == mailbox }
             let isJunk = box.map { $0.specialUse.contains(.junk) || (!roles && RemoteMailbox.looksLikeJunk($0.name)) } ?? false
             let mayMarkJunk = box.map { b in
@@ -113,15 +126,22 @@ public struct RescueExecutor: Sendable {
                 b.name != fallback && b.specialUse.isDisjoint(with: [.junk, .trash, .sent, .drafts])
                     && !RemoteMailbox.looksLikeTrashOrJunk(b.name) && !RemoteMailbox.looksLikeSentOrDrafts(b.name)
             } ?? false
-            guard toJunk ? mayMarkJunk : isJunk else {
+            let mayGive = box.map { RemoteMailbox.mayGiveForMove(name: $0.name, uses: $0.specialUse, selectable: $0.selectable) } ?? false
+            guard toFolder ? mayGive : toJunk ? mayMarkJunk : isJunk else {
                 for item in items {
                     try finish(&job, item.id, .failed, box == nil ? String(localized: "Ordner gibt es auf dem Server nicht mehr")
+                               : toFolder ? String(localized: "aus diesem Ordner verschiebt MailKeeper nichts (Papierkorb, Gesendet, Entwürfe)")
                                : toJunk ? String(localized: "aus diesem Ordner verschiebt MailKeeper nichts in den Spam-Ordner")
                                : String(localized: "Ordner ist auf dem Server kein Spam-Ordner"), &p)
                 }
                 progress(p)
                 continue
             }
+            for item in items {
+                if let reason = refused(item) { try finish(&job, item.id, .failed, reason, &p) }
+            }
+            items.removeAll { refused($0) != nil }
+            guard !items.isEmpty else { progress(p); continue }
             let validity: UInt32
             do { validity = try await server.selectForChange(mailbox) } catch let refusal as ServerRefusal {
                 for item in items { try finish(&job, item.id, .failed, String(localized: "vom Server abgelehnt: \(refusal.message)"), &p) }
@@ -170,6 +190,7 @@ public struct RescueExecutor: Sendable {
                 var refusal: String?
                 do {
                     if toJunk { try await server.moveToJunk(group.map { $0.location!.uid }) }
+                    else if toFolder { try await server.moveToFolder(group.map { $0.location!.uid }, to: target) }
                     else { try await server.moveOutOfJunk(group.map { $0.location!.uid }, to: target) }
                 } catch let r as ServerRefusal {
                     refusal = r.message
@@ -225,7 +246,7 @@ public struct RescueExecutor: Sendable {
                     } else {
                         notes.append(String(localized: "\(place); der Ort erscheint beim nächsten Abruf"))
                     }
-                    if let identity = item.identity {
+                    if let identity = item.identity, !toFolder {  // filing says nothing about spam
                         if toJunk { try await writer.setUserClassification(identity: identity, category: .spam) } else { try await writer.confirmNotSpam(identity: identity) }
                     }
                     // the audit names source and target (6.8): the location below is where it went

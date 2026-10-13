@@ -188,6 +188,8 @@ struct PlanSheet: View {
             String(localized: "Die Mails wandern auf dem Server aus dem Spam-Ordner dorthin zurück, wo sie vorher lagen – sonst in den Posteingang –, das Archiv merkt sich den neuen Ort und deine Entscheidung „Kein Spam“. Vorher prüft MailKeeper jede einzelne: noch dieselbe Mail im Spam-Ordner. Der Spam-Filter deines Servers lernt dabei meist mit (z. B. rspamd bei mailcow): Eine Mail, die den Spam-Ordner verlässt, gilt ihm als erwünscht – deshalb nur echte Mails zurückholen.")
         case .moveToJunk:
             String(localized: "Die Mails wandern auf dem Server in den Spam-Ordner ihres Kontos, das Archiv behält sie und merkt sich deine Entscheidung „Spam“. Vorher prüft MailKeeper jede einzelne: noch dieselbe Mail am selben Ort. Aus Gesendet, Entwürfen und dem Papierkorb verschiebt es nichts.")
+        case .moveToFolder:
+            String(localized: "Die Mails wandern auf dem Server in den gewählten Ordner, das Archiv merkt sich den neuen Ort. Vorher prüft MailKeeper jede einzelne: noch dieselbe Mail am selben Ort. Aus dem Papierkorb, Gesendet und Entwürfen verschiebt es nichts, Ordner legt es nicht an.")
         case .export, .unsubscribe:
             ""
         }

@@ -1243,7 +1243,7 @@ final class AppModel {
             case .restore: planned = try reader.planRestore(filter, title: title, accounts: accountConfigs, options: restore)
             case .moveToInbox: planned = try reader.planRescue(filter, title: title, accounts: accountConfigs)
             case .moveToJunk: planned = try reader.planMarkSpam(filter, title: title, accounts: accountConfigs)
-            case .export, .unsubscribe: return
+            case .export, .unsubscribe, .moveToFolder: return  // "Ablage ändern" plans with its target (PlacementSheet)
             }
             let examples = try reader.summaries(Array(try reader.messageIDs(filter).prefix(5)))
             pendingPlan = PlannedAction(job: planned.0, summary: planned.1, filter: filter, examples: examples)
@@ -1444,6 +1444,9 @@ final class AppModel {
         case .moveToJunk:
             return try await SyncCoordinator.moveToJunk(id, writer: writer, accounts: accounts, credentials: credentials,
                                                         audit: audit) { p in progress(p.done + p.failed + p.skipped, p.total, p.failed) }
+        case .moveToFolder:
+            return try await SyncCoordinator.moveToFolder(id, writer: writer, accounts: accounts, credentials: credentials,
+                                                          audit: audit) { p in progress(p.done + p.failed + p.skipped, p.total, p.failed) }
         case .export, .unsubscribe:
             return try ActionStore(layout: layout).load(id)
         }
@@ -1506,6 +1509,7 @@ final class AppModel {
         case .restore: String(localized: "Auf den Server zurückspielen")
         case .export: String(localized: "Exportieren")
         case .moveToInbox: String(localized: "Kein Spam → zurück")
+        case .moveToFolder: String(localized: "Ablage auf dem Server ändern")
         case .moveToJunk: String(localized: "Ist Spam → Spam-Ordner")
         case .unsubscribe: String(localized: "Vom Newsletter abmelden")
         }

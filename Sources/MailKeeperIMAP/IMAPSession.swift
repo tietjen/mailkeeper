@@ -80,6 +80,12 @@ public enum IMAPAccess: Sendable, Equatable {
     /// UID MOVE, or UID COPY + STORE +\Deleted + UID EXPUNGE on exactly those UIDs. Never
     /// another source or destination.
     case markAsJunk
+    /// 6.9b "Ablage ändern": SELECT a mailbox that is no trash, sent, drafts or All Mail
+    /// mailbox, and move messages from it into one other mailbox the server lists — INBOX or an
+    /// ordinary folder (`RemoteMailbox.mayTakeRescued`; never spam, trash, sent, drafts, All Mail,
+    /// Starred, Important; never created) — UID MOVE, or UID COPY + STORE +\Deleted + UID EXPUNGE
+    /// on exactly those UIDs. Never another source or destination.
+    case moveToFolder
 }
 
 /// One IMAP connection, read-only unless opened with `access: .moveToTrash`: mailboxes are opened
@@ -439,6 +445,24 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
     public func moveOutOfJunk(_ uids: [UInt32], to destination: String) async throws {
         guard !uids.isEmpty else { return }
         guard access == .rescueFromJunk, selectedIsJunk else { throw IMAPError.readOnlyViolation("MOVE aus einem Nicht-Spam-Ordner") }
+        try await moveSelected(uids, to: destination)
+    }
+
+    /// 6.9b "Ablage ändern": moves UIDs of the selected mailbox (no trash, sent, drafts or All
+    /// Mail) to `destination` — INBOX or an ordinary folder the server lists.
+    public func moveToFolder(_ uids: [UInt32], to destination: String) async throws {
+        guard !uids.isEmpty else { return }
+        if mailboxNames.isEmpty { _ = try await mailboxes() }
+        guard access == .moveToFolder, let source = selectedMailbox,
+              RemoteMailbox.mayGiveForMove(name: source, uses: mailboxUses[source] ?? [], selectable: mailboxSelectable[source] ?? false) else {
+            throw IMAPError.readOnlyViolation("MOVE aus einem Papierkorb-, Gesendet-, Entwurfs- oder Alle-Nachrichten-Ordner")
+        }
+        try await moveSelected(uids, to: destination)
+    }
+
+    /// The one move of `.rescueFromJunk` and `.moveToFolder`: the target admitted by
+    /// `mayTakeRescued`, set for exactly this move (the allowlist admits nothing else).
+    private func moveSelected(_ uids: [UInt32], to destination: String) async throws {
         if mailboxNames.isEmpty { _ = try await mailboxes() }
         guard mayTakeRescued(destination), let target = mailboxNames[destination] else {
             throw IMAPError.readOnlyViolation("MOVE nach „\(destination)“ – kein zulässiges Ziel")
@@ -670,7 +694,7 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
                                 junk: MailboxName? = nil) -> Bool {
         switch (access, command) {
         case (.moveToTrash, .select(_, let params)), (.restore, .select(_, let params)), (.rescueFromJunk, .select(_, let params)),
-             (.markAsJunk, .select(_, let params)):
+             (.markAsJunk, .select(_, let params)), (.moveToFolder, .select(_, let params)):
             return params.allSatisfy { if case .basic(let kv) = $0 { kv.key.uppercased() == "CONDSTORE" } else { false } }
         // explicit UID sets only: `$` (SEARCHRES, the last search's hits) never names the messages
         case (.moveToTrash, .uidMove(.set, let destination)), (.moveToTrash, .uidCopy(.set, let destination)):
@@ -679,11 +703,12 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
             return modifiers.isEmpty && store.operation == .add && store.flags == [.deleted]
         case (.moveToTrash, .uidExpunge(.set)):
             return true  // explicit UIDs only (UIDPLUS); bare EXPUNGE and CLOSE stay refused
-        case (.rescueFromJunk, .uidMove(.set, let destination)), (.rescueFromJunk, .uidCopy(.set, let destination)):
-            return inbox != nil && destination == inbox  // the move's one target, checked by mayTakeRescued; the source per session (selectedIsJunk)
-        case (.rescueFromJunk, .uidStore(.set, let modifiers, .flags(let store))):
+        case (.rescueFromJunk, .uidMove(.set, let destination)), (.rescueFromJunk, .uidCopy(.set, let destination)),
+             (.moveToFolder, .uidMove(.set, let destination)), (.moveToFolder, .uidCopy(.set, let destination)):
+            return inbox != nil && destination == inbox  // the move's one target, checked by mayTakeRescued; the source per session
+        case (.rescueFromJunk, .uidStore(.set, let modifiers, .flags(let store))), (.moveToFolder, .uidStore(.set, let modifiers, .flags(let store))):
             return modifiers.isEmpty && store.operation == .add && store.flags == [.deleted]
-        case (.rescueFromJunk, .uidExpunge(.set)):
+        case (.rescueFromJunk, .uidExpunge(.set)), (.moveToFolder, .uidExpunge(.set)):
             return true
         case (.markAsJunk, .uidMove(.set, let destination)), (.markAsJunk, .uidCopy(.set, let destination)):
             return junk != nil && destination == junk  // the source is checked per session (selectedMayMarkJunk)

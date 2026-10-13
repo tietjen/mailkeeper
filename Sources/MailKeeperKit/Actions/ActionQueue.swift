@@ -14,6 +14,8 @@ public enum ActionKind: String, Codable, Sendable, CaseIterable {
     case moveToInbox
     /// "Ist Spam": from an ordinary mailbox into the account's spam folder (6.4).
     case moveToJunk
+    /// 6.9b "Ablage ändern": on the server into another ordinary folder.
+    case moveToFolder
     /// Leaving a newsletter (6.5c): logged, nothing on the mail server changes.
     case unsubscribe
 }

@@ -46,6 +46,9 @@ actor FakeRescueServer: ServerRescueActions {
             boxes[junk]!.messages[next] = d
         }
     }
+    func moveToFolder(_ uids: [UInt32], to destination: String) async throws {
+        try await moveOutOfJunk(uids, to: destination)  // the same in memory: take them out of the selected box
+    }
     func present(_ uids: [UInt32]) async throws -> Set<UInt32> { Set(uids).intersection(boxes[selected!]!.messages.keys) }
     func search(messageID: String) async throws -> [UInt32] {
         boxes[selected!]!.messages.filter { MIMEParser.parse($0.value).messageID?.contains(messageID) == true }.map(\.key).sorted()

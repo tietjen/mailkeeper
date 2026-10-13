@@ -102,6 +102,20 @@ public enum SyncCoordinator {
         }, progress: progress)
     }
 
+    /// "Ablage ändern" on the server (6.9b): the same executor with the narrow `.moveToFolder` access.
+    public static func moveToFolder(_ jobID: UUID, writer: ArchiveWriter, accounts: [AccountConfig],
+                                    credentials: CredentialStore = CredentialStore(), audit: AuditLog = AuditLog(),
+                                    progress: @escaping @Sendable (ServerDeleteProgress) -> Void = { _ in }) async throws -> ActionJob {
+        let executor = RescueExecutor(writer: writer, store: ActionStore(layout: writer.layout), audit: audit)
+        return try await executor.run(jobID, accounts: accounts, connect: { id in
+            guard let account = accounts.first(where: { $0.id == id }) else { throw SyncError.unknownAccount(id) }
+            if case .startTLSPinned(nil) = account.security { throw SyncError.unconfirmedCertificate(id) }
+            guard let password = try credentials.password(for: account) else { throw SyncError.noPassword(id) }
+            return try await IMAPSession.connect(IMAPEndpoint(account), username: account.username,
+                                                 password: account.normalizedPassword(password), access: .moveToFolder)
+        }, progress: progress)
+    }
+
     /// Connects with an explicit password (setup) and reports mailboxes and, for a bridge in
     /// learn mode, the certificate fingerprint to confirm.
     public static func check(_ account: AccountConfig, password: String) async throws -> ConnectionCheck {
