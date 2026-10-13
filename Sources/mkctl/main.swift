@@ -50,6 +50,7 @@ usage: mkctl [--archive <dir>] <command>
   similar <id> [--limit n] | meaning <text…>  mails like a message / by meaning (needs embed)
   summarize <id> [--thread]                   KI: summary of a message or its whole conversation
   relations [list | suggest]                   relationship register: confirmed ones, or suggestions from the history
+  gold [status | candidates | run [--no-ai]]    the private gold set: labels, what comes next, a measurement (6.6)
   unsubscribe [query] [--limit N]              how "Abmelden" judges the newest list mails (read-only)
   cleanup                                     cleanup suggestions: where deleting pays off (read-only)
   rules [list | suggest]                      the user's rules (with what is ready), or suggestions from repeated decisions
@@ -478,6 +479,56 @@ func summarize(_ p: ImportProgress, start: Date) {
             }
         }
         print(tally.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: " · "))
+
+    case "gold":  // 6.6: the private gold set — labels come from Settings › Messung
+        let layout = try ArchiveLayout.open(at: root, create: false)
+        let reader = try ArchiveReader(layout: layout)
+        let store = GoldStore(layout: layout)
+        let labels = store.load()
+        switch args.first {
+        case "status", nil:
+            print("gelabelt \(labels.labels.count) · übersprungen \(labels.skipped.count) (\(store.labelsURL.path))")
+            var counts: [MailCategory: Int] = [:]
+            for l in labels.labels { counts[l.category, default: 0] += 1 }
+            print(MailCategory.allCases.compactMap { c in counts[c].map { "\(c.label) \($0)" } }.joined(separator: " · ")
+                  + " · Phishing \(labels.labels.filter(\.phishing).count)")
+            for run in store.runs(as: GoldReport.self).suffix(6) { print("\(run.time.formatted()): \(run.summary.first ?? "")") }
+        case "run":
+            guard !labels.labels.isEmpty else { throw CLIError(description: "noch keine Labels – Einstellungen › Messung › Mails labeln") }
+            var reports = [try GoldArchive.todayReport(reader: reader, labels: labels)]
+            let config = AIConfigStore(layout: layout).load()
+            if !args.contains("--no-ai"), config.enabled {
+                let key = config.secretKey.flatMap { try? CredentialStore().secret(key: $0) }
+                let runner = GoldRunner(classifier: MailClassifier(router: AIRouter(config: config, apiKey: key)))
+                let model = config.endpoint != nil ? config.model(for: .classify) : "apple-on-device"
+                let memory = try MemoryRetriever(reader: reader, embedModel: config.endpoint != nil ? config.model(for: .embed) : nil)
+                for (mode, m) in [(GoldArchive.withoutMemory, nil), (GoldArchive.withMemory, memory)] as [(String, MemoryRetriever?)] {
+                    reports.append(await runner.run(try GoldArchive.items(reader: reader, labels: labels, memory: m), set: GoldArchive.set, mode: mode, model: model))
+                }
+            }
+            let previous = store.runs(as: GoldReport.self)
+            let titles = try GoldArchive.titles(reader: reader, identities: labels.labels.map(\.identity))
+            for r in reports {
+                for line in r.summary { print(clean(line)) }
+                for o in r.outcomes where !o.right {
+                    print("  ✗ \(clean(titles[o.id] ?? o.id).prefix(70)): \(o.category?.label ?? "–") statt \(o.expected.map(\.label).joined(separator: "/"))"
+                          + (o.expectedPhishing == .flagged ? " + Phishing" : "") + (o.error.map { " (\(clean($0)))" } ?? ""))
+                }
+                if let last = previous.last(where: { $0.set == r.set && $0.mode == r.mode && $0.model == r.model }) {
+                    let (worse, flips) = r.comparison(since: last)
+                    for line in flips + worse.map({ "Rückschritt: " + $0 }) { print("  seit \(last.time.formatted()): \(clean(line))") }
+                }
+                try store.appendRun(r)
+            }
+        case "candidates":  // what the label sheet would offer next
+            let ids = try reader.goldCandidates(limit: Int(option("--limit") ?? "40") ?? 40, excluding: labels.seen)
+            for s in try reader.summaries(ids) {
+                let c = try reader.classification(of: s.id)
+                print("\((c?.category?.label ?? "offen").padding(toLength: 20, withPad: " ", startingAt: 0)) \(clean(s.fromDisplay).prefix(28).padding(toLength: 28, withPad: " ", startingAt: 0)) \(clean(s.subject ?? "").prefix(60))")
+            }
+        default:
+            throw CLIError(description: "gold [status | candidates [--limit N] | run [--no-ai]]")
+        }
 
     case "relations":
         let reader = try ArchiveReader(layout: try ArchiveLayout.open(at: root, create: false))

@@ -25,6 +25,8 @@ struct MailKeeperApp: App {
                     .tabItem { Label("Beziehungen", systemImage: "building.2") }
                 RuleSettings(model: model)
                     .tabItem { Label("Regeln", systemImage: "list.bullet.rectangle") }
+                GoldSettings(model: model)
+                    .tabItem { Label("Messung", systemImage: "gauge.with.dots.needle.50percent") }
             }
         }
         .commands {

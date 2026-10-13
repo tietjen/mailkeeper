@@ -417,6 +417,11 @@ final class AppModel {
         }
         textIndexTask?.cancel()  // belongs to the previous archive
         textIndexTask = nil
+        goldTask?.cancel()
+        goldTask = nil
+        goldProgress = nil
+        goldResults = []
+        goldMessage = nil
         textIndexToken = nil
         textIndexProgress = nil
         do {
@@ -449,6 +454,7 @@ final class AppModel {
             volumeEncrypted = layout.volumeIsEncrypted
             openError = nil
             selectedMessageID = nil
+            goldLabels = GoldStore(layout: layout).load()
             refresh()
             reloadUnfinishedJobs()
             startTextIndexing()
@@ -1840,6 +1846,14 @@ final class AppModel {
         aiKeyStored = aiConfig.secretKey.map(credentials.secretExists) ?? false
         aiRouterCache = nil
     }
+
+    // MARK: Gold set (6.6, ADR-0005 §7) — the views and runs live in GoldSettings.swift
+
+    var goldLabels = GoldLabels()
+    var goldProgress: GoldProgress?
+    var goldResults: [GoldResult] = []
+    var goldMessage: String?
+    var goldTask: Task<Void, Never>?
 
     // MARK: KI (Phase 5, ADR-0004)
 

@@ -298,3 +298,55 @@ public struct GoldCase: Sendable, Codable, Equatable {
         return out
     }
 }
+
+/// The private gold set in the own archive (6.6b): the labelled mails as the model sees them,
+/// with or without the memory the retriever gives — and what MailKeeper shows for them today.
+public enum GoldArchive {
+    public static let set = "dein Archiv"
+    public static let today = "MailKeeper heute"
+    public static let withoutMemory = "KI ohne Gedächtnis"
+    public static let withMemory = "KI mit Gedächtnis"
+
+    static func expectation(_ label: GoldLabel) -> GoldExpectation {
+        GoldExpectation(category: [label.category], phishing: label.phishing ? .flagged : .none)
+    }
+
+    /// The labelled mails still in the archive, as items; `memory` nil runs them without.
+    public static func items(reader: ArchiveReader, labels: GoldLabels, memory: MemoryRetriever?) throws -> [GoldItem] {
+        let ids = try reader.messageIDs(identities: labels.labels.map(\.identity))
+        return try labels.labels.compactMap { label in
+            guard let id = ids[label.identity], let parsed = try reader.parsedMessage(id) else { return nil }
+            let mail = MailSnapshot(parsed)
+            let context = try memory.map { try $0.context(for: id, mail: mail, accounts: try reader.detail(id)?.locations.map(\.account) ?? []) }
+            return GoldItem(id: label.identity, mail: mail, memory: context, expect: expectation(label))
+        }
+    }
+
+    /// What the archive shows now — the category from rules, similar mails, a model or the
+    /// user, phishing as a model's flag or the register's "Verdächtig" — no model asked.
+    public static func todayReport(reader: ArchiveReader, labels: GoldLabels) throws -> GoldReport {
+        let ids = try reader.messageIDs(identities: labels.labels.map(\.identity))
+        let outcomes: [GoldOutcome] = try labels.labels.compactMap { label in
+            guard let id = ids[label.identity] else { return nil }
+            let c = try reader.classification(of: id)
+            let warned = try reader.count(MessageFilter(text: "is:verdächtig ", ids: [id])) > 0
+            let flagged = warned || c?.phishing == .suspicious || c?.phishing == .likely
+            let e = expectation(label)
+            return GoldOutcome(id: label.identity, expected: e.category, expectedPhishing: e.phishing, category: c?.category,
+                               phishing: flagged ? .suspicious : PhishingLevel.none, reason: c?.reason,
+                               model: c.map { $0.source.rawValue }, seconds: 0,
+                               error: c?.category == nil ? String(localized: "noch offen") : nil)
+        }
+        return GoldReport(set: set, mode: today, model: "Regeln, ähnliche Mails, KI, du", outcomes: outcomes)
+    }
+
+    /// Subjects for the misses: the private set names mails by identity.
+    public static func titles(reader: ArchiveReader, identities: [String]) throws -> [String: String] {
+        let ids = try reader.messageIDs(identities: identities)
+        var out: [String: String] = [:]
+        for (identity, id) in ids {
+            if let s = try reader.summaries([id]).first { out[identity] = "\(s.fromDisplay): \(s.subject ?? "")" }
+        }
+        return out
+    }
+}
