@@ -773,8 +773,14 @@ public actor ArchiveWriter {
                     -- "kein Spam" is the user's word on phishing too: a model's flag goes (review 5.9 C6)
                     phishing = CASE WHEN excluded.verdict = 'ham' THEN NULL ELSE classifications.phishing END,
                     phishing_reason = CASE WHEN excluded.verdict = 'ham' THEN NULL ELSE classifications.phishing_reason END,
-                    category = CASE WHEN classifications.source = 'user' AND classifications.category = 'spam' THEN NULL ELSE classifications.category END,
-                    source = CASE WHEN classifications.source = 'user' AND classifications.category = 'spam' THEN 'heuristic' ELSE classifications.source END
+                    -- a "Spam" category ends with "kein Spam", whoever gave it (6.8: a model's stayed and
+                    -- kept "kategorie:spam" true); the rules look at the mail again
+                    category = CASE WHEN classifications.category = 'spam' AND (excluded.verdict = 'ham' OR classifications.source = 'user')
+                                    THEN NULL ELSE classifications.category END,
+                    version = CASE WHEN classifications.category = 'spam' AND (excluded.verdict = 'ham' OR classifications.source = 'user')
+                                   THEN 0 ELSE classifications.version END,
+                    source = CASE WHEN classifications.category = 'spam' AND (excluded.verdict = 'ham' OR classifications.source = 'user')
+                                  THEN 'heuristic' ELSE classifications.source END
                 """, [.double(time), .optional(verdict), .text(identity)])
         }
     }

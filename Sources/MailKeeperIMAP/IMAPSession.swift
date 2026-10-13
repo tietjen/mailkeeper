@@ -70,8 +70,10 @@ public enum IMAPAccess: Sendable, Equatable {
     /// changed them on the way in). Nothing that removes, moves, expunges or touches other mail.
     case restore
     /// 5.5 "Kein Spam": SELECT, and moving messages out of the spam mailbox (\Junk, or by name on
-    /// a server without roles) into INBOX — UID MOVE, or UID COPY + STORE +\Deleted + UID EXPUNGE
-    /// on exactly those UIDs. Never another source or destination.
+    /// a server without roles) back where they belong — INBOX, or (6.8) the mailbox they came
+    /// from: one the server lists that is no spam, trash, sent or drafts mailbox (by role and by
+    /// name), never created — UID MOVE, or UID COPY + STORE +\Deleted + UID EXPUNGE on exactly
+    /// those UIDs. Never another source or destination.
     case rescueFromJunk
     /// 6.4 "Ist Spam": SELECT a mailbox that is no spam, trash, sent or drafts mailbox, and move
     /// messages from it into the spam mailbox (\Junk, or by name on a server without roles) —
@@ -104,6 +106,8 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
     private var inbox: MailboxName?
     /// The spam mailbox, once looked up: the only destination of "Ist Spam".
     private var junk: MailboxName?
+    /// The one mailbox a "Kein Spam" move may go to, set for the duration of that move (6.8).
+    private var rescueTarget: MailboxName?
     /// Special-use roles by display name, from the last LIST (restore never writes into Trash/Junk).
     private var mailboxUses: [String: Set<SpecialUse>] = [:]
     /// The mailbox opened with SELECT, and the UIDs this connection appended per mailbox: the
@@ -421,16 +425,33 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         return !roles && RemoteMailbox.looksLikeJunk(mailbox)
     }
 
-    public func moveToInbox(_ uids: [UInt32]) async throws {
+    /// Whether a listed mailbox may take mail back out of the spam folder (6.8): INBOX, or any
+    /// selectable mailbox that is no spam, trash, sent or drafts mailbox — by role and by name.
+    func mayTakeRescued(_ display: String) -> Bool {
+        guard mailboxNames[display] != nil, display != selectedMailbox else { return false }
+        if display.uppercased() == "INBOX" { return true }
+        let uses = mailboxUses[display] ?? []
+        return uses.isDisjoint(with: [.junk, .trash, .sent, .drafts])
+            && !RemoteMailbox.looksLikeTrashOrJunk(display) && !RemoteMailbox.looksLikeSentOrDrafts(display)
+    }
+
+    /// Moves UIDs of the selected spam mailbox to `destination` (a mailbox the server listed:
+    /// INBOX, or where the mail came from) — nothing else.
+    public func moveOutOfJunk(_ uids: [UInt32], to destination: String) async throws {
         guard !uids.isEmpty else { return }
         guard access == .rescueFromJunk, selectedIsJunk else { throw IMAPError.readOnlyViolation("MOVE aus einem Nicht-Spam-Ordner") }
-        guard let inbox else { throw IMAPError.protocolError("keine INBOX bestimmt") }
+        if mailboxNames.isEmpty { _ = try await mailboxes() }
+        guard mayTakeRescued(destination), let target = mailboxNames[destination] else {
+            throw IMAPError.readOnlyViolation("MOVE nach „\(destination)“ – kein zulässiges Ziel")
+        }
+        rescueTarget = target
+        defer { rescueTarget = nil }
         let set = try Self.uidSet(uids)
         do {
             if serverCapabilities.contains("MOVE") {
-                try await run(.uidMove(set, inbox))
+                try await run(.uidMove(set, target))
             } else if serverCapabilities.contains("UIDPLUS") {
-                try await run(.uidCopy(set, inbox))
+                try await run(.uidCopy(set, target))
                 if let mailbox = selectedMailbox { copiedUIDs[mailbox, default: []].formUnion(uids) }
                 try await run(.uidStore(set, [], .flags(.add(silent: true, list: [.deleted]))))
                 try await run(.uidExpunge(set))
@@ -644,6 +665,8 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
     /// those of a `.restore` connection (SELECT, adding Gmail labels, setting/clearing client
     /// system flags — never \Deleted; `requireOwn` limits both to its own uploads; APPEND has its
     /// own checks).
+    /// `inbox`: for `.rescueFromJunk`, the one mailbox the current move may go to (INBOX, or 6.8
+    /// the folder the mail came from) — nil outside such a move.
     static func isAllowedChange(_ command: Command, access: IMAPAccess, trash: MailboxName?, inbox: MailboxName? = nil,
                                 junk: MailboxName? = nil) -> Bool {
         switch (access, command) {
@@ -658,7 +681,7 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         case (.moveToTrash, .uidExpunge(.set)):
             return true  // explicit UIDs only (UIDPLUS); bare EXPUNGE and CLOSE stay refused
         case (.rescueFromJunk, .uidMove(.set, let destination)), (.rescueFromJunk, .uidCopy(.set, let destination)):
-            return inbox != nil && destination == inbox  // the source is checked per session (selectedIsJunk)
+            return inbox != nil && destination == inbox  // the move's one target, checked by mayTakeRescued; the source per session (selectedIsJunk)
         case (.rescueFromJunk, .uidStore(.set, let modifiers, .flags(let store))):
             return modifiers.isEmpty && store.operation == .add && store.flags == [.deleted]
         case (.rescueFromJunk, .uidExpunge(.set)):
@@ -681,7 +704,7 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
 
     @discardableResult
     func run(_ command: Command, failure: (String) -> IMAPError = { _ in IMAPError.closed }) async throws -> Result {
-        guard Self.isReadOnly(command) || Self.isAllowedChange(command, access: access, trash: trash, inbox: inbox, junk: junk) else {
+        guard Self.isReadOnly(command) || Self.isAllowedChange(command, access: access, trash: trash, inbox: rescueTarget, junk: junk) else {
             throw IMAPError.readOnlyViolation(Self.name(of: command))
         }
         return try await perform(name: Self.name(of: command), isLogin: { if case .login = command { true } else { false } }(),
@@ -703,7 +726,7 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         for part in stream {
             switch part {
             case .tagged(let tagged):
-                guard Self.isReadOnly(tagged.command) || Self.isAllowedChange(tagged.command, access: access, trash: trash, inbox: inbox, junk: junk) else {
+                guard Self.isReadOnly(tagged.command) || Self.isAllowedChange(tagged.command, access: access, trash: trash, inbox: rescueTarget, junk: junk) else {
                     throw IMAPError.readOnlyViolation(Self.name(of: tagged.command))
                 }
                 // a rescue moves only out of the spam folder, "Ist Spam" only out of an ordinary one

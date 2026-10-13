@@ -39,6 +39,15 @@ struct ReadOnlyGuardTests {
         #expect(IMAPSession.isReadOnly(IMAPSession.presenceCommand(esearch: true)))
     }
 
+    @Test("6.8: a rescue moves only into the one target of that move") func rescueToItsTarget() {
+        let target = MailboxName(ByteBuffer(string: "Projekte"))
+        let other = MailboxName(ByteBuffer(string: "Trash"))
+        #expect(IMAPSession.isAllowedChange(.uidMove(one, target), access: .rescueFromJunk, trash: nil, inbox: target))
+        #expect(!IMAPSession.isAllowedChange(.uidMove(one, other), access: .rescueFromJunk, trash: nil, inbox: target))
+        #expect(!IMAPSession.isAllowedChange(.uidMove(one, target), access: .rescueFromJunk, trash: nil, inbox: nil))  // outside a move: nothing
+        #expect(!IMAPSession.isAllowedChange(.uidMove(one, target), access: .readOnly, trash: nil, inbox: target))
+    }
+
     @Test("Phase 4: a moveToTrash connection may only move into \\Trash") func trashAllowlist() {
         let trash = MailboxName(ByteBuffer(string: "Trash"))
         let archive = MailboxName(ByteBuffer(string: "Archive"))
@@ -108,7 +117,7 @@ struct ReadOnlyGuardTests {
                            .expunge, .close, .create(inboxName, []), .delete(archive)] {
             #expect(!IMAPSession.isAllowedChange(c, access: .rescueFromJunk, trash: nil, inbox: inboxName), "\(c)")
         }
-        #expect(!IMAPSession.isAllowedChange(.uidMove(one, inboxName), access: .rescueFromJunk, trash: nil, inbox: nil))  // no INBOX known
+        #expect(!IMAPSession.isAllowedChange(.uidMove(one, inboxName), access: .rescueFromJunk, trash: nil, inbox: nil))  // no target set: outside a move
         #expect(!IMAPSession.isAllowedChange(.uidMove(one, inboxName), access: .moveToTrash, trash: archive, inbox: inboxName))
     }
 
@@ -440,7 +449,7 @@ struct IntegrationTests {
         }
         #expect(done.count(.done) == 1, "\(done.reasons)")
         // INBOX is outside this test's sync selection (include: Junk): not recorded, said so
-        #expect(done.items[0].reason == "im Posteingang; diesen Ordner ruft MailKeeper für das Konto nicht ab")
+        #expect(done.items[0].reason == "aus „Junk“ → INBOX · im Posteingang; diesen Ordner ruft MailKeeper für das Konto nicht ab")
         let messageID = try #require(job.items.first?.messageID)
         let check = try await IMAPSession.connect(endpoint, username: a.username, password: pw)
         let boxes = try await check.mailboxes()
@@ -494,6 +503,56 @@ struct IntegrationTests {
         #expect(detail.locations.first { $0.mailbox == "Junk" }?.isOnServer == true)
         #expect(detail.locations.first { $0.mailbox == "INBOX" }?.isOnServer == false)
         #expect(try reader.classification(of: ids[0])?.verdict == "spam" && reader.classification(of: ids[0])?.source == .user)
+    }
+
+    /// 6.8, mailcow TEST account only: a legitimate mail in a project folder goes into Junk ("Ist
+    /// Spam", .markAsJunk) and back with "Kein Spam" — not into INBOX but where it lay, through the
+    /// narrow `.rescueFromJunk` access; checked with a separate read-only connection.
+    @Test func mailcowSpamAndBackWhereItLay() async throws {
+        let a = try account("mailcow")
+        try seed("--cleanup-junk")
+        try seed("--origin-spam-test")
+        defer { try? seed("--cleanup-junk") }
+        let endpoint = IMAPEndpoint(host: a.host, port: a.port, security: .tls)
+        let policy = SyncPolicy(mode: .standard, include: ["MailKeeper-SpamOrigin", "Junk"], includeJunk: true)
+        let (layout, first, _) = try await run("mailcow", endpoint: endpoint, policy: policy)
+        #expect(first.failures.isEmpty, "\(first.failures)")
+        let reader = try ArchiveReader(layout: layout)
+        let ids = try reader.messageIDs(MessageFilter(text: "subject:herkunftstest -is:junk "))
+        try #require(ids.count == 1, "the seeded mail is in MailKeeper-SpamOrigin")
+        var config = AccountConfig.imap(id: "mailcow", username: a.username, host: a.host, port: a.port)
+        config.policy = policy
+        let pw = try password(a)
+        let store = ActionStore(layout: layout)
+        // there: "Ist Spam"
+        let (toJunk, _) = try reader.planMarkSpam(MessageFilter(ids: ids), title: "test", accounts: [config])
+        try store.create(toJunk)
+        let junked = try await RescueExecutor(writer: try ArchiveWriter(layout: layout), store: store,
+                                              audit: AuditLog(url: tempDir().appending(path: "audit.jsonl"))).run(toJunk.id, accounts: [config]) { _ in
+            try await IMAPSession.connect(endpoint, username: a.username, password: pw, access: .markAsJunk)
+        }
+        #expect(junked.count(.done) == 1, "\(junked.reasons)")
+        #expect(try reader.count(MessageFilter(text: "is:junk ", ids: ids)) == 1)
+        // and back: "Kein Spam" — to where it lay
+        let (back, summary) = try reader.planRescue(MessageFilter(ids: ids), title: "test", accounts: [config])
+        #expect(back.items.first?.target?.mailbox == "MailKeeper-SpamOrigin" && summary.perAccount == ["mailcow › MailKeeper-SpamOrigin": 1])
+        try store.create(back)
+        let rescued = try await RescueExecutor(writer: try ArchiveWriter(layout: layout), store: store,
+                                               audit: AuditLog(url: tempDir().appending(path: "audit.jsonl"))).run(back.id, accounts: [config]) { _ in
+            try await IMAPSession.connect(endpoint, username: a.username, password: pw, access: .rescueFromJunk)
+        }
+        #expect(rescued.count(.done) == 1, "\(rescued.reasons)")
+        let messageID = try #require(back.items.first?.messageID)
+        let check = try await IMAPSession.connect(endpoint, username: a.username, password: pw)
+        let boxes = try await check.mailboxes()
+        _ = try await check.examine(try #require(boxes.first { $0.name == "MailKeeper-SpamOrigin" }))
+        #expect(try await !check.search(messageID: messageID).isEmpty)
+        _ = try await check.examine(try #require(boxes.first { $0.specialUse.contains(.junk) }))
+        #expect(try await check.search(messageID: messageID).isEmpty)
+        await check.close()
+        #expect(try reader.count(MessageFilter(text: "is:junk ", ids: ids)) == 0)  // 6.8: no longer "is:junk"
+        #expect(try reader.detail(ids[0])?.locations.contains { $0.mailbox == "MailKeeper-SpamOrigin" && $0.isOnServer } == true)
+        #expect(try reader.classification(of: ids[0])?.verdict == "ham")
     }
 
     @Test func protonWrongPinIsRefused() async throws {

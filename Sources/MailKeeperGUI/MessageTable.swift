@@ -207,7 +207,7 @@ struct MessageTable: NSViewRepresentable {
                 add(menu, String(localized: "Exportieren …"), #selector(export))
                 menu.addItem(.separator())
                 if model.sidebarSelection == .spamReview || model.anyInJunk(Array(model.actionSelection.prefix(50))) {
-                    add(menu, String(localized: "Kein Spam (→ Posteingang, wo auf dem Server)"), #selector(rescue))
+                    add(menu, String(localized: "Kein Spam (→ zurück, wo auf dem Server)"), #selector(rescue))
                 }
                 add(menu, model.sidebarSelection == .spamReview ? String(localized: "Ist Spam")
                           : String(localized: "Ist Spam (→ Spam-Ordner, wo auf dem Server)"), #selector(markSpam))

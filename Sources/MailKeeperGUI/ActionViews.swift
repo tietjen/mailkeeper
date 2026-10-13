@@ -9,6 +9,8 @@ struct PlanSheet: View {
     @State private var graceDays: Int
     @State private var destination: RestoreOptions.Destination
     @State private var keepDate: Bool
+    /// "Kein Spam" (6.8): each mail back where it lay, or all to one folder.
+    @State private var rescueDestination = RescueDestination.origin
     @Environment(\.dismiss) private var dismiss
 
     init(model: AppModel, plan: PlannedAction) {
@@ -38,15 +40,29 @@ struct PlanSheet: View {
                 GridRow {
                     Text(job.kind == .serverDelete ? "In den Papierkorb des Servers"
                          : job.kind == .restore ? "Auf den Server zurück"
-                         : job.kind == .moveToInbox ? "Aus dem Spam-Ordner in den Posteingang"
+                         : job.kind == .moveToInbox ? "Aus dem Spam-Ordner zurück"
                          : job.kind == .moveToJunk ? "In den Spam-Ordner des Servers" : "In den Papierkorb des Archivs")
                     Text("\(runs.formatted()) Mails · \(job.openBytes.formatted(.byteCount(style: .file)))").fontWeight(.semibold)
                 }
                 if job.kind == .serverDelete || job.kind == .moveToInbox || job.kind == .moveToJunk {
                     ForEach(plan.summary.perAccount.sorted { $0.key < $1.key }, id: \.key) { account, count in
                         GridRow {
-                            Text("Konto \(account)").foregroundStyle(.secondary)
+                            Text(job.kind == .moveToInbox ? "Nach \(DisplayText.safe(account))" : "Konto \(account)").foregroundStyle(.secondary)
                             Text(count.formatted())
+                        }
+                    }
+                    if job.kind == .moveToInbox {
+                        GridRow {
+                            Text("Ziel").foregroundStyle(.secondary)
+                            Picker("", selection: Binding(get: { rescueDestination }, set: { rescueDestination = $0; model.retarget($0) })) {
+                                Text("Wo sie vorher lagen (sonst Posteingang)").tag(RescueDestination.origin)
+                                ForEach(model.rescueFolders(plan), id: \.self) { name in
+                                    Text(name.uppercased() == "INBOX" ? String(localized: "Alle in den Posteingang") : String(localized: "Alle nach „\(DisplayText.safe(name))“"))
+                                        .tag(RescueDestination.folder(name))
+                                }
+                            }
+                            .labelsHidden()
+                            .fixedSize()
                         }
                     }
                     if plan.summary.archiveOnly > 0 {
@@ -167,7 +183,7 @@ struct PlanSheet: View {
             String(localized: "MailKeeper lädt die Mails aus dem Archiv wieder auf den Server – mit ihrem Status (gelesen, beantwortet, markiert), bei Gmail mit den Labels. Vorher sucht es jede im Zielordner: Was dort schon liegt, kommt nicht doppelt. Danach holt es sie zur Kontrolle zurück. Ordner legt MailKeeper nicht an.")
                 + (protonInvolved ? " " + String(localized: "Proton braucht etwa 1,5 Sekunden je Mail und nimmt das Datum aus der Mail.") : "")
         case .moveToInbox:
-            String(localized: "Die Mails wandern auf dem Server aus dem Spam-Ordner in den Posteingang, das Archiv merkt sich den neuen Ort und deine Entscheidung „Kein Spam“. Vorher prüft MailKeeper jede einzelne: noch dieselbe Mail im Spam-Ordner.")
+            String(localized: "Die Mails wandern auf dem Server aus dem Spam-Ordner dorthin zurück, wo sie vorher lagen – sonst in den Posteingang –, das Archiv merkt sich den neuen Ort und deine Entscheidung „Kein Spam“. Vorher prüft MailKeeper jede einzelne: noch dieselbe Mail im Spam-Ordner. Der Spam-Filter deines Servers lernt dabei meist mit (z. B. rspamd bei mailcow): Eine Mail, die den Spam-Ordner verlässt, gilt ihm als erwünscht – deshalb nur echte Mails zurückholen.")
         case .moveToJunk:
             String(localized: "Die Mails wandern auf dem Server in den Spam-Ordner ihres Kontos, das Archiv behält sie und merkt sich deine Entscheidung „Spam“. Vorher prüft MailKeeper jede einzelne: noch dieselbe Mail am selben Ort. Aus Gesendet, Entwürfen und dem Papierkorb verschiebt es nichts.")
         case .export, .unsubscribe:
@@ -309,11 +325,19 @@ struct SpamReviewBar: View {
                 .help("Mails, in denen die KI Phishing sieht oder vermutet")
             }
             Spacer()
-            Button("Nur „kein Spam“") { model.appendFilter("-kategorie:spam -is:phishing") }
-                .help("Zeigt nur, was die KI (oder du) weder für Spam noch für Phishing hält")
+            // 6.8: the server's false positives — seen first, then sent back in one plan
+            if model.searchText.contains("is:fehlalarm") {
+                Button("Alle zurückholen …") { model.rescueFalsePositives() }
+                    .disabled(model.actionRunning || model.messageIDs.isEmpty)
+                    .help("Alle hier gelisteten Mails, die noch im Spam-Ordner auf dem Server liegen, dorthin zurück, wo sie vorher lagen (sonst Posteingang) – mit Plan und Rückfrage. Was nicht zurück soll, vorher mit „Ist Spam“ markieren: dann fällt es aus der Liste.")
+            } else {
+                Button("Laut KI kein Spam (\(r.notSpam)) …") { model.appendFilter("is:fehlalarm") }
+                    .disabled(r.notSpam == 0)
+                    .help("Zeigt, was die KI weder für Spam noch für Phishing hält und du noch nicht entschieden hast – mögliche Fehlalarme des Spam-Filters auf dem Server")
+            }
             Button("Kein Spam") { model.rescueSelection() }
                 .disabled(model.actionSelection.isEmpty || model.actionRunning)
-                .help("Liegt die Mail im Spam-Ordner eines abgerufenen Kontos, wandert sie dort in den Posteingang; bei importierten Mails wird nur dein Urteil vermerkt")
+                .help("Liegt die Mail im Spam-Ordner eines abgerufenen Kontos, wandert sie dort zurück – wo sie vorher lag, sonst in den Posteingang; bei importierten Mails wird nur dein Urteil vermerkt")
             Button("Ist Spam") { model.markSpamSelection() }
                 .disabled(model.actionSelection.isEmpty)
             // TJ: everything had been judged by the Mac's model before the endpoint was set up —

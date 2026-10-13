@@ -260,7 +260,7 @@ extension ArchiveReader {
         public var total = 0
         /// Not yet judged by a model or the user.
         public var unchecked = 0
-        /// A model says: not spam — worth a look.
+        /// A model says: no spam and no phishing — worth a look (exactly `is:fehlalarm`).
         public var notSpam = 0
         public var spam = 0
         /// The user decided.
@@ -287,7 +287,7 @@ extension ArchiveReader {
             switch (row.text(0), row.text(1)) {
             case (nil, _), ("heuristic", _), ("similar", _): r.unchecked += 1
             case (_, "spam"): r.spam += 1
-            default: r.notSpam += 1
+            default: if !["verdacht", "ja"].contains(row.text(3) ?? "") { r.notSpam += 1 }  // phishing is no false positive (6.8)
             }
         }
         return r

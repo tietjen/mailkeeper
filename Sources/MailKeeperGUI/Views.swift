@@ -453,9 +453,9 @@ struct ReaderView: View {
                     .help("Mails, die dieser inhaltlich ähneln – die ähnlichsten zuerst")
             }
             if inJunk, rescuable {
-                Button("Kein Spam → Posteingang") { model.rescueSelection() }
+                Button("Kein Spam → zurück") { model.rescueSelection() }
                     .controlSize(.small).disabled(model.actionRunning)
-                    .help("Auf dem Server aus dem Spam-Ordner in den Posteingang verschieben; das Archiv merkt es sich")
+                    .help("Auf dem Server aus dem Spam-Ordner dorthin zurück, wo die Mail vorher lag (sonst in den Posteingang); das Archiv merkt es sich, und der Spam-Filter des Servers lernt meist mit")
             } else if inJunk, category?.verdict != "ham" {
                 Button("Kein Spam") { model.rescueSelection() }
                     .controlSize(.small)

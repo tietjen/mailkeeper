@@ -217,7 +217,9 @@ extension ArchiveReader {
 
     /// "Kein Spam → Posteingang" (5.5): one item per spam-folder location MailKeeper fetched over
     /// IMAP (the server's copy is what moves); skipped: not in a spam folder, imported only,
-    /// account not set up here.
+    /// account not set up here. 6.8: each item's target is where the mail lay before on that
+    /// account (the newest ordinary location, gone or not — e.g. INBOX before an "Ist Spam", a
+    /// project folder before the server's filter took it), else INBOX.
     public func planRescue(_ filter: MessageFilter, title: String, accounts: [AccountConfig]) throws -> (ActionJob, ActionPlanSummary) {
         let (whereClause, params) = try Self.whereClause(filter)
         let configured = Set(accounts.map(\.id))
@@ -245,11 +247,31 @@ extension ArchiveReader {
             }
             items.append(item)
         }
+        for i in items.indices where items[i].state == .planned {
+            let account = items[i].location!.account
+            let origin = try db.queryOne("""
+                SELECT l.mailbox FROM locations l JOIN messages m ON m.id = l.message_id
+                WHERE m.identity = ? AND l.account_id = ? AND l.uid IS NOT NULL AND \(QuerySQL.ordinaryLocation)
+                ORDER BY l.last_seen DESC LIMIT 1
+                """, [.optional(items[i].identity), .text(account)]) { $0.text(0) } ?? nil
+            items[i].target = RestoreTarget(account: account, mailbox: origin ?? "INBOX")
+        }
         let total = try count(filter)
         var perAccount: [String: Int] = [:]
-        for item in items where item.state == .planned { perAccount[item.location!.account, default: 0] += 1 }
+        for item in items where item.state == .planned {
+            perAccount["\(item.location!.account) › \(item.target?.mailbox ?? "INBOX")", default: 0] += 1
+        }
         let job = ActionJob(kind: .moveToInbox, title: title, query: filter.text, graceDays: nil, items: items)
         return (job, ActionPlanSummary(messages: total, archiveOnly: total - withLocation.count, perAccount: perAccount))
+    }
+
+    /// The ordinary mailboxes MailKeeper knows of an account (6.8: where "Kein Spam" may send
+    /// mail instead of where it lay): no spam, trash, sent, drafts or All Mail; INBOX first.
+    public func ordinaryMailboxes(account: String) throws -> [String] {
+        try db.query("""
+            SELECT DISTINCT l.mailbox FROM locations l WHERE l.account_id = ? AND l.uid IS NOT NULL AND \(QuerySQL.ordinaryLocation)
+            ORDER BY upper(l.mailbox) = 'INBOX' DESC, l.mailbox COLLATE NOCASE
+            """, [.text(account)]) { $0.text(0) }.compactMap { $0 }
     }
 
     /// "Ist Spam → Spam-Ordner" (6.4, ADR-0006 §9): per message and account one fetched location

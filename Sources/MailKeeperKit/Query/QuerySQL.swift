@@ -121,7 +121,12 @@ struct QuerySQL {
         case .isSent:
             return location(Self.sentLocation)
         case .inJunk:
-            return location(Self.junkLocation)
+            return location(Self.currentJunkLocation)
+        case .isFalsePositive:  // in parentheses: "-is:fehlalarm" negates all of it
+            return "(" + location(Self.currentJunkLocation) + """
+                 AND m.id IN (SELECT c.message_id FROM classifications c WHERE c.source IN ('endpoint', 'on-device')
+                    AND coalesce(c.category, '') != 'spam' AND coalesce(c.phishing, 'nein') NOT IN ('verdacht', 'ja') AND c.verdict IS NULL))
+                """
         case .isPhishing:
             return "m.id IN (SELECT c.message_id FROM classifications c WHERE c.phishing IN ('verdacht', 'ja'))"
         case .isSuspicious:
@@ -176,6 +181,15 @@ struct QuerySQL {
     static let junkNames = ["junk", "spam", "junk e-mail", "junk-e-mail", "junk mail", "bulk mail"]
     /// The role, or — only for accounts whose server marks no junk mailbox (imports, old servers) —
     /// the usual names, as the rescue does (a user folder "Projekte/Spam" is no spam folder there).
+    /// Where a mail may go back to out of the spam folder (6.8): no spam, trash, sent or drafts
+    /// mailbox, and no "All Mail" (Gmail: moving there would only take the inbox away).
+    static let ordinaryLocation: String = "NOT " + junkLocation + " AND NOT " + trashLocation + " AND NOT " + sentLocation
+        + " AND NOT " + draftsLocation + " AND NOT " + role("all")
+
+    /// A spam folder the mail lies in now: on the server, or the folder an import came from — not
+    /// one it has left (6.8: a rescued mail kept its gone Junk row and stayed "is:junk").
+    static let currentJunkLocation: String = "(" + junkLocation + ") AND (l.uid IS NULL OR l.on_server = 1)"
+
     static let junkLocation: String = "(" + role("junk") + " OR ((" + names(junkNames).joined(separator: " OR ")
         + ") AND l.account_id NOT IN (SELECT account_id FROM mailbox_roles WHERE instr(roles, ' junk ') > 0)))"
 

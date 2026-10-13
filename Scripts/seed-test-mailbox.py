@@ -9,6 +9,8 @@
   --junk-test      "Junk": add 2 fresh messages (spam review: one legitimate, one spam)
   --cleanup-junk   remove the spam test's messages (mk-junk-*) from Junk and INBOX
   --inbox-spam-test  "INBOX": add 1 fresh lure (6.4 "Ist Spam → Spam-Ordner"; removed by --cleanup-junk)
+  --origin-spam-test "MailKeeper-SpamOrigin": add 1 legitimate mail (6.8 "Kein Spam" back where it lay;
+                   removed by --cleanup-junk)
 
 Credentials come from ~/.config/mailkeeper/test-accounts.json and the login keychain via
 /usr/bin/security; nothing secret is printed. Never point this at a real mailbox — it writes.
@@ -68,9 +70,20 @@ if "--inbox-spam-test" in sys.argv:
     m.logout()
     sys.exit(0)
 
+if "--origin-spam-test" in sys.argv:
+    folder, stamp = "MailKeeper-SpamOrigin", int(time.time())
+    m.create(folder)
+    msg = (f"From: Stadtwerke <rechnung@stadtwerke-test.example>\r\nTo: inbox@mailkeeper.test\r\n"
+           f"Subject: Abschlag Oktober (Herkunftstest)\r\nDate: Thu, 14 Mar 2019 10:00:00 +0100\r\n"
+           f"Message-ID: <mk-junk-{stamp}-7@mailkeeper.test>\r\n\r\nIhr Abschlag wird am 15. abgebucht.\r\n")
+    m.append(folder, None, imaplib.Time2Internaldate(time.time()), msg.encode())
+    print(f"{folder}: 1 mail added (mk-junk-{stamp}-7)")
+    m.logout()
+    sys.exit(0)
+
 if "--cleanup-junk" in sys.argv:
     total = 0
-    for folder in ["Junk", "INBOX"]:
+    for folder in ["Junk", "INBOX", "MailKeeper-SpamOrigin"]:
         typ, data = m.select(folder)
         if typ != "OK":
             continue

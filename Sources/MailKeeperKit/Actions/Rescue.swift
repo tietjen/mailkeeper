@@ -8,8 +8,9 @@ public protocol ServerRescueActions: Sendable {
     func selectForChange(_ mailbox: String) async throws -> UInt32
     func identities(_ uids: [UInt32]) async throws -> [UInt32: RemoteIdentity]
     func bodies(_ uids: [UInt32]) async throws -> [UInt32: Data]
-    /// Moves UIDs of the selected spam mailbox to INBOX — nothing else. `ServerRefusal` on NO.
-    func moveToInbox(_ uids: [UInt32]) async throws
+    /// Moves UIDs of the selected spam mailbox to `destination` — INBOX or where the mail came
+    /// from (6.8), never spam, trash, sent or drafts. `ServerRefusal` on NO.
+    func moveOutOfJunk(_ uids: [UInt32], to destination: String) async throws
     /// The spam mailbox (6.4): the server's \Junk, or by name on a server without roles; nil if none.
     func junkMailbox() async throws -> String?
     /// Moves UIDs of the selected ordinary mailbox into the spam mailbox. `ServerRefusal` on NO.
@@ -82,15 +83,26 @@ public struct RescueExecutor: Sendable {
         } else {
             targetName = boxes.first(where: { $0.name.uppercased() == "INBOX" })?.name
         }
-        guard let target = targetName else {
+        guard let fallback = targetName else {
             for item in accountItems {
                 try finish(&job, item.id, .failed, toJunk ? String(localized: "Kein Spam-Ordner auf dem Server") : String(localized: "Kein Posteingang (INBOX) auf dem Server"), &p)
             }
             return
         }
-        // the target location is recorded only where the account also fetches that mailbox —
+        // "Kein Spam" (6.8): back where the mail came from when the plan knows it and the server
+        // still lists it as an ordinary mailbox — else INBOX, and the result says so
+        func destination(_ item: ActionItem) -> (name: String, note: String?) {
+            guard !toJunk, let wanted = item.target?.mailbox, wanted.uppercased() != "INBOX" else { return (fallback, nil) }
+            guard let box = boxes.first(where: { $0.name == wanted }), box.selectable,
+                  box.specialUse.isDisjoint(with: [.junk, .trash, .sent, .drafts]),
+                  !RemoteMailbox.looksLikeTrashOrJunk(box.name), !RemoteMailbox.looksLikeSentOrDrafts(box.name) else {
+                return (fallback, String(localized: "„\(wanted)“ gibt es nicht mehr oder ist kein gewöhnlicher Ordner – in den Posteingang"))
+            }
+            return (box.name, nil)
+        }
+        // a target location is recorded only where the account also fetches that mailbox —
         // otherwise no sync would ever see it go (Gmail syncs All Mail; include lists; spam off)
-        let targetSynced = policy.select(boxes).contains { $0.name == target }
+        let synced = Set(policy.select(boxes).map(\.name))
         let byMailbox = Dictionary(grouping: accountItems, by: { $0.location!.mailbox })
         for mailbox in byMailbox.keys.sorted() {
             let items = byMailbox[mailbox]!
@@ -98,7 +110,7 @@ public struct RescueExecutor: Sendable {
             let isJunk = box.map { $0.specialUse.contains(.junk) || (!roles && RemoteMailbox.looksLikeJunk($0.name)) } ?? false
             let mayMarkJunk = box.map { b in
                 // by role and by name, always (review 6.7 S7: partial roles left "Sent" open)
-                b.name != target && b.specialUse.isDisjoint(with: [.junk, .trash, .sent, .drafts])
+                b.name != fallback && b.specialUse.isDisjoint(with: [.junk, .trash, .sent, .drafts])
                     && !RemoteMailbox.looksLikeTrashOrJunk(b.name) && !RemoteMailbox.looksLikeSentOrDrafts(b.name)
             } ?? false
             guard toJunk ? mayMarkJunk : isJunk else {
@@ -149,17 +161,23 @@ public struct RescueExecutor: Sendable {
             }
             guard !go.isEmpty || !resumed.isEmpty else { continue }
             for item in go { try store.record(job: job.id, item: item.id, state: .claimed) }
-            var refusal: String?
-            if !go.isEmpty {
+            // per target: INBOX, or each mail's own folder (6.8)
+            let targets = Dictionary(grouping: go + resumed, by: { destination($0).name })
+            var moved: [ActionItem] = []
+            for target in targets.keys.sorted() {
+                let group = targets[target]!.filter { item in go.contains { $0.id == item.id } }
+                guard !group.isEmpty else { continue }
+                var refusal: String?
                 do {
-                    if toJunk { try await server.moveToJunk(go.map { $0.location!.uid }) } else { try await server.moveToInbox(go.map { $0.location!.uid }) }
+                    if toJunk { try await server.moveToJunk(group.map { $0.location!.uid }) }
+                    else { try await server.moveOutOfJunk(group.map { $0.location!.uid }, to: target) }
                 } catch let r as ServerRefusal { refusal = r.message }
-            }
-            let stillThere = go.isEmpty ? [] : try await server.present(go.map { $0.location!.uid })
-            let moved = go.filter { !stillThere.contains($0.location!.uid) }
-            for item in go where stillThere.contains(item.location!.uid) {
-                try finish(&job, item.id, .failed, refusal.map { String(localized: "vom Server abgelehnt: \($0)") }
-                           ?? String(localized: "nach dem Verschieben noch im alten Ordner"), &p)
+                let stillThere = try await server.present(group.map { $0.location!.uid })
+                moved += group.filter { !stillThere.contains($0.location!.uid) }
+                for item in group where stillThere.contains(item.location!.uid) {
+                    try finish(&job, item.id, .failed, refusal.map { String(localized: "vom Server abgelehnt: \($0)") }
+                               ?? String(localized: "nach dem Verschieben noch im alten Ordner"), &p)
+                }
             }
             gone.formUnion(moved.map { $0.location!.uid })
             if !gone.isEmpty {
@@ -168,45 +186,52 @@ public struct RescueExecutor: Sendable {
             }
             guard !moved.isEmpty || !resumed.isEmpty else { continue }
             // The server's state is final now: whatever fails from here, a moved mail is done.
-            let place = toJunk ? String(localized: "im Spam-Ordner") : String(localized: "im Posteingang")
-            var targetValidity: UInt32?
-            do { targetValidity = try await server.selectForChange(target) } catch is ServerRefusal {}
-            for item in moved + resumed {
-                let wasResumed = resumed.contains(item)
-                var found: RemoteMessage?
-                if targetValidity != nil, let messageID = item.messageID {
-                    found = try? await find(messageID, sha: item.sha256, server: server)
+            for target in targets.keys.sorted() {
+                let group = (moved + resumed).filter { destination($0).name == target }
+                guard !group.isEmpty else { continue }
+                let place = toJunk ? String(localized: "im Spam-Ordner")
+                    : target.uppercased() == "INBOX" ? String(localized: "im Posteingang") : String(localized: "in „\(target)“")
+                var targetValidity: UInt32?
+                do { targetValidity = try await server.selectForChange(target) } catch is ServerRefusal {}
+                for item in group {
+                    let wasResumed = resumed.contains(item)
+                    var found: RemoteMessage?
+                    if targetValidity != nil, let messageID = item.messageID {
+                        found = try? await find(messageID, sha: item.sha256, server: server)
+                    }
+                    if wasResumed, found == nil {
+                        try finish(&job, item.id, .failed, item.messageID == nil
+                                   ? String(localized: "Ausgang unbekannt (Mail ohne Message-ID) – bitte \(place) nachsehen")
+                                   : String(localized: "liegt weder im alten Ordner noch \(place) – erst neu abrufen"), &p)
+                        continue
+                    }
+                    var notes = [destination(item).note].compactMap { $0 }
+                    var at: ServerLocation?
+                    if let found, let validity = targetValidity, synced.contains(target) {
+                        _ = try await writer.ingest(found.data, at: LocationInfo(account: item.location!.account, mailbox: target,
+                                                                                 uidValidity: validity, uid: found.uid,
+                                                                                 providerID: found.providerID, internalDate: found.internalDate,
+                                                                                 flags: found.flags, labels: found.labels))
+                        at = ServerLocation(account: item.location!.account, mailbox: target, uidValidity: validity, uid: found.uid)
+                    } else if found != nil {
+                        notes.append(toJunk ? String(localized: "im Spam-Ordner; den ruft MailKeeper für das Konto nicht ab (Spam prüfen ist aus)")
+                                            : String(localized: "\(place); diesen Ordner ruft MailKeeper für das Konto nicht ab"))
+                    } else {
+                        notes.append(String(localized: "\(place); der Ort erscheint beim nächsten Abruf"))
+                    }
+                    if let identity = item.identity {
+                        if toJunk { try await writer.setUserClassification(identity: identity, category: .spam) } else { try await writer.confirmNotSpam(identity: identity) }
+                    }
+                    // the audit names source and target (6.8): the location below is where it went
+                    if !toJunk { notes.insert(String(localized: "aus „\(mailbox)“ → \(target)"), at: 0) }
+                    try finish(&job, item.id, .done, notes.isEmpty ? nil : notes.joined(separator: " · "), &p, at: at)
                 }
-                if wasResumed, found == nil {
-                    try finish(&job, item.id, .failed, item.messageID == nil
-                               ? String(localized: "Ausgang unbekannt (Mail ohne Message-ID) – bitte \(place) nachsehen")
-                               : String(localized: "liegt weder im alten Ordner noch \(place) – erst neu abrufen"), &p)
-                    continue
-                }
-                var note: String?
-                var at: ServerLocation?
-                if let found, let validity = targetValidity, targetSynced {
-                    _ = try await writer.ingest(found.data, at: LocationInfo(account: item.location!.account, mailbox: target,
-                                                                             uidValidity: validity, uid: found.uid,
-                                                                             providerID: found.providerID, internalDate: found.internalDate,
-                                                                             flags: found.flags, labels: found.labels))
-                    at = ServerLocation(account: item.location!.account, mailbox: target, uidValidity: validity, uid: found.uid)
-                } else if found != nil {
-                    note = toJunk ? String(localized: "im Spam-Ordner; den ruft MailKeeper für das Konto nicht ab (Spam prüfen ist aus)")
-                                  : String(localized: "im Posteingang; diesen Ordner ruft MailKeeper für das Konto nicht ab")
-                } else {
-                    note = String(localized: "\(place); der Ort erscheint beim nächsten Abruf")
-                }
-                if let identity = item.identity {
-                    if toJunk { try await writer.setUserClassification(identity: identity, category: .spam) } else { try await writer.confirmNotSpam(identity: identity) }
-                }
-                try finish(&job, item.id, .done, note, &p, at: at)
             }
             progress(p)
         }
     }
 
-    /// The moved message in INBOX: the same bytes, or the same Message-ID with the same sender
+    /// The moved message at its target: the same bytes, or the same Message-ID with the same sender
     /// and subject (the archive's identity rule — a reused Message-ID is not the message).
     private func find(_ messageID: String, sha: String, server: any ServerRescueActions) async throws -> RemoteMessage? {
         let uids = try await server.search(messageID: messageID)

@@ -84,6 +84,22 @@ APPEND, Proton rebuilds messages and ignores the APPEND date, Dovecot is textboo
    read only when the account says so (`includeJunk`, never the trash; an include list still
    rules — Proton stays in its test folder).
 
+   *As built (6.8, TJ 2026-10-13):* "Kein Spam" sends a mail back where it lay, not always to
+   INBOX: the planner takes the account's newest ordinary location of the message (no spam,
+   trash, sent, drafts or All Mail; gone rows count — a project folder before the server's filter
+   took it, INBOX before an "Ist Spam"), else INBOX; the plan sheet can send all to one folder of
+   the account instead. The executor and the `.rescueFromJunk` access take any target the server
+   lists that is no spam, trash, sent or drafts mailbox by role and by name (an edited queue file
+   naming "Sent" ends in INBOX, said); the allowlist admits exactly the one target of the running
+   move. Why it matters (TJ): server-side filters learn from the spam folder — Dovecot IMAPSieve
+   with rspamd (mailcow) or SpamAssassin trains "ham" when a mail is copied or moved out of
+   Junk — so false positives must leave it; a model's "not spam" alone never moves anything: the
+   "Laut KI kein Spam" list (`is:fehlalarm`) is seen first and confirmed in one plan, what must
+   stay is taken out with "Ist Spam". `is:junk` means a spam folder the mail lies in now (on the
+   server, or an import's folder) — a rescued mail left the review; "Kein Spam" also ends a "Spam"
+   category, whoever gave it. Live on the mailcow test account: a folder → Junk → back to the
+   folder. MailKeeper sets no `$Junk`/`$NotJunk` keywords (the access could not); filters that
+   learn by keyword alone do not see the decision.
 9. **"Ist Spam → Spam-Ordner" (6.4, TJ 2026-10-12):** the other direction of §8 with the same
    rails. Own IMAP access `.markAsJunk`: SELECT a mailbox that is no spam, trash, sent or drafts
    mailbox (by role and by name, always — review 6.7 S7: a server marking only \Junk and \Trash

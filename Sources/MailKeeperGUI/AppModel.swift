@@ -63,6 +63,18 @@ struct PlannedAction: Identifiable {
     var examples: [MessageSummary]
     /// Already stored in the queue (resume, retry of a stored job): run without creating it.
     var stored = false
+    /// Imported mails of a "Kein Spam": their verdict is noted when the plan runs, not before
+    /// (6.8: a cancelled sheet wrote it anyway).
+    var alsoConfirm: [String] = []
+    /// "Kein Spam" (6.8): each item's own folder as planned, kept while another target is chosen.
+    var origins: [Int: RestoreTarget] = [:]
+}
+
+/// Where "Kein Spam" sends the mails of a plan (6.8).
+enum RescueDestination: Hashable {
+    /// Where each mail lay before (else INBOX) — as planned.
+    case origin
+    case folder(String)
 }
 
 /// An export waiting for its format and destination (export sheet).
@@ -1372,6 +1384,10 @@ final class AppModel {
             return
         }
         pendingPlan = nil
+        if !plan.alsoConfirm.isEmpty {  // imported mails of a "Kein Spam": now that it runs
+            let identities = plan.alsoConfirm
+            withWriter { writer in for identity in identities { try await writer.confirmNotSpam(identity: identity) } }
+        }
         let job = plan.job, stored = plan.stored
         let accounts = accountConfigs, credentials = self.credentials, audit = self.audit
         actionRunning = true
@@ -1489,7 +1505,7 @@ final class AppModel {
         case .archiveDelete: String(localized: "Aus dem Archiv löschen")
         case .restore: String(localized: "Auf den Server zurückspielen")
         case .export: String(localized: "Exportieren")
-        case .moveToInbox: String(localized: "Kein Spam → Posteingang")
+        case .moveToInbox: String(localized: "Kein Spam → zurück")
         case .moveToJunk: String(localized: "Ist Spam → Spam-Ordner")
         case .unsubscribe: String(localized: "Vom Newsletter abmelden")
         }
@@ -2240,7 +2256,8 @@ final class AppModel {
         runClassification(ids, title: String(localized: "Spam prüfen"))
     }
 
-    /// "Kein Spam → Posteingang": one mail at once (checked, queued, logged); several through the plan.
+    /// "Kein Spam → zurück": one mail at once (checked, queued, logged); several through the plan.
+    /// The target is where the mail lay before on that account, else INBOX (6.8).
     func rescueSelection() {
         guard let reader, !actionSelection.isEmpty else { return }
         do {
@@ -2257,22 +2274,62 @@ final class AppModel {
             // but the user's "Kein Spam" counts — recorded at once (TJ).
             let onServer = Set(job.items.compactMap(\.identity))
             let archiveOnly = try reader.identities(of: ids).filter { !onServer.contains($0) }
-            if !archiveOnly.isEmpty {
-                withWriter { writer in for identity in archiveOnly { try await writer.confirmNotSpam(identity: identity) } }
-                contentGeneration += 1
-            }
-            let plan = PlannedAction(job: job, summary: summary, filter: MessageFilter(ids: ids),
+            var plan = PlannedAction(job: job, summary: summary, filter: MessageFilter(ids: ids),
                                      examples: try reader.summaries(Array(ids.prefix(5))))
             if ids.count == 1, job.items.count == 1, job.count(.planned) == 1 {
                 execute(plan)  // TJ: one click — the checks, the queue and the audit run all the same
             } else if job.count(.planned) == 0 {
-                if archiveOnly.isEmpty, let reason = job.reasons.first?.reason { actionError = reason }
+                // nothing to move: the verdicts of imported mails at once
+                if !archiveOnly.isEmpty {
+                    withWriter { writer in for identity in archiveOnly { try await writer.confirmNotSpam(identity: identity) } }
+                    contentGeneration += 1
+                } else if let reason = job.reasons.first?.reason {
+                    actionError = reason
+                }
             } else {
+                plan.alsoConfirm = archiveOnly  // with the plan, when it runs (6.8)
                 pendingPlan = plan
             }
         } catch {
             actionError = "\(error)"
         }
+    }
+
+    /// "Laut KI kein Spam – zurückholen" (6.8): everything `is:fehlalarm` that lies in a spam
+    /// folder on a server, through the plan sheet — the user sees the list first and takes out
+    /// with "Ist Spam" what must stay.
+    func rescueFalsePositives() {
+        plan(.moveToInbox, filter: MessageFilter(text: "is:fehlalarm on:server "),
+             title: String(localized: "Laut KI kein Spam"))
+    }
+
+    /// The plan sheet's target for "Kein Spam" (6.8): each mail's own folder, or one for all.
+    func retarget(_ destination: RescueDestination) {
+        guard var plan = pendingPlan, plan.job.kind == .moveToInbox else { return }
+        if plan.origins.isEmpty {
+            plan.origins = Dictionary(uniqueKeysWithValues: plan.job.items.compactMap { i in i.target.map { (i.id, $0) } })
+        }
+        var perAccount: [String: Int] = [:]
+        for i in plan.job.items.indices {
+            guard let account = plan.job.items[i].location?.account else { continue }
+            switch destination {
+            case .origin: plan.job.items[i].target = plan.origins[plan.job.items[i].id] ?? RestoreTarget(account: account, mailbox: "INBOX")
+            case .folder(let name): plan.job.items[i].target = RestoreTarget(account: account, mailbox: name)
+            }
+            if plan.job.items[i].state == .planned {
+                perAccount["\(account) › \(plan.job.items[i].target?.mailbox ?? "INBOX")", default: 0] += 1
+            }
+        }
+        plan.summary.perAccount = perAccount
+        pendingPlan = plan
+    }
+
+    /// The folders a plan's "Kein Spam" may choose for all (one account only; else INBOX or each its own).
+    func rescueFolders(_ plan: PlannedAction) -> [String] {
+        let accounts = Set(plan.job.items.compactMap(\.location?.account))
+        guard accounts.count == 1, let account = accounts.first else { return ["INBOX"] }
+        let known = (try? reader?.ordinaryMailboxes(account: account)) ?? []
+        return known.contains { $0.uppercased() == "INBOX" } ? known : ["INBOX"] + known
     }
 
     /// Whether a "Kein Spam" would move something on a server (a spam-folder location fetched over IMAP).
