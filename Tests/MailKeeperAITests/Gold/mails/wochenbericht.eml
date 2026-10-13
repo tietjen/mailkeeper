@@ -1,0 +1,14 @@
+From: Monitoring <reports@monitor.example>
+To: erika@firma-muster.example
+Subject: Wochenbericht KW 42: 3 Warnungen, 0 Ausfälle
+Authentication-Results: mx.example.test; dkim=pass header.d=monitor.example; spf=pass; dmarc=pass header.from=monitor.example
+Date: Mon, 20 Oct 2025 06:00:00 +0200
+
+Wochenbericht für Kalenderwoche 42
+
+Überwachte Dienste: 14
+Verfügbarkeit: 99,97 %
+Warnungen: 3 (Festplatte web-02 über 85 %, Zertifikat shop läuft in 14 Tagen ab, Backup-Dauer gestiegen)
+Ausfälle: 0
+
+Den vollständigen Bericht finden Sie im Dashboard: https://monitor.example/berichte/kw42

@@ -1,0 +1,13 @@
+From: Schienenreisen <buchung@schienenreisen.example>
+To: erika@zuhause.example
+Subject: Ihre Fahrkarte: Musterstadt Hbf → Hamburg Hbf, 24.10.2025
+Authentication-Results: mx.example.test; dkim=pass header.d=schienenreisen.example; spf=pass; dmarc=pass header.from=schienenreisen.example
+Date: Wed, 15 Oct 2025 12:10:00 +0200
+
+Vielen Dank für Ihre Buchung.
+
+Hinfahrt: Fr, 24.10.2025, Musterstadt Hbf ab 08:12 – Hamburg Hbf an 11:47, ICE 578, Wagen 7, Platz 64
+Auftragsnummer: QX7R2P
+Preis: 49,90 €
+
+Ihr Ticket finden Sie als PDF im Anhang und in der App.

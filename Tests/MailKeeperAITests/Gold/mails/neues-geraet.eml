@@ -1,0 +1,13 @@
+From: Wolkenspeicher Sicherheit <security@wolkenspeicher.example>
+To: erika@zuhause.example
+Subject: Neue Anmeldung auf einem Mac
+Authentication-Results: mx.example.test; dkim=pass header.d=wolkenspeicher.example; spf=pass; dmarc=pass header.from=wolkenspeicher.example
+Date: Sat, 11 Oct 2025 21:14:00 +0200
+
+Hallo Erika,
+
+Ihr Konto wurde soeben auf einem neuen Gerät verwendet: Mac, Musterstadt, 11.10.2025 21:13 Uhr.
+
+Waren Sie das? Dann müssen Sie nichts tun. Falls nicht, ändern Sie Ihr Passwort in den Kontoeinstellungen.
+
+Ihr Wolkenspeicher-Team

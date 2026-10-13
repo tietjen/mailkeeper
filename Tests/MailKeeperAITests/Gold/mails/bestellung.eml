@@ -1,0 +1,16 @@
+From: Musterladen <bestellung@musterladen.example>
+To: erika@zuhause.example
+Subject: Bestellbestätigung Nr. 4711-2025
+Authentication-Results: mx.example.test; dkim=pass header.d=musterladen.example; spf=pass; dmarc=pass header.from=musterladen.example
+Date: Tue, 07 Oct 2025 20:03:00 +0200
+
+Vielen Dank für Ihre Bestellung!
+
+Bestellnummer: 4711-2025
+1 × Wanderrucksack 28 l – 89,90 €
+Versand: kostenlos
+Summe: 89,90 € (bezahlt per Lastschrift)
+
+Die Rechnung finden Sie im Anhang. Wir melden uns, sobald Ihr Paket versendet wurde.
+
+Ihr Musterladen

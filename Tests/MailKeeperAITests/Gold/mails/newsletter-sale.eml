@@ -1,0 +1,10 @@
+From: Outdoorwelt Newsletter <news@outdoorwelt.example>
+To: erika@zuhause.example
+Subject: Herbst-Sale: bis zu 40 % auf Jacken
+List-Id: Outdoorwelt Newsletter <news.outdoorwelt.example>
+List-Unsubscribe: <https://outdoorwelt.example/abmelden?u=8812>
+Authentication-Results: mx.example.test; dkim=pass header.d=outdoorwelt.example; spf=pass; dmarc=pass header.from=outdoorwelt.example
+Content-Type: text/html; charset=utf-8
+Date: Fri, 03 Oct 2025 10:00:00 +0200
+
+<html><body><h1>Herbst-Sale</h1><p>Jetzt bis zu 40 % auf Regen- und Daunenjacken sparen – nur bis Sonntag.</p><p><a href="https://click.mailversand.example/track?u=8812&l=1">Zum Sale</a></p><p>Sie erhalten diese Mail, weil Sie unseren Newsletter abonniert haben. <a href="https://outdoorwelt.example/abmelden?u=8812">Abmelden</a></p></body></html>

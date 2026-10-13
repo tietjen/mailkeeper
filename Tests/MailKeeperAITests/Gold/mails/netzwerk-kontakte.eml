@@ -1,0 +1,14 @@
+From: Berufsnetz <benachrichtigungen@berufsnetz.example>
+To: erika@zuhause.example
+Subject: Sie haben 3 neue Kontaktanfragen
+List-Unsubscribe: <https://berufsnetz.example/einstellungen/mail>
+Authentication-Results: mx.example.test; dkim=pass header.d=berufsnetz.example; spf=pass; dmarc=pass header.from=berufsnetz.example
+Date: Tue, 21 Oct 2025 18:00:00 +0200
+
+Hallo Erika,
+
+Jana Beispiel, Paul Muster und eine weitere Person möchten sich mit Ihnen vernetzen.
+
+Anfragen ansehen: https://berufsnetz.example/kontakte/anfragen
+
+Sie erhalten diese Benachrichtigung von Berufsnetz. Einstellungen ändern: https://berufsnetz.example/einstellungen/mail

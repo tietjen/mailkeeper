@@ -1,0 +1,14 @@
+From: Codeschmiede <notifications@codeschmiede.example>
+To: erika@zuhause.example
+Subject: [mustermann/haushaltsbuch] Build fehlgeschlagen: main (a1b2c3d)
+Authentication-Results: mx.example.test; dkim=pass header.d=codeschmiede.example; spf=pass; dmarc=pass header.from=codeschmiede.example
+Date: Sun, 12 Oct 2025 14:22:00 +0200
+
+Der Workflow „tests“ ist auf main fehlgeschlagen.
+
+Job: test (macos) – 2 Fehler
+Commit: a1b2c3d „Kategorien sortieren“
+
+Details: https://codeschmiede.example/mustermann/haushaltsbuch/actions/runs/4411
+
+Sie erhalten diese Mail, weil Sie Benachrichtigungen für dieses Repository abonniert haben.

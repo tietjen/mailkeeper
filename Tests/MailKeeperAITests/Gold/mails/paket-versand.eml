@@ -1,0 +1,13 @@
+From: Paketblitz <versand@paketblitz.example>
+To: erika@zuhause.example
+Subject: Ihr Paket ist unterwegs – Zustellung morgen
+Authentication-Results: mx.example.test; dkim=pass header.d=paketblitz.example; spf=pass; dmarc=pass header.from=paketblitz.example
+Date: Wed, 08 Oct 2025 16:45:00 +0200
+
+Hallo Erika Mustermann,
+
+Ihre Sendung 00340434161094042557 vom Musterladen ist unterwegs und wird voraussichtlich morgen zwischen 10 und 14 Uhr zugestellt.
+
+Sendung verfolgen: https://www.paketblitz.example/verfolgen?nr=00340434161094042557
+
+Ihr Paketblitz-Team

@@ -1,0 +1,13 @@
+From: Stadtwerke Musterstadt <rechnung@stadtwerke-musterstadt.example>
+To: erika@zuhause.example
+Subject: Ihre Jahresabrechnung 2024 für Strom
+Authentication-Results: mx.example.test; dkim=pass header.d=stadtwerke-musterstadt.example; spf=pass; dmarc=pass header.from=stadtwerke-musterstadt.example
+Date: Mon, 03 Feb 2025 07:00:00 +0100
+
+Guten Tag Frau Mustermann,
+
+Ihre Jahresabrechnung 2024 für Strom steht im Kundenportal bereit: https://portal.stadtwerke-musterstadt.example/rechnungen
+
+Rechnungsbetrag: 84,17 € Nachzahlung. Der Betrag wird am 15.02.2025 von Ihrem Konto abgebucht. Ihr neuer monatlicher Abschlag beträgt 72,00 €.
+
+Ihre Stadtwerke Musterstadt

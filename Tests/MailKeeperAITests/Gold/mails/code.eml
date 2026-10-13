@@ -1,0 +1,9 @@
+From: Wolkenspeicher <no-reply@konto.wolkenspeicher.example>
+To: erika@zuhause.example
+Subject: Ihr Bestätigungscode
+Authentication-Results: mx.example.test; dkim=pass header.d=wolkenspeicher.example; spf=pass; dmarc=pass header.from=konto.wolkenspeicher.example
+Date: Thu, 09 Oct 2025 08:01:00 +0200
+
+Ihr Bestätigungscode lautet 482913. Er ist 10 Minuten gültig.
+
+Wenn Sie keine Anmeldung angefordert haben, ignorieren Sie diese Mail und ändern Sie Ihr Passwort.

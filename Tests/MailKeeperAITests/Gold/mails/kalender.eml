@@ -1,0 +1,13 @@
+From: Kalender <kalender@wolkenspeicher.example>
+To: erika@zuhause.example
+Subject: Erinnerung: Elternabend Klasse 4b – morgen 19:00
+Authentication-Results: mx.example.test; dkim=pass header.d=wolkenspeicher.example; spf=pass; dmarc=pass header.from=wolkenspeicher.example
+Date: Mon, 13 Oct 2025 19:00:00 +0200
+
+Erinnerung an Ihren Termin
+
+Elternabend Klasse 4b
+Dienstag, 14. Oktober 2025, 19:00–20:30 Uhr
+Ort: Grundschule am Park, Raum 12
+
+Diese Erinnerung wurde von Ihrem Kalender verschickt.

@@ -1,0 +1,15 @@
+From: Example App Store <no_reply@store.example>
+To: erika@zuhause.example
+Subject: Your receipt from Example App Store
+Authentication-Results: mx.example.test; dkim=pass header.d=store.example; spf=pass; dmarc=pass header.from=store.example
+Date: Mon, 20 Oct 2025 13:37:00 +0200
+
+Receipt
+Order ID: MX4K2Q9TZP
+Date: 20 Oct 2025
+
+Weather Pro – Annual Subscription    9.99 €
+Total                                9.99 €
+
+Billed to: Visa •••• 1234
+If you have any questions about your order, visit store.example/support.

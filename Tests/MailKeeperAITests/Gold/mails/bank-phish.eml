@@ -1,0 +1,9 @@
+From: Musterbank <sicherheit@musterbank-kundenservice.example>
+Reply-To: support@hilfe-center.example
+To: erika@zuhause.example
+Subject: Ihr Online-Banking wurde gesperrt
+Authentication-Results: mx.example.test; dkim=none; spf=softfail; dmarc=fail header.from=musterbank-kundenservice.example
+Content-Type: text/html; charset=utf-8
+Date: Mon, 13 Oct 2025 03:41:00 +0200
+
+<html><body><p>Sehr geehrter Kunde,</p><p>aufgrund verdächtiger Aktivitäten wurde Ihr Online-Banking vorübergehend gesperrt. Bestätigen Sie innerhalb von 24 Stunden Ihre Daten, sonst wird Ihr Konto dauerhaft geschlossen:</p><p><a href="https://login-verify.evil.example/musterbank/de">www.musterbank.example/sicherheit</a></p><p>Ihre Musterbank</p></body></html>

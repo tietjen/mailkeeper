@@ -1,0 +1,12 @@
+From: Paketblitz <versand@paketblitz.example>
+To: erika@zuhause.example
+Subject: Zustellung fehlgeschlagen – neuen Termin wählen
+Authentication-Results: mx.example.test; dkim=pass header.d=paketblitz.example; spf=pass; dmarc=pass header.from=paketblitz.example
+Date: Sun, 26 Oct 2025 06:40:00 +0100
+
+Hallo,
+
+wir konnten Ihr Paket heute nicht zustellen. Wählen Sie einen neuen Zustelltermin und bestätigen Sie Ihre Adresse:
+https://paketblitz.example.termin-neu.example/bestaetigen
+
+Ihr Paketblitz-Team
