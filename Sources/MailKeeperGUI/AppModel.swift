@@ -425,6 +425,12 @@ final class AppModel {
         goldMessage = nil
         goldLabels = GoldLabels()  // the previous archive's labels never show for another
         goldLoadError = nil
+        authServersTask?.cancel()  // another archive, other servers
+        authServersTask = nil
+        authServersStale = false
+        authServersCache = nil
+        publicAddressesCache = nil
+        ownDomainsCache = nil
         textIndexToken = nil
         textIndexProgress = nil
         do {
@@ -486,8 +492,7 @@ final class AppModel {
         junkReview = try? reader.junkReview()
         suspiciousCount = (try? reader.count(MessageFilter(base: "is:verdächtig -is:junk"))) ?? 0
         memoryItems = (try? reader.memoryItems()) ?? []
-        authServersCache = nil
-        ownDomainsCache = nil
+        reloadAuthServers()  // in the background; until then the last result serves (review 6.7 S3)
         relations = (try? reader.relations(includeRejected: true)) ?? []
         contentGeneration += 1
         reloadAccounts(reader.layout)
@@ -1359,7 +1364,13 @@ final class AppModel {
     /// The user's go: store the job, run it in the background (the PDF queue pauses, like for
     /// import and sync), show the result.
     func execute(_ plan: PlannedAction) {
-        guard let root = archiveRoot, !actionRunning, !syncRunning, !importRunning else { return }
+        guard let root = archiveRoot else { return }
+        guard !actionRunning, !syncRunning, !importRunning else {  // say so, a click must not vanish (review 6.7 S6)
+            actionError = actionRunning
+                ? String(localized: "Gerade läuft „\(actionProgress?.title ?? String(localized: "eine Aktion"))“ – bitte danach noch einmal (oder mit × anhalten).")
+                : String(localized: "MailKeeper ist gerade beschäftigt (Abruf oder Import) – bitte gleich noch einmal.")
+            return
+        }
         pendingPlan = nil
         let job = plan.job, stored = plan.stored
         let accounts = accountConfigs, credentials = self.credentials, audit = self.audit
@@ -1572,15 +1583,38 @@ final class AppModel {
     }
 
     private var authServersCache: [String: Set<String>]?
+    private var publicAddressesCache: [String]?
     private var ownDomainsCache: Set<String>?
+    private var authServersTask: Task<Void, Never>?
+
+    /// The own servers (a GROUP BY over all mail), the public addresses and the own domains,
+    /// computed off the main thread after a refresh; the reader keeps the last result meanwhile.
+    private func reloadAuthServers() {
+        guard let layout = reader?.layout else { return }
+        guard authServersTask == nil else { authServersStale = true; return }  // once more when this one is done
+        authServersStale = false
+        authServersTask = Task { [weak self] in
+            let result = await Task.detached(priority: .utility) { () -> ([String: Set<String>], [String], Set<String>)? in
+                guard let r = try? ArchiveReader(layout: layout), let servers = try? r.ownAuthServers() else { return nil }
+                return (servers, (try? r.publicAddresses()) ?? [], (try? r.ownDomains()) ?? [])
+            }.value
+            guard let self else { return }
+            self.authServersTask = nil
+            guard self.reader?.layout.root == layout.root else { return }
+            if let result { (self.authServersCache, self.publicAddressesCache, self.ownDomainsCache) = result }
+            if self.authServersStale { self.reloadAuthServers() }
+        }
+    }
+    private var authServersStale = false
     private var warningsRefreshed = false
 
     /// The register's and the own server's word on a message (reader "Echtheit").
     func relationCheck(_ messageID: Int64) -> RelationCheck? {
         guard let reader else { return nil }
         if authServersCache == nil { authServersCache = try? reader.ownAuthServers() }
+        if publicAddressesCache == nil { publicAddressesCache = try? reader.publicAddresses() }
         return try? reader.relationCheck(of: messageID, relations: relations.isEmpty ? nil : relations.filter(\.confirmed),
-                                         servers: authServersCache)
+                                         servers: authServersCache, publicAddresses: publicAddressesCache)
     }
 
     /// "Abmelden" (6.5c): the check, with the cached own servers, relations and own domains
@@ -1719,13 +1753,19 @@ final class AppModel {
 
     func forgetMemory(_ ids: [String]) async -> String? {
         let rules = ids.contains { $0.hasPrefix("rule:") }
+        let relations = ids.contains { $0.hasPrefix("rel:") }
         let problem = await writeNow { writer in
             try await writer.forgetMemory(ids)
             if rules { _ = try await writer.applyCategoryRules() }  // its labels go with it (review 6 R1)
+            if relations { try await writer.refreshWarnings() }  // its look-alike warnings too (review 6.7 S4)
         }
         if rules {
             reloadRules()
             contentGeneration += 1
+        }
+        if relations {
+            reloadRelations()
+            refresh()
         }
         return problem
     }
@@ -1751,8 +1791,33 @@ final class AppModel {
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
         guard let data = try? Data(contentsOf: url) else { return String(localized: "Die Datei ließ sich nicht lesen.") }
+        // first say what the file holds: a relation is trust (review 6.7 S5)
+        let preview: MemoryExport.Preview
+        do { preview = try MemoryExport.preview(data) } catch { return "\(error)" }
+        guard !preview.isEmpty else { return String(localized: "Nichts Neues in der Datei.") }
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Aus der Datei übernehmen?")
+        var lines = [String(localized: "\(preview.notes) Notizen · \(preview.terms) Begriffe · \(preview.rules) Regeln · \(preview.relations) Beziehungen")]
+        if preview.relations > 0 {
+            lines.append(String(localized: "Beziehungen gelten als vertrauenswürdig: Mails dieser Domains, die die Prüfung deines Servers bestehen, prüft die KI nicht mehr eigens – \(preview.relationDomains.prefix(8).joined(separator: ", "))\(preview.relationDomains.count > 8 ? " …" : "")."))
+        }
+        if preview.rules > 0 { lines.append(String(localized: "Regeln für die Art ordnen sofort ein; Lösch- und Verschiebe-Regeln laufen nie von selbst.")) }
+        lines.append(String(localized: "Nur Dateien aus deiner eigenen Sicherung übernehmen. Schon Vorhandenes wird übersprungen."))
+        alert.informativeText = lines.map(DisplayText.safe).joined(separator: "\n\n")
+        alert.addButton(withTitle: String(localized: "Übernehmen"))
+        alert.addButton(withTitle: String(localized: "Abbrechen"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
         let count = Mutex(0)
-        if let problem = await writeNow({ writer in let n = try await writer.importMemory(data); count.withLock { $0 = n } }) { return problem }
+        if let problem = await writeNow({ writer in
+            let n = try await writer.importMemory(data)
+            count.withLock { $0 = n }
+            _ = try await writer.applyCategoryRules()  // imported rules label, imported relations end warnings
+            try await writer.refreshWarnings()
+        }) { return problem }
+        reloadRules()
+        reloadRelations()
+        contentGeneration += 1
+        refresh()
         let n = count.withLock { $0 }
         return n == 0 ? String(localized: "Nichts Neues in der Datei.") : String(localized: "\(n) Einträge übernommen (Notizen, Begriffe, Regeln, Beziehungen).")
     }
@@ -2094,11 +2159,10 @@ final class AppModel {
 
     /// After a sync: new mail in checked spam folders and the suspicious part of new mail
     /// elsewhere go to the model; the register's warnings are noted even without a model.
-    func screenNewMail() {
-        guard let reader else { return }
-        let since = Date.now.addingTimeInterval(-Double(Self.screeningDays) * 86_400)
-        let candidates = (try? reader.screeningCandidates(since: since, limit: Self.screeningPerSync * 3)) ?? []
-        let junk = aiConfig.enabled && spamAccountsEnabled ? ((try? reader.junkToCheck(limit: 50)) ?? []) : []
+    /// After a sync, with what the sync task prepared off the main thread (rules first, then the
+    /// candidates — review 6.7 B1/S3).
+    func screenNewMail(candidates: [ScreeningCandidate], junk: [Int64]) {
+        guard reader != nil else { return }
         let ask = Array(candidates.filter(\.needsModel).map(\.id).prefix(Self.screeningPerSync))
         if aiConfig.enabled, !autoJunkFailed, !(junk.isEmpty && ask.isEmpty) {
             runClassification(junk + ask, title: String(localized: "Spam & Phishing prüfen"), automatic: true, screened: candidates)
@@ -2114,19 +2178,26 @@ final class AppModel {
     /// "Posteingang prüfen" in the "Verdächtig" view: mail of the last `days` days that no model
     /// has judged, including what the screening passed over.
     func screenInbox(days: Int) {
-        guard let reader else { return }
+        guard let root = archiveRoot, reader != nil else { return }
         guard aiConfig.enabled else {
             actionError = String(localized: "Die KI ist nicht eingerichtet (Einstellungen › KI).")
             return
         }
         let since = Date.now.addingTimeInterval(-Double(days) * 86_400)
-        let candidates = (try? reader.screeningCandidates(since: since, limit: Self.maxClassify, again: true)) ?? []
-        let ask = candidates.filter(\.needsModel).map(\.id)
-        guard !candidates.isEmpty else {
-            actionError = String(localized: "In diesem Zeitraum gibt es nichts zu prüfen.")
-            return
+        let limit = Self.maxClassify
+        // up to 500 authenticity checks: not on the main thread (review 6.7 S3)
+        Task { [weak self] in
+            let candidates = await Task.detached(priority: .userInitiated) {
+                (try? ArchiveReader(layout: try ArchiveLayout.open(at: root, create: false))
+                    .screeningCandidates(since: since, limit: limit, again: true)) ?? []
+            }.value
+            guard let self, self.archiveRoot == root else { return }
+            guard !candidates.isEmpty else {
+                self.actionError = String(localized: "In diesem Zeitraum gibt es nichts zu prüfen.")
+                return
+            }
+            self.runClassification(candidates.filter(\.needsModel).map(\.id), title: String(localized: "Posteingang prüfen"), screened: candidates)
         }
-        runClassification(ask, title: String(localized: "Posteingang prüfen"), screened: candidates)
     }
 
     /// The sidebar badge — counted at refresh, not on every redraw.
@@ -2478,17 +2549,27 @@ final class AppModel {
 
     /// Fetches new mail from all configured accounts, one after another, read-only.
     func syncAll() {
-        guard let root = archiveRoot, reader != nil, !syncRunning, !importRunning, !actionRunning, !accountConfigs.isEmpty else { return }
+        guard let root = archiveRoot, reader != nil, !syncRunning, !importRunning, !accountConfigs.isEmpty else { return }
+        guard !actionRunning else {  // say so instead of doing nothing (review 6.7 S6)
+            syncMessage = String(localized: "Gerade läuft „\(actionProgress?.title ?? String(localized: "eine Aktion"))“ – Abrufen geht danach (oder mit × anhalten).")
+            return
+        }
         let accounts = accountConfigs
         let credentials = self.credentials
+        let since = Date.now.addingTimeInterval(-Double(Self.screeningDays) * 86_400)
+        let screeningLimit = Self.screeningPerSync * 3
+        let checkJunk = aiConfig.enabled && spamAccountsEnabled
         syncRunning = true
         syncMessage = nil
         let indexing = pauseTextIndexing()
         Task.detached { [weak self] in
             await indexing?.value  // the queue holds the writer until it has stopped
             var summary: [String] = []
+            var candidates: [ScreeningCandidate] = []
+            var junk: [Int64] = []
             do {
-                let writer = try ArchiveWriter(layout: try ArchiveLayout.open(at: root, create: false))
+                let layout = try ArchiveLayout.open(at: root, create: false)
+                let writer = try ArchiveWriter(layout: layout)
                 for account in accounts {
                     do {
                         let r = try await SyncCoordinator.sync(account, writer: writer, credentials: credentials) { p in
@@ -2503,19 +2584,30 @@ final class AppModel {
                     }
                     await MainActor.run { self?.refresh() }
                 }
+                do {
+                    try await writer.prepareForScreening()
+                    let reader = try ArchiveReader(layout: layout)
+                    candidates = try reader.screeningCandidates(since: since, limit: screeningLimit)
+                    if checkJunk { junk = try reader.junkToCheck(limit: 50) }
+                } catch {
+                    summary.append(String(localized: "Prüfung neuer Mails: \(error)"))
+                }
             } catch {
                 summary.append("\(error)")
             }
             let text = summary.joined(separator: "\n")
-            await MainActor.run {
-                self?.syncRunning = false
-                self?.syncProgress = nil
-                self?.syncMessage = text
-                self?.refresh()
+            await MainActor.run { [candidates, junk] in
+                guard let self else { return }
+                self.syncRunning = false
+                self.syncProgress = nil
+                self.syncMessage = text
+                guard self.archiveRoot == root else { return }  // the candidates belong to that archive
+                self.contentGeneration += 1  // the rules labelled the new mail
+                self.refresh()
                 // new mail: the model looks at what is new in checked spam folders (5.5) and at the
                 // suspicious part of what is new elsewhere (6.4) — quietly
-                self?.screenNewMail()
-                self?.noteReadyRules()
+                self.screenNewMail(candidates: candidates, junk: junk)
+                self.noteReadyRules()
             }
         }
     }

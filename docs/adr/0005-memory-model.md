@@ -33,6 +33,9 @@ into authority — time-shifted prompt injection is the threat (Standard v2 §5)
 5. **Learning loop:** accept/reject/correct writes an `example` (provenance `feedback`); a
    deterministic consolidation job merges duplicates, recomputes sender profiles and decays
    weights of unused items. An LLM may only phrase display text, not change items.
+   *Not built (as of 6.7):* the consolidation job. Examples are one per decided mail (no
+   duplicates to merge), sender profiles are computed when asked (never stale); `weight` and
+   `last_used` are written but not yet read — decay waits until the memory grows enough to need it.
 6. **User control:** memory view (filter, edit, delete), export/import JSON, reset per account
    or all.
 7. **Measured, not assumed:** a gold set of labelled mails; consolidation or prompt changes

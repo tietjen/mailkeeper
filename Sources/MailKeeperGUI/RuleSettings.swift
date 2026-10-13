@@ -18,7 +18,7 @@ struct RuleSettings: View {
                 .font(.callout).foregroundStyle(.secondary).frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
             Table(active, selection: $selection) {
                 TableColumn("Regel") { r in Text(DisplayText.safe(r.name)).lineLimit(2) }.width(min: 160, ideal: 220)
-                TableColumn("Suche") { r in Text(r.query).font(.callout.monospaced()).lineLimit(2).foregroundStyle(.secondary) }.width(min: 140, ideal: 200)
+                TableColumn("Suche") { r in Text(DisplayText.safe(r.query)).font(.callout.monospaced()).lineLimit(2).foregroundStyle(.secondary) }.width(min: 140, ideal: 200)
                 TableColumn("Aktion") { r in Text(r.action.label) }.width(min: 120, ideal: 170)
                 TableColumn("") { r in
                     if r.action.isDestructive {
@@ -78,7 +78,7 @@ struct RuleSuggestionRow: View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(DisplayText.safe(suggestion.name)).fontWeight(.medium)
-                Text("\(suggestion.evidence) · \(suggestion.matches) Mails passen · \(suggestion.query)")
+                Text("\(suggestion.evidence) · \(suggestion.matches) Mails passen · \(DisplayText.safe(suggestion.query))")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer()

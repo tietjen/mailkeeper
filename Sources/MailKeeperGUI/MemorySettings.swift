@@ -58,7 +58,7 @@ struct MemorySettings: View {
                 Button("Exportieren …") { message = model.exportMemory() }
                     .help("Alles hier als JSON-Datei sichern")
                 Button("Importieren …") { Task { message = await model.importMemory() } }
-                    .help("Notizen und Begriffe aus einer exportierten Datei übernehmen; Beispiele gehören zum Archiv, aus dem sie stammen")
+                    .help("Notizen, Begriffe, Regeln und Beziehungen aus einer exportierten Datei übernehmen – MailKeeper zeigt vorher, was drinsteht; Beispiele gehören zum Archiv, aus dem sie stammen")
                 Button("Alles vergessen …") { confirmForgetAll = true }.disabled(forgettable.isEmpty)
             }
             if let message { Text(DisplayText.safe(message)).font(.callout).foregroundStyle(.secondary) }

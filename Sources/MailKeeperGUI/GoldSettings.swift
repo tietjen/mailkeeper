@@ -34,9 +34,14 @@ struct GoldMail {
 }
 
 extension AppModel {
-    /// Mails to label (6.6b): spread over senders and buckets, not what was labelled or skipped.
-    func goldCandidates(limit: Int = 120) -> [Int64] {
-        (try? reader?.goldCandidates(limit: limit, excluding: goldLabels.seen)) ?? []
+    /// Mails to label (6.6b): spread over senders and buckets, not what was labelled or skipped —
+    /// a scan over the archive, so off the main thread (review 6.7 S3).
+    func goldCandidates(limit: Int = 120) async -> [Int64] {
+        guard let layout = reader?.layout else { return [] }
+        let seen = goldLabels.seen
+        return await Task.detached(priority: .userInitiated) {
+            (try? ArchiveReader(layout: layout).goldCandidates(limit: limit, excluding: seen)) ?? []
+        }.value
     }
 
     func goldMail(_ id: Int64) -> GoldMail? {
@@ -309,8 +314,8 @@ struct GoldLabelSheet: View {
         }
         .padding(20)
         .frame(width: 760)
-        .onAppear {
-            queue = model.goldCandidates()
+        .task {
+            queue = await model.goldCandidates()
             show(0)
         }
     }

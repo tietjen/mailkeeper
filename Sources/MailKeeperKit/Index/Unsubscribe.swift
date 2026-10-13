@@ -130,7 +130,7 @@ extension ArchiveReader {
         // done before (MailKeeper's own note)
         if let from = detail.summary.fromAddress {
             let subject = UnsubscribeAssessment.memorySubject(listID: detail.listID, fromAddress: from)
-            if let earlier = try memoryItems().first(where: { $0.kind == .preference && $0.subject == subject
+            if let earlier = try memoryItems(subject: subject).first(where: { $0.kind == .preference
                 && ($0.content.text?.contains(UnsubscribeAssessment.noteMarker) ?? false) }), let text = earlier.content.text {
                 notes.append(String(localized: "Schon einmal: \(text)"))
             }

@@ -57,7 +57,7 @@
   { "id": "verein", "about": "Vereinsrundmail ohne Gedächtnis", "file": "verein.eml",
     "expect": { "category": ["newsletter", "personal", "notification"], "phishing": "none" } },
   { "id": "verein+notiz", "about": "dieselbe Rundmail – Notiz: Mails vom Verein sind persönlich", "file": "verein.eml",
-    "memory": { "notes": ["Mails vom SV Rot-Weiß sind persönlich – die Kinder spielen dort. (zu domain:rotweiss-musterstadt.example)"] },
+    "memory": { "notes": ["Mails vom SV Rot-Weiß sind persönlich – die Kinder spielen dort. (zu dieser Domain)"] },
     "expect": { "category": ["personal"], "phishing": "none" } },
 
   { "id": "zahlung", "about": "echte Zahlungsbestätigung, Reply-To auf eine Schwesterdomain – ohne Gedächtnis offen", "file": "zahlung-echt.eml",

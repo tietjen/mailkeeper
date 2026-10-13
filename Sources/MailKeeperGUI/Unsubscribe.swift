@@ -69,8 +69,8 @@ extension AppModel {
         // remembered once: further newsletters of this list or sender are unwanted (the model sees it)
         if done, let address = summary?.fromAddress {
             let subject = UnsubscribeAssessment.memorySubject(listID: detail?.listID, fromAddress: address)
-            let known = ((try? reader.memoryItems()) ?? []).contains {
-                $0.kind == .preference && $0.subject == subject && ($0.content.text?.contains(UnsubscribeAssessment.noteMarker) ?? false)
+            let known = ((try? reader.memoryItems(subject: subject)) ?? []).contains {
+                $0.kind == .preference && ($0.content.text?.contains(UnsubscribeAssessment.noteMarker) ?? false)
             }
             if !known {
                 let how: String = switch assessment.method {

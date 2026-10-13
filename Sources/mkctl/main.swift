@@ -798,6 +798,10 @@ func summarize(_ p: ImportProgress, start: Date) {
         if !r.missingBlobs.isEmpty { print("missing blobs (\(r.missingBlobs.count)):\n" + r.missingBlobs.joined(separator: "\n")) }
         if !r.damagedBlobs.isEmpty { print("damaged blobs (\(r.damagedBlobs.count)):\n" + r.damagedBlobs.joined(separator: "\n")) }
         if r.skippedEvents > 0 { print("skipped journal events: \(r.skippedEvents)") }
+        // what the GUI's background pass would do next: the rules, then the user's category rules
+        // (ADR-0005: rule labels are derived and re-applied after a rebuild — review 6.7)
+        try await writer.prepareForScreening()
+        print("rules and the user's category rules applied")
         if !r.missingBlobs.isEmpty || !r.damagedBlobs.isEmpty { exit(1) }
 
     case "help", "--help", "-h":

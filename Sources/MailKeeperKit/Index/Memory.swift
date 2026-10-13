@@ -163,6 +163,35 @@ public struct MemoryExport: Codable, Sendable, Equatable {
     public var version = 1
     public var exported: Date
     public var items: [Item]
+
+    /// What an import would take, before anything is written (review 6.7 S5: a relation from a
+    /// file silences warnings for its domains — the user is told first).
+    public struct Preview: Sendable, Equatable {
+        public var notes = 0, terms = 0, rules = 0, relations = 0
+        public var relationDomains: [String] = []
+        public var isEmpty: Bool { notes + terms + rules + relations == 0 }
+    }
+
+    public static func preview(_ data: Data) throws -> Preview {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard data.count < 4 << 20, let file = try? decoder.decode(MemoryExport.self, from: data), file.format == "mailkeeper-memory" else {
+            throw ArchiveError.invalid("Keine MailKeeper-Gedächtnisdatei")
+        }
+        var p = Preview()
+        for item in file.items.prefix(2_000) {
+            switch MemoryKind(rawValue: item.kind) {
+            case .preference?: p.notes += 1
+            case .vocabulary?: p.terms += 1
+            case .rule?: p.rules += 1
+            case .relation?:
+                p.relations += 1
+                p.relationDomains += Relations.normalize(item.content.domains ?? [])
+            default: continue
+            }
+        }
+        return p
+    }
 }
 
 extension ArchiveReader {
@@ -173,6 +202,23 @@ extension ArchiveReader {
             """) { r in
             Self.memoryItem(r)
         }.compactMap { $0 }
+    }
+
+    /// Active items about one subject ("list:…", "sender:…") — without loading the whole memory
+    /// (review 6.7 S3: the reader asked for every item, examples included, per opened mail).
+    public func memoryItems(subject: String) throws -> [MemoryItem] {
+        try db.query("""
+            SELECT id, kind, scope, subject, content, provenance, sources, weight, created, updated, last_used, active
+            FROM memory_items WHERE active = 1 AND subject = ? ORDER BY updated DESC, id
+            """, [.text(subject)]) { Self.memoryItem($0) }.compactMap { $0 }
+    }
+
+    /// Active items whose subject starts with `prefix` ("public:").
+    public func memoryItems(subjectPrefix prefix: String) throws -> [MemoryItem] {
+        try db.query("""
+            SELECT id, kind, scope, subject, content, provenance, sources, weight, created, updated, last_used, active
+            FROM memory_items WHERE active = 1 AND substr(subject, 1, ?) = ? ORDER BY updated DESC, id
+            """, [.int(Int64(prefix.count)), .text(prefix)]) { Self.memoryItem($0) }.compactMap { $0 }
     }
 
     public func memoryItem(_ id: String) throws -> MemoryItem? {

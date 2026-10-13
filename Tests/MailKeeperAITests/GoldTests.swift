@@ -49,7 +49,9 @@ struct GoldSetTests {
     @Test func casesBecomeWhatTheModelSees() throws {
         let cases = try GoldSet.cases()
         let phish = try #require(cases.first { $0.id == "bank-phish" }).item
-        #expect(phish.mail.from == "sicherheit@musterbank-kundenservice.example" && phish.memory == nil)
+        // no memory, but the set's own server's verdict (review 6.7 S2: it is no memory)
+        #expect(phish.mail.from == "sicherheit@musterbank-kundenservice.example" && phish.memory?.server == .failed("dkim=none spf=softfail dmarc=fail")
+                && phish.memory?.isEmpty == true)
         #expect(phish.mail.links.first?.findings.contains(.textShowsOtherDomain) == true)
         let pair = try #require(cases.first { $0.id == "versand-gefaelscht+server" }).item
         #expect(pair.memory?.server == .failed("dkim=fail spf=fail dmarc=fail"))

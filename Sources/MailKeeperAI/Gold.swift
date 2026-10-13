@@ -267,9 +267,17 @@ public struct GoldCase: Sendable, Codable, Equatable {
     }
 
     /// The item to run: the mail parsed like any other, the memory as the retriever would give it.
+    /// The set's own server is the one whose Authentication-Results the mails carry: its verdict
+    /// goes with every case, with or without memory — it is no memory, and without it the model
+    /// would see no check at all (review 6.7 S2).
     public var item: GoldItem {
         let raw = Data(mail.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\n", with: "\r\n").utf8)
-        return GoldItem(id: id, mail: MailSnapshot(MIMEParser.parse(raw)), memory: memory.map(Self.context), expect: expect)
+        let parsed = MIMEParser.parse(raw)
+        var context = memory.map(Self.context) ?? MemoryContext()
+        if context.server == nil, let results = AuthResults.parse(parsed.headers.text("Authentication-Results")) {
+            context.server = .verdict(results)
+        }
+        return GoldItem(id: id, mail: MailSnapshot(parsed), memory: context, expect: expect)
     }
 
     static func context(_ m: Memory) -> MemoryContext {
@@ -334,13 +342,22 @@ public enum GoldArchive {
         GoldExpectation(category: [label.category], phishing: label.phishing ? .flagged : .none)
     }
 
-    /// The labelled mails still in the archive, as items; `memory` nil runs them without.
+    /// The labelled mails still in the archive, as items; `memory` nil runs them without — but
+    /// with the own server's verdict, as the app always has it (it is no memory; review 6.7 S2).
     public static func items(reader: ArchiveReader, labels: GoldLabels, memory: MemoryRetriever?) throws -> [GoldItem] {
         let ids = try reader.messageIDs(identities: labels.labels.map(\.identity))
+        let relations = try reader.relations(), servers = try reader.ownAuthServers()
         return try labels.labels.compactMap { label in
             guard let id = ids[label.identity], let parsed = try reader.parsedMessage(id) else { return nil }
             let mail = MailSnapshot(parsed)
-            let context = try memory.map { try $0.context(for: id, mail: mail, accounts: try reader.detail(id)?.locations.map(\.account) ?? []) }
+            let context: MemoryContext
+            if let memory {
+                context = try memory.context(for: id, mail: mail, accounts: try reader.detail(id)?.locations.map(\.account) ?? [])
+            } else {
+                var plain = MemoryContext()
+                plain.server = try reader.relationCheck(of: id, relations: relations, servers: servers, publicAddresses: []).server
+                context = plain
+            }
             return GoldItem(id: label.identity, mail: mail, memory: context, expect: expectation(label))
         }
     }

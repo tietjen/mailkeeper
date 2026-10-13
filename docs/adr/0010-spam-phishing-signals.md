@@ -23,9 +23,10 @@ as context for unsolicited first contacts.
    host. Shown on hover and in the reader; given to the model as findings. **Never a verdict on
    their own** — newsletters route clicks through tracking domains.
 3. **Signals for the model** (fenced, ADR-0004): sender, Reply-To on a foreign domain, the
-   topmost `Authentication-Results` (dkim/spf/dmarc — added by the own server; lower ones can be
-   forged), link findings and target domains, headers and a bounded excerpt. Instructions in the
-   mail are themselves a warning sign.
+   topmost `Authentication-Results` (dkim/spf/dmarc — only when the own server added it: the
+   server is learned per account, see as built 6.3; anything else counts for nothing and is not
+   shown as a check), link findings and target domains, headers and a bounded excerpt.
+   Instructions in the mail are themselves a warning sign (6.6: removed before the model reads it).
 4. **Spam folders are read only when the account says so** (`includeJunk`; never the trash; an
    include list still rules). The model checks new mail there after each sync (quietly, small
    batches) and on request.
@@ -66,7 +67,9 @@ as context for unsolicited first contacts.
    mail before, never written to). The reader shows it as "Echtheit" (with "… gehört doch dazu"
    for a look-alike the user knows), the model gets it outside the fence and sees only the own
    server's results. Settings › Beziehungen.
-   *As built (6.4):* the inbox is screened after every sync: new mail of the last 14 days outside
+   *As built (6.4):* the inbox is screened after every sync — the rules run first, so the new mail
+   has its classification row (review 6.7 B1: before, each sync screened the mail of the sync
+   before) — new mail of the last 14 days outside
    spam, sent and trash that no model and no user judged. Deterministic first — the register's
    warning (look-alike, failed check of the own server) is stored (`warning`) so "Verdächtig"
    shows it without a model — then the model only where it matters: a warning, a first contact at
@@ -109,3 +112,11 @@ as context for unsolicited first contacts.
 - Accuracy is measured on the gold set (ADR-0005 §7) including phishing probes; live checks so
   far: S3 injection probes not followed, fake bank → phishing, newsletter with tracking links and
   a real invoice → no phishing.
+
+*Review 6.7 (Fable, final review of Phase 6):* the screening's candidates are prepared in the
+sync task after the rules, off the main thread; the classifier shows a mail's own
+Authentication-Results only with the own server's verdict (without it they are no check at all),
+and the gold runs pass that verdict as what it is — no memory; notes no longer echo what they are
+about (a List-Id is mail text) and a relation's name that speaks to an AI is not repeated in the
+prompt; "Ist Spam" vetoes sent, drafts, trash and spam by role and by name, always. After a
+rebuild the stored warnings are gone with the derived rows; "Posteingang prüfen" brings them back.

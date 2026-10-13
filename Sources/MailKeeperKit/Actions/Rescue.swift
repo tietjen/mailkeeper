@@ -72,7 +72,6 @@ public struct RescueExecutor: Sendable {
         let toJunk = job.kind == .moveToJunk
         let boxes = try await server.mailboxes()
         let roles = boxes.contains { $0.specialUse.contains(.junk) }
-        let anyRoles = boxes.contains { !$0.specialUse.isDisjoint(with: [.junk, .trash, .sent, .drafts]) }
         // the target: INBOX, or the spam mailbox
         let targetName: String?
         if toJunk {
@@ -98,8 +97,9 @@ public struct RescueExecutor: Sendable {
             let box = boxes.first { $0.name == mailbox }
             let isJunk = box.map { $0.specialUse.contains(.junk) || (!roles && RemoteMailbox.looksLikeJunk($0.name)) } ?? false
             let mayMarkJunk = box.map { b in
+                // by role and by name, always (review 6.7 S7: partial roles left "Sent" open)
                 b.name != target && b.specialUse.isDisjoint(with: [.junk, .trash, .sent, .drafts])
-                    && (anyRoles || (!RemoteMailbox.looksLikeTrashOrJunk(b.name) && !RemoteMailbox.looksLikeSentOrDrafts(b.name)))
+                    && !RemoteMailbox.looksLikeTrashOrJunk(b.name) && !RemoteMailbox.looksLikeSentOrDrafts(b.name)
             } ?? false
             guard toJunk ? mayMarkJunk : isJunk else {
                 for item in items {

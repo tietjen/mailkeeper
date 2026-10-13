@@ -86,7 +86,8 @@ APPEND, Proton rebuilds messages and ignores the APPEND date, Dovecot is textboo
 
 9. **"Ist Spam → Spam-Ordner" (6.4, TJ 2026-10-12):** the other direction of §8 with the same
    rails. Own IMAP access `.markAsJunk`: SELECT a mailbox that is no spam, trash, sent or drafts
-   mailbox (by role; by name on a server without roles) and move exactly the named UIDs into the
+   mailbox (by role and by name, always — review 6.7 S7: a server marking only \Junk and \Trash
+   may keep "Sent" without a role) and move exactly the named UIDs into the
    spam mailbox (\Junk, or by name without roles; never created) — UID MOVE, or UID COPY + STORE
    +\Deleted + UID EXPUNGE on its own copies; every stream part checked, `$` refused. The planner
    takes per message and account one fetched location outside spam, sent and trash, INBOX first

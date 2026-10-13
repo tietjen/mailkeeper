@@ -1067,9 +1067,15 @@ extension ArchiveWriter {
     public func refreshWarnings() throws -> Int {
         let reader = try ArchiveReader(layout: layout)
         let relations = try reader.relations(), servers = try reader.ownAuthServers()
-        let rows = try db.query("SELECT message_id, warning FROM classifications WHERE screened IS NOT NULL OR warning IS NOT NULL") { ($0.int(0), $0.text(1)) }
+        // the warnings that show (and those of the last year that could show): not every mail
+        // ever screened — that grows with each sync (review 6.7 S3)
+        let rows = try db.query("""
+            SELECT c.message_id, c.warning FROM classifications c JOIN messages m ON m.id = c.message_id
+            WHERE c.warning IS NOT NULL OR (c.screened IS NOT NULL AND m.date >= ?)
+            """, [.double(Date().addingTimeInterval(-365 * 86_400).timeIntervalSince1970)]) { ($0.int(0), $0.text(1)) }
         var updates: [(Int64, String?)] = []
-        for (id, old) in rows {
+        for (n, (id, old)) in rows.enumerated() {
+            if n % 256 == 0, Task.isCancelled { throw CancellationError() }  // a sync is waiting for the writer
             // no public addresses: the warning does not depend on first contact, which costs a
             // sender profile per mail (review 6 R2)
             let check = try reader.relationCheck(of: id, relations: relations, servers: servers, publicAddresses: [])
@@ -1132,6 +1138,14 @@ extension ArchiveWriter {
         content.rejected = active ? nil : true  // "Ablehnen", not "Löschen": only that keeps it from coming back (review 6 R3)
         return JournalEvent.MemoryRecord(id: id ?? "rule:" + UUID().uuidString.lowercased(), kind: MemoryKind.rule.rawValue, scope: "",
                                          subject: "rule", active: active, content: content)
+    }
+
+    /// Before the screening of new mail (6.4): the rules and the user's category rules first —
+    /// the candidates are mails with a classification row, which only the rules give a new mail
+    /// (review 6.7 B1: otherwise each sync screened the mail of the sync before).
+    public func prepareForScreening() throws {
+        while try classifyHeuristically() > 0 {}
+        _ = try applyCategoryRules()
     }
 
     /// Category rules label their mails (derived, re-applied after a rebuild): over the rules'

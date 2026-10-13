@@ -33,11 +33,11 @@ public struct MailClassifier: Sendable {
         if let note = mail.injectionNote { context = note + "\n\n" + (context.isEmpty ? "Die zu bewertende Mail:\n" : context) }
         var mail = mail
         mail.replyToRelation = memory?.replyToRelation
-        if let server = memory?.server {  // only the own server's results count (6.3)
-            switch server {
-            case .passed(let s), .failed(let s), .neutral(let s): mail.authentication = s
-            case .foreign, .none: mail.authentication = nil
-            }
+        // only the own server's results count (6.3): without its verdict, the results the mail
+        // carries are no "Prüfung des eigenen Servers" (review 6.7 S2 — anyone can write them)
+        switch memory?.server {
+        case .passed(let s)?, .failed(let s)?, .neutral(let s)?: mail.authentication = s
+        case .foreign?, .none?, nil: mail.authentication = nil
         }
         let result = try await router.chat(ChatRequest(task: .classify, system: Self.instructions(fence),
                                                        user: context + fence.wrap(mail.rendered(maxText: 1_200)),

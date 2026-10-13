@@ -97,7 +97,10 @@ public struct MemoryRetriever {
         var ctx = MemoryContext()
         let check = try reader.relationCheck(of: messageID, relations: relations, servers: servers, publicAddresses: publicAddresses)
         // mail-derived words (a sender's domain, a name) go out of the fence only cleaned (review 6 C2)
-        ctx.relation = check.lines.map { PromptText.line($0, max: 400) }
+        // a relation's name was proposed from a sender's display name: one that speaks to an AI is
+        // not repeated outside the fence (review 6.7 S1)
+        ctx.relation = check.lines(naming: { PromptInjection.gradeField($0) == nil ? $0 : String(localized: "eine bekannte Beziehung") })
+            .map { PromptText.line($0, max: 400) }
         ctx.server = check.server
         for r in [check.known, check.lookAlike].compactMap({ $0 }) { ctx.sources.append(r.id) }
         if let known = check.known, let reply = mail.replyTo?.split(separator: "@").last.map({ LinkCheck.registrableDomain(String($0).lowercased()) }),
@@ -115,7 +118,11 @@ public struct MemoryRetriever {
             let relevant = about.isEmpty || about == "sender:\(sender)" || (host.map { about == "domain:\($0)" } ?? false)
                 || (domain.map { about == "domain:\($0)" } ?? false) || (list.map { about == "list:\($0)" } ?? false)
             guard relevant, ctx.notes.count < Self.maxNotes, let text = note.content.text else { continue }
-            let line = PromptText.line(text, max: Memory.maxText) + (about.isEmpty ? "" : " (zu \(PromptText.line(about, max: 80)))")
+            // what the note is about is already settled — it matched this mail; its subject may be
+            // mail text (a List-Id, an address) and stays out of the trusted block (review 6.7 S1)
+            let scope = about.hasPrefix("list:") ? " (zu dieser Liste)" : about.hasPrefix("sender:") ? " (zu diesem Absender)"
+                : about.hasPrefix("domain:") ? " (zu dieser Domain)" : ""
+            let line = PromptText.line(text, max: Memory.maxText) + scope
                 + (note.kind == .vocabulary ? " [Begriff]" : "")
             guard chars + line.count <= Self.maxNoteChars else { continue }
             chars += line.count

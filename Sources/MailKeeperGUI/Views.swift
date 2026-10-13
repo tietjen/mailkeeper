@@ -156,8 +156,10 @@ struct ContentView: View {
                 Button { model.syncAll() } label: {
                     if model.syncRunning { ProgressView().controlSize(.small) } else { Label("Abrufen", systemImage: "arrow.down.circle") }
                 }
-                .disabled(model.syncRunning || model.importRunning || model.accountConfigs.isEmpty)
-                .help(model.accountConfigs.isEmpty ? "Erst ein Konto anlegen: Einstellungen › Konten" : "Neue Mails von allen Konten abrufen (nur lesend)")
+                .disabled(model.syncRunning || model.importRunning || model.actionRunning || model.accountConfigs.isEmpty)
+                .help(model.accountConfigs.isEmpty ? "Erst ein Konto anlegen: Einstellungen › Konten"
+                      : model.actionRunning ? "Erst wenn die laufende Aktion fertig ist (oder mit × anhalten)"
+                      : "Neue Mails von allen Konten abrufen (nur lesend)")
             }
             ToolbarItem {
                 Menu {

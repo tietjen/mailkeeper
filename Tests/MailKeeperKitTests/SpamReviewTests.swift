@@ -233,6 +233,36 @@ struct InboxSpamTests {
         #expect(try r.count(MessageFilter(text: "is:junk ", ids: [hello])) == 1)
     }
 
+    @Test("Review 6.7 S7: a server that marks only Junk keeps the name veto for Sent (an edited queue file)")
+    func partialRolesKeepTheNameVeto() async throws {
+        let (layout, writer, r) = try await SpamReviewTests.archive()
+        let hello = try #require(try r.messageIDs(MessageFilter(text: "subject:hallo ")).first)
+        let server = FakeRescueServer(["INBOX": .init(validity: 7), "Spam": .init(validity: 5, uses: [.junk]), "Sent": .init(validity: 8)])
+        await server.put(sampleMessage(id: "<inbox@t.test>", subject: "Hallo"), uid: 1, in: "Sent")
+        var (job, _) = try r.planMarkSpam(MessageFilter(ids: [hello]), title: "x", accounts: Self.accounts)
+        job.items[0].location?.mailbox = "Sent"  // as if the queue file had been edited
+        let store = ActionStore(layout: layout)
+        try store.create(job)
+        let done = try await RescueExecutor(writer: writer, store: store, audit: AuditLog(url: tempDir().appending(path: "a.jsonl")))
+            .run(job.id, accounts: Self.accounts) { _ in server }
+        #expect(done.items.map(\.state) == [.failed] && done.items.first?.reason == "aus diesem Ordner verschiebt MailKeeper nichts in den Spam-Ordner")
+        #expect(await server.moves == 0)
+    }
+
+    @Test("Review 6.7 B1: new mail gets its rules before the screening looks for candidates")
+    func newMailIsScreenedInTheSameSync() async throws {
+        let (_, writer, r) = try await RelationTests.archive()
+        let day = Calendar.current.component(.day, from: .now), year = Calendar.current.component(.year, from: .now)
+        _ = try await writer.ingest([(RelationTests.mail("fresh", from: "info@musterbank-service.example", subject: "Konto",
+                                                         auth: "mail.own.test; dmarc=pass", date: "\(day) \(Self.month()) \(year)"),
+                                      LocationInfo(account: "x", mailbox: "INBOX", providerID: "fresh"))])
+        let fresh = try #require(try r.messageIDs(MessageFilter(text: "msgid:fresh@t.test ")).first)
+        let since = Date.now.addingTimeInterval(-14 * 86_400)
+        #expect(!(try r.screeningCandidates(since: since, limit: 50).contains { $0.id == fresh }))  // no classification row yet
+        try await writer.prepareForScreening()
+        #expect(try r.screeningCandidates(since: since, limit: 50).contains { $0.id == fresh })
+    }
+
     @Test func aRefusalOrAMissingSpamFolderFailsOnlyItsItems() async throws {
         let (layout, writer, r) = try await SpamReviewTests.archive()
         let hello = try #require(try r.messageIDs(MessageFilter(text: "subject:hallo ")).first)

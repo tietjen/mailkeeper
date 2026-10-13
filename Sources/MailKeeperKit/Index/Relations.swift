@@ -193,7 +193,7 @@ extension ArchiveReader {
         }
         // a server that is own in one account counts in another where it checked at least a
         // quarter of the mail (an imported account with older mail before the server added the
-        // header: TJ's rechnung-psde, 15 of 70, all recent)
+        // header: an archive's second account: 15 of 70, all recent)
         let known = Set(out.values.flatMap { $0 })
         for (account, c) in byAccount {
             for (server, n) in c.servers where known.contains(server) && !(out[account]?.contains(server) ?? false) {
@@ -343,6 +343,15 @@ public struct RelationCheck: Sendable, Equatable {
         /// Results are in the mail, but not from the own server: they count for nothing.
         case foreign
         case none
+
+        /// What the own server's results say: DMARC passed, failed (or DKIM and SPF both), or
+        /// neither clearly.
+        public static func verdict(_ r: AuthResults) -> Server {
+            let summary = r.summary ?? ""
+            if r.dmarc == "pass" { return .passed(summary) }
+            if r.dmarc == "fail" || (r.dkim == "fail" && r.spf == "fail") { return .failed(summary) }
+            return .neutral(summary)
+        }
     }
 
     public var senderDomain: String?
@@ -365,15 +374,20 @@ public struct RelationCheck: Sendable, Equatable {
     }
 
     /// German lines for the reader and the model.
-    public var lines: [String] {
+    public var lines: [String] { lines(naming: { $0 }) }
+
+    /// `naming` may replace a relation's name (the model's prompt checks it first).
+    public func lines(naming: (String) -> String) -> [String] {
         var out: [String] = []
         if let r = lookAlike, let domain = senderDomain {
-            out.append(String(localized: "Gibt sich als „\(r.name)“ aus, kommt aber von \(domain) – \(r.name) schreibt von \(r.domains.joined(separator: ", ")).", comment: "look-alike"))
+            let name = naming(r.name)
+            out.append(String(localized: "Gibt sich als „\(name)“ aus, kommt aber von \(domain) – \(name) schreibt von \(r.domains.joined(separator: ", ")).", comment: "look-alike"))
         }
         if let r = known {
+            let name = naming(r.name)
             let since = r.since.map { String(localized: " seit \($0.formatted(.dateTime.year()))") } ?? ""
-            out.append(r.ended ? String(localized: "Bekannte Beziehung „\(r.name)“ – beendet \(r.until!.formatted(.dateTime.month().year())); Vertrauen geringer.")
-                               : String(localized: "Bekannte Beziehung „\(r.name)“\(since)."))
+            out.append(r.ended ? String(localized: "Bekannte Beziehung „\(name)“ – beendet \(r.until!.formatted(.dateTime.month().year())); Vertrauen geringer.")
+                               : String(localized: "Bekannte Beziehung „\(name)“\(since)."))
         }
         switch server {
         case .passed(let s): if known != nil || lookAlike != nil { out.append(String(localized: "Prüfung deines Servers bestanden (\(s)).")) }
@@ -417,7 +431,7 @@ extension ArchiveReader {
     /// The user's public addresses (bait: the website's contact address), stored as notes with
     /// the subject "public:<address>".
     public func publicAddresses() throws -> [String] {
-        try memoryItems().filter { $0.subject.hasPrefix("public:") }.map { String($0.subject.dropFirst("public:".count)) }
+        try memoryItems(subjectPrefix: "public:").map { String($0.subject.dropFirst("public:".count)) }
     }
 
     /// The register's and the own server's word on a message.
@@ -430,11 +444,7 @@ extension ArchiveReader {
             if !auth.trusted {
                 check.server = .foreign
             } else {
-                let r = auth.results
-                let summary = r.summary ?? ""
-                if r.dmarc == "pass" { check.server = .passed(summary) }
-                else if r.dmarc == "fail" || (r.dkim == "fail" && r.spf == "fail") { check.server = .failed(summary) }
-                else { check.server = .neutral(summary) }
+                check.server = .verdict(auth.results)
             }
         }
         guard let address = row.0, let at = address.lastIndex(of: "@") else { return check }
