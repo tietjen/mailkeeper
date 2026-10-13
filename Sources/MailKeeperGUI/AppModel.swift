@@ -131,6 +131,8 @@ final class AppModel {
     private(set) var archiveRoot: URL?
     private(set) var reader: ArchiveReader?
     private(set) var accounts: [AccountSummary] = []
+    /// Where mail was seen per account (restore targets) — the sidebar shows the archive's placements.
+    private(set) var seenMailboxes: [String: [String]] = [:]
     private(set) var stats: ArchiveStats?
     private(set) var openError: String?
     /// True while a schema migration runs in the background (first start after an update).
@@ -509,6 +511,7 @@ final class AppModel {
         contentGeneration += 1
         reloadAccounts(reader.layout)
         accounts = (try? reader.accounts()) ?? []
+        seenMailboxes = (try? reader.seenMailboxes()) ?? [:]
         stats = try? reader.stats()
         labels = (try? reader.labels()) ?? []
         reloadSavedSearches()
@@ -1361,11 +1364,11 @@ final class AppModel {
     }
 
     /// Where a restore may go: mailboxes of the accounts set up here that MailKeeper syncs
-    /// (known in the archive, inside the account's selection) — never one it does not look at.
+    /// (seen there, inside the account's selection) — never one it does not look at, nor a
+    /// folder only the archive files mail in (ADR-0011).
     var restoreTargets: [(account: String, mailboxes: [String])] {
         accountConfigs.compactMap { config in
-            let boxes = (accounts.first { $0.id == config.id }?.mailboxes.map(\.name) ?? [])
-                .filter(config.policy.mayContain)
+            let boxes = (seenMailboxes[config.id] ?? []).filter(config.policy.mayContain)
             return boxes.isEmpty ? nil : (config.id, boxes)
         }
     }

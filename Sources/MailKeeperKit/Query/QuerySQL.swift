@@ -121,11 +121,11 @@ struct QuerySQL {
         case .isSent:
             return location(Self.sentLocation)
         case .inJunk:
-            return "(" + location(Self.currentJunkLocation) + " OR " + Self.placedInJunk + ")"
+            return "(" + Self.inCurrentJunk + " OR " + Self.placedInJunk + ")"
         case .wasInJunk:
             return location(Self.junkLocation)
         case .isFalsePositive:  // in parentheses: "-is:fehlalarm" negates all of it
-            return "(" + location(Self.currentJunkLocation) + """
+            return "(" + Self.inCurrentJunk + """
                  AND m.id IN (SELECT c.message_id FROM classifications c WHERE c.source IN ('endpoint', 'on-device')
                     AND coalesce(c.category, '') != 'spam' AND coalesce(c.phishing, 'nein') NOT IN ('verdacht', 'ja') AND c.verdict IS NULL))
                 """
@@ -190,18 +190,20 @@ struct QuerySQL {
     /// A spam folder the mail lies in now: on the server, or the folder an import came from — not
     /// one it has left (6.8: a rescued mail kept its gone Junk row and stayed "is:junk"), nor one
     /// the archive filed it out of (6.9: an import's place is the archive's placement).
-    static let currentJunkLocation: String = "(" + junkLocation + ") AND ((l.uid IS NOT NULL AND l.on_server = 1) OR (l.uid IS NULL AND "
-        + unplaced + "))"
+    static let inCurrentJunk = "m.id IN (SELECT l.message_id FROM " + unplacedLocations + " WHERE (" + junkLocation
+        + ") AND ((l.uid IS NOT NULL AND l.on_server = 1) OR (l.uid IS NULL AND " + unplaced + ")))"
 
-    /// The location row has no placement for its account: the archive files the mail there.
-    /// Uncorrelated (a row-value IN, evaluated once): a correlated EXISTS per row is what the
-    /// query-plan guard forbids.
-    static let unplaced = "(l.message_id, l.account_id) NOT IN (SELECT p.message_id, p.account_id FROM placements p)"
+    /// Locations joined to their account's placement (alias `p`; `unplaced`: there is none, the
+    /// archive files the mail where it was seen). An anti-join, not a row-value `NOT IN`: on a
+    /// miss SQLite searches that list for a NULL match, once per location — the sidebar took 8.7 s
+    /// at 300k mails and 2k placements, 0.17 s like this (6.9 review).
+    static let unplacedLocations = "locations l LEFT JOIN placements p ON p.message_id = l.message_id AND p.account_id = l.account_id"
+    static let unplaced = "p.message_id IS NULL"
 
     /// Where the archive files each mail (ADR-0011): its locations where it has no placement for
     /// that account, and its placements — columns account_id, mailbox, message_id (alias `f`).
     static let filedRows = """
-        SELECT l.account_id AS account_id, l.mailbox AS mailbox, l.message_id AS message_id FROM locations l WHERE \(unplaced)
+        SELECT l.account_id AS account_id, l.mailbox AS mailbox, l.message_id AS message_id FROM \(unplacedLocations) WHERE \(unplaced)
         UNION ALL SELECT p.account_id, p.mailbox, p.message_id FROM placements p
         """
 

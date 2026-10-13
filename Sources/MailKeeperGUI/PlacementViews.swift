@@ -21,41 +21,38 @@ extension AppModel {
         placing = PlacementRequest(ids: ids)
     }
 
-    /// The accounts the mails lie in, and the folders the archive knows there (INBOX first).
-    func placementFolders(_ ids: [Int64]) -> (accounts: [String], folders: [String]) {
-        let mine = Set(ids.prefix(500).flatMap { (try? reader?.detail($0))??.locations.map(\.account) ?? [] })
-        let names = accounts.filter { mine.contains($0.id) }.flatMap { $0.mailboxes.map(\.name) }
-        let folders = Array(Set(names)).sorted { a, b in
+    /// What the sheet offers (6.9): the accounts the mails lie in and the folders the archive
+    /// knows there (INBOX first), the folder they share now; how many lie on a server MailKeeper
+    /// may change here (not Gmail, accounts set up) and that server's ordinary folders (6.9b).
+    func placementSetup(_ ids: [Int64]) -> PlacementSetup {
+        guard let reader, let context = try? reader.placementContext(ids) else { return PlacementSetup() }
+        var setup = PlacementSetup()
+        setup.accounts = context.accounts.sorted()
+        setup.folders = Self.inboxFirst(Set(accounts.filter { context.accounts.contains($0.id) }.flatMap { $0.mailboxes.map(\.name) }))
+        setup.current = context.filed.count == 1 ? context.filed.first : nil
+        let usable = Set(accountConfigs.filter { $0.kind != .gmail }.map(\.id)).intersection(context.onServer.keys)
+        setup.onServer = usable.reduce(into: Set<Int64>()) { $0.formUnion(context.onServer[$1] ?? []) }.count
+        setup.serverFolders = Self.inboxFirst(Set(usable.flatMap { (try? reader.ordinaryMailboxes(account: $0)) ?? [] }))
+        return setup
+    }
+
+    private static func inboxFirst(_ names: Set<String>) -> [String] {
+        names.sorted { a, b in
             a.uppercased() == "INBOX" ? b.uppercased() != "INBOX" : b.uppercased() == "INBOX" ? false : a.localizedStandardCompare(b) == .orderedAscending
         }
-        return (mine.sorted(), folders)
     }
 
-    /// How many of the mails lie on a server MailKeeper may change here (not Gmail, accounts set
-    /// up), and that server's ordinary folders MailKeeper knows (6.9b).
-    func serverPlacementInfo(_ ids: [Int64]) -> (count: Int, folders: [String]) {
-        guard let reader else { return (0, []) }
-        let usable = Set(accountConfigs.filter { $0.kind != .gmail }.map(\.id))
-        var count = 0
-        var accounts: Set<String> = []
-        for id in ids.prefix(500) {
-            guard let d = try? reader.detail(id) else { continue }
-            let here = d.locations.filter { $0.isOnServer && usable.contains($0.account) }.map(\.account)
-            if !here.isEmpty { count += 1; accounts.formUnion(here) }
-        }
-        let folders = Set(accounts.flatMap { (try? reader.ordinaryMailboxes(account: $0)) ?? [] })
-        return (count, folders.sorted { a, b in a.uppercased() == "INBOX" || (b.uppercased() != "INBOX" && a.localizedStandardCompare(b) == .orderedAscending) })
-    }
-
-    /// Files the mails in the archive (journalled); nil: back where they were seen. Then, when
-    /// asked, on the server too — the sheet showed what and where: it runs at once, checked
-    /// and logged like every server action (ADR-0006).
+    /// Files the mails in the archive (journalled); nil: back where they were seen. A problem
+    /// there comes back (the sheet stays). Then the sheet closes and, when asked, the server
+    /// follows — the sheet showed what and where: it runs at once, checked and logged like every
+    /// server action (ADR-0006); what becomes of it there is said on its own (review 6.9 S4).
     func place(_ ids: [Int64], mailbox: String?, server: ServerPlacement = .keep) async -> String? {
         guard let reader else { return nil }
         let identities = (try? reader.identities(of: ids)) ?? []
-        let problem = await writeNow { writer in _ = try await writer.place(identities: identities, mailbox: mailbox) }
-        guard problem == nil else { return problem }
-        refresh()  // the sidebar's counts, the list and the reader
+        if let problem = await writeNow({ writer in _ = try await writer.place(identities: identities, mailbox: mailbox) }) {
+            return problem  // writeNow refreshed the sidebar, the list and the reader
+        }
+        placing = nil
         let onServer: String? = switch server {
         case .keep: nil
         case .same: mailbox
@@ -66,14 +63,28 @@ extension AppModel {
             let (job, summary) = try reader.planMoveToFolder(MessageFilter(ids: ids), mailbox: target,
                                                              title: String(localized: "Ablage „\(target)“"), accounts: accountConfigs)
             guard job.count(.planned) > 0 else {
-                return job.reasons.first.map { String(localized: "Im Archiv abgelegt; auf dem Server nichts zu tun: \($0.reason)") }
+                let why = job.reasons.map(\.reason).joined(separator: "; ")
+                actionError = why.isEmpty ? String(localized: "Im Archiv abgelegt. Auf dem Server ist nichts zu tun.")
+                    : String(localized: "Im Archiv abgelegt. Auf dem Server nichts zu tun: \(why)")
+                return nil
             }
+            // a busy app says so itself (execute sets actionError): the archive part stays done
             execute(PlannedAction(job: job, summary: summary, filter: MessageFilter(ids: ids), examples: try reader.summaries(Array(ids.prefix(5)))))
         } catch {
-            return "\(error)"
+            actionError = String(localized: "Im Archiv abgelegt, auf dem Server nicht: \(String(describing: error))")
         }
         return nil
     }
+}
+
+/// What the placement sheet offers (see `AppModel.placementSetup`).
+struct PlacementSetup {
+    var accounts: [String] = []
+    var folders: [String] = []
+    /// The archive folder all the mails are filed in now, if they share one (preselected).
+    var current: String?
+    var onServer = 0
+    var serverFolders: [String] = []
 }
 
 /// "Ablage ändern" (6.9, ADR-0011): where the archive files the mails — a folder it knows or a
@@ -157,13 +168,12 @@ struct PlacementSheet: View {
         .padding(20)
         .frame(width: 520)
         .onAppear {
-            let found = model.placementFolders(request.ids)
-            accounts = found.accounts
-            folders = found.folders
-            choice = folders.first ?? Self.new
-            let info = model.serverPlacementInfo(request.ids)
-            onServer = info.count
-            serverFolders = info.folders
+            let setup = model.placementSetup(request.ids)
+            accounts = setup.accounts
+            folders = setup.folders
+            choice = setup.current.flatMap { folders.contains($0) ? $0 : nil } ?? folders.first ?? Self.new
+            onServer = setup.onServer
+            serverFolders = setup.serverFolders
             otherFolder = serverFolders.first ?? ""
         }
     }

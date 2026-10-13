@@ -53,6 +53,17 @@ public enum MessagePlace: Sendable, Equatable {
     case trash
 }
 
+/// What "Ablage ändern" starts from (6.9): see `ArchiveReader.placementContext`.
+public struct PlacementContext: Sendable, Equatable {
+    /// The accounts the mails lie in.
+    public var accounts: Set<String> = []
+    /// Per account, the mails on a server there (fetched, still there at the last fetch).
+    public var onServer: [String: Set<Int64>] = [:]
+    /// The archive folders the mails are filed in now.
+    public var filed: Set<String> = []
+    public init() {}
+}
+
 public struct MessageDetail: Sendable {
     public var summary: MessageSummary
     public var messageID: String?
@@ -215,13 +226,16 @@ public final class ArchiveReader {
         return stat(path, &st) == 0 ? UInt64(st.st_ino) : 0
     }
 
+    /// The sidebar's folders and counts, where the archive files each mail (ADR-0011).
+    static let mailboxCounts = """
+        SELECT account_id, mailbox, count(DISTINCT message_id) FROM (\(QuerySQL.filedRows))
+        WHERE message_id NOT IN (SELECT id FROM messages WHERE trashed IS NOT NULL)
+        GROUP BY account_id, mailbox ORDER BY account_id, mailbox COLLATE NOCASE
+        """
+
     public func accounts() throws -> [AccountSummary] {
         let db = try self.db
-        let boxes = try db.query("""
-            SELECT account_id, mailbox, count(DISTINCT message_id) FROM (\(QuerySQL.filedRows))
-            WHERE message_id NOT IN (SELECT id FROM messages WHERE trashed IS NOT NULL)
-            GROUP BY account_id, mailbox ORDER BY account_id, mailbox COLLATE NOCASE
-            """) { MailboxSummary(account: $0.text(0) ?? "", name: $0.text(1) ?? "", count: Int($0.int(2))) }
+        let boxes = try db.query(Self.mailboxCounts) { MailboxSummary(account: $0.text(0) ?? "", name: $0.text(1) ?? "", count: Int($0.int(2))) }
         return try db.query("""
             SELECT a.id, a.kind, a.display_name,
                    (SELECT count(DISTINCT message_id) FROM locations l WHERE l.account_id = a.id
@@ -232,6 +246,35 @@ public final class ArchiveReader {
             return AccountSummary(id: id, kind: row.text(1) ?? "", name: row.text(2) ?? id,
                                   messageCount: Int(row.int(3)), mailboxes: boxes.filter { $0.account == id })
         }
+    }
+
+    /// "Ablage ändern" (6.9): the accounts the mails lie in, per account the ones on a server
+    /// there, and the archive folders they are filed in now — two queries, not a detail per mail.
+    public func placementContext(_ ids: [Int64]) throws -> PlacementContext {
+        var context = PlacementContext()
+        guard !ids.isEmpty else { return context }
+        let marks = Array(repeating: "?", count: ids.count).joined(separator: ",")
+        let params = ids.map { SQLValue.int($0) }
+        try db.forEach("SELECT l.message_id, l.account_id, (\(QuerySQL.serverLocation)) FROM locations l WHERE l.message_id IN (\(marks))",
+                       params) { row in
+            let account = row.text(1) ?? ""
+            context.accounts.insert(account)
+            if row.int(2) != 0 { context.onServer[account, default: []].insert(row.int(0)) }
+        }
+        context.filed = Set(try db.query("SELECT DISTINCT f.mailbox FROM (\(QuerySQL.filedRows)) f WHERE f.message_id IN (\(marks))",
+                                         params) { $0.text(0) ?? "" })
+        return context
+    }
+
+    /// The folders mail was seen in, per account — by a sync or an import, not the archive's own
+    /// placements (6.9 review: a restore target must be a folder the server had, not one only the
+    /// archive knows).
+    public func seenMailboxes() throws -> [String: [String]] {
+        var out: [String: [String]] = [:]
+        try db.forEach("SELECT DISTINCT account_id, mailbox FROM locations ORDER BY account_id, mailbox COLLATE NOCASE") { row in
+            out[row.text(0) ?? "", default: []].append(row.text(1) ?? "")
+        }
+        return out
     }
 
     /// Ordered message ids for a filter (8 bytes per row; the list view pages rows by id).
@@ -251,8 +294,11 @@ public final class ArchiveReader {
     /// `EXPLAIN QUERY PLAN` of the list query (tests guard against correlated subqueries).
     func queryPlan(_ filter: MessageFilter) throws -> [String] {
         let (whereClause, params) = try Self.whereClause(filter)
-        return try self.db.query("EXPLAIN QUERY PLAN SELECT m.id FROM messages m" + whereClause + " ORDER BY m.date DESC",
-                                 params) { $0.text(3) ?? "" }
+        return try queryPlan("SELECT m.id FROM messages m" + whereClause + " ORDER BY m.date DESC", params)
+    }
+
+    func queryPlan(_ sql: String, _ params: [SQLValue] = []) throws -> [String] {
+        try self.db.query("EXPLAIN QUERY PLAN " + sql, params) { $0.text(3) ?? "" }
     }
 
     /// Archive identities of message rows (stable keys for trash and purge).

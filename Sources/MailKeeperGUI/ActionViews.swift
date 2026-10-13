@@ -42,13 +42,15 @@ struct PlanSheet: View {
                     Text(job.kind == .serverDelete ? "In den Papierkorb des Servers"
                          : job.kind == .restore ? "Auf den Server zurück"
                          : job.kind == .moveToInbox ? "Aus dem Spam-Ordner zurück"
-                         : job.kind == .moveToJunk ? "In den Spam-Ordner des Servers" : "In den Papierkorb des Archivs")
+                         : job.kind == .moveToJunk ? "In den Spam-Ordner des Servers"
+                         : job.kind == .moveToFolder ? "Auf dem Server in einen anderen Ordner" : "In den Papierkorb des Archivs")
                     Text("\(runs.formatted()) Mails · \(job.openBytes.formatted(.byteCount(style: .file)))").fontWeight(.semibold)
                 }
-                if job.kind == .serverDelete || job.kind == .moveToInbox || job.kind == .moveToJunk {
+                if job.kind == .serverDelete || job.kind == .moveToInbox || job.kind == .moveToJunk || job.kind == .moveToFolder {
                     ForEach(plan.summary.perAccount.sorted { $0.key < $1.key }, id: \.key) { account, count in
                         GridRow {
-                            Text(job.kind == .moveToInbox ? "Nach \(DisplayText.safe(account))" : "Konto \(account)").foregroundStyle(.secondary)
+                            Text(job.kind == .moveToInbox || job.kind == .moveToFolder ? "Nach \(DisplayText.safe(account))" : "Konto \(account)")
+                                .foregroundStyle(.secondary)
                             Text(count.formatted())
                         }
                     }

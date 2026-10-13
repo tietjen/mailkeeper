@@ -23,8 +23,10 @@ TJ also wants a mail on a server to follow when he files it — or not: "Selbe A
 2. **Journalled.** A `placed` event (account, identity, mailbox; no mailbox = back to where it was
    seen) in the account's journal; the index keeps `placements(message_id, account_id, mailbox,
    time)` (schema v14) as a projection, replayed after all `seen` events in time order like the
-   user's other decisions. An older binary drops the unknown event on a rebuild (placements are
-   lost there, nothing else).
+   user's other decisions. An older binary ignores the `placements` table (it shows mails where
+   they were seen) and skips the unknown event on a rebuild; the journal keeps it. After such a
+   rebuild and an upgrade the table starts empty — a rebuild with the new binary brings the
+   placements back.
 3. **What follows the placement (the archive's view):** the sidebar's folders and counts, the
    reader's "Ablage", `in:`/`ordner:` and the folder scope, saved searches with a folder.
    **What stays with the facts (the server):** "Ort" (on a server / only in the archive), where a
@@ -48,6 +50,10 @@ TJ also wants a mail on a server to follow when he files it — or not: "Selbe A
 
 - A mail can be filed differently in the archive and on the server; the reader shows the server
   place under "Ort" and the archive's under "Ablage" — the difference is visible, not hidden.
-- Folder queries look at two tables; the sidebar counts a union. Indexes keep it fast.
+- Folder queries look at two tables; the sidebar counts a union. Locations without a placement
+  are an anti-join (`LEFT JOIN placements … WHERE p.message_id IS NULL`), never a row-value
+  `NOT IN`: on a miss SQLite searches that list for a NULL match once per location — the sidebar
+  took 8.7 s at 300k mails and 2k placements, 0.17 s as an anti-join (`in:` 0.04 s, a folder of
+  the sidebar 0.02 s). A plan test forbids an IN-operator on `placements`.
 - New folders exist in the archive only until a server has them — MailKeeper never creates
   server folders.

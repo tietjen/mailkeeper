@@ -109,11 +109,60 @@ struct PlacementTests {
         #expect(try r.classification(of: lotto)?.verdict == nil)  // filing says nothing about spam
         #expect(try r.detail(hallo)?.locations.contains { $0.mailbox == "Projekte" && $0.isOnServer } == true)
         #expect(try r.count(MessageFilter(text: "is:junk ", ids: [lotto])) == 0)  // it left the server's spam folder
+        // the same again: both lie there now — said, nothing planned, none counted "only in the archive"
+        let (again, againSummary) = try r.planMoveToFolder(MessageFilter(ids: [hallo, lotto]), mailbox: "Projekte", title: "x", accounts: [imap])
+        #expect(again.count(.planned) == 0 && again.reasons.map(\.reason) == ["Liegt auf dem Server schon dort"] && againSummary.archiveOnly == 0)
+        // the sheet's start: both on the server in "imap"; filed where they were seen (the old rows stay)
+        let context = try r.placementContext([hallo, lotto])
+        #expect(context.accounts == ["imap"] && context.onServer["imap"] == [hallo, lotto] && context.filed.contains("Projekte"))
         // a target the server does not have: the item fails, nothing falls back to INBOX
         let (missing, _) = try r.planMoveToFolder(MessageFilter(ids: [hallo]), mailbox: "Gibt-es-nicht", title: "x", accounts: [imap])
         try store.create(missing)
         let none = try await RescueExecutor(writer: writer, store: store, audit: AuditLog(url: tempDir().appending(path: "b.jsonl")))
             .run(missing.id, accounts: [imap]) { _ in server }
         #expect(none.items.map(\.state) == [.failed] && none.items.first?.reason?.contains("legt keine Ordner an") == true)
+    }
+
+    @Test("6.9 review: a placement across trash, untrash and purge — replayed cleanly, counted once")
+    func placementsAcrossTrashAndPurge() async throws {
+        let (_, writer, r) = try await Self.archive()
+        let identity = try #require(try r.identities(of: [try Self.id(r, "Neue Preise")]).first)
+        let before = try #require(try r.accounts().first { $0.id == "backup" }).messageCount
+        try await writer.place(identities: [identity], mailbox: "Newsletter")
+        // the account's count and its folders' counts: the mail once, wherever it is filed
+        let backup = try #require(try r.accounts().first { $0.id == "backup" })
+        #expect(backup.messageCount == before && backup.mailboxes.map(\.count).reduce(0, +) == before)
+        // trashed: out of the folder, the placement kept; a rebuild keeps both
+        #expect(try await writer.trash([identity]) == 1)
+        _ = try await writer.rebuildIndex()
+        #expect(try r.accounts().first { $0.id == "backup" }?.mailboxes.isEmpty != false)
+        #expect(try await writer.untrash([identity]) == 1)
+        #expect(try r.detail(try Self.id(r, "Neue Preise"))?.placements == ["backup": "Newsletter"])
+        // purged: the row goes and its placement with it; a rebuild replays "placed" onto nothing
+        _ = try await writer.trash([identity])
+        _ = try await writer.purge([identity])
+        #expect(try r.messageIDs(MessageFilter(text: "in:newsletter ")).isEmpty)
+        _ = try await writer.rebuildIndex()
+        #expect(try r.messageIDs(MessageFilter(text: "in:newsletter ")).isEmpty)
+        #expect(try r.accounts().allSatisfy { $0.mailboxes.allSatisfy { $0.name != "Newsletter" } })
+    }
+
+    /// A row-value `(a, b) NOT IN (SELECT …)` searched the placements once per location on a miss
+    /// (a NULL match): the sidebar took 8.7 s at 300k mails and 2k placements. Every folder query
+    /// joins placements instead — no IN-operator on placements in any plan.
+    @Test("6.9 review: placements are anti-joined, never an IN list per location")
+    func noPlanSearchesPlacementsPerLocation() async throws {
+        let (_, writer, r) = try await Self.archive()
+        try await writer.place(identities: r.identities(of: [try Self.id(r, "Neue Preise")]), mailbox: "Newsletter")
+        var plans = [try r.queryPlan(ArchiveReader.mailboxCounts)]
+        for f in [MessageFilter(account: "backup", mailbox: "Newsletter"), MessageFilter(text: "in:newsletter "),
+                  MessageFilter(text: "in:news* "), MessageFilter(text: "is:junk "), MessageFilter(text: "is:fehlalarm "),
+                  MessageFilter(text: "-is:junk in:inbox ")] {
+            plans.append(try r.queryPlan(f))
+        }
+        for plan in plans {
+            #expect(!plan.contains { $0.contains("placements") && $0.contains("IN-OPERATOR") }, "\(plan)")
+            #expect(!plan.contains { $0.contains("CORRELATED") }, "\(plan)")
+        }
     }
 }

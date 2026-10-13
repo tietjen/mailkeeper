@@ -259,6 +259,7 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         var out: [RemoteMailbox] = []
         mailboxNames = [:]
         mailboxUses = [:]
+        mailboxSelectable = [:]
         for payload in result.untagged {
             guard case .mailboxData(.list(let info)) = payload else { continue }
             let attributes = Set(info.attributes.map { String($0).lowercased() })
@@ -453,11 +454,17 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
     public func moveToFolder(_ uids: [UInt32], to destination: String) async throws {
         guard !uids.isEmpty else { return }
         if mailboxNames.isEmpty { _ = try await mailboxes() }
-        guard access == .moveToFolder, let source = selectedMailbox,
-              RemoteMailbox.mayGiveForMove(name: source, uses: mailboxUses[source] ?? [], selectable: mailboxSelectable[source] ?? false) else {
+        guard access == .moveToFolder, selectedMayGive else {
             throw IMAPError.readOnlyViolation("MOVE aus einem Papierkorb-, Gesendet-, Entwurfs- oder Alle-Nachrichten-Ordner")
         }
         try await moveSelected(uids, to: destination)
+    }
+
+    /// Whether the selected mailbox may give mail to "Ablage ändern" (6.9b): no trash, sent,
+    /// drafts or All Mail — by role and by name.
+    private var selectedMayGive: Bool {
+        guard let source = selectedMailbox else { return false }
+        return RemoteMailbox.mayGiveForMove(name: source, uses: mailboxUses[source] ?? [], selectable: mailboxSelectable[source] ?? false)
     }
 
     /// The one move of `.rescueFromJunk` and `.moveToFolder`: the target admitted by
@@ -753,14 +760,18 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
                 guard Self.isReadOnly(tagged.command) || Self.isAllowedChange(tagged.command, access: access, trash: trash, inbox: rescueTarget, junk: junk) else {
                     throw IMAPError.readOnlyViolation(Self.name(of: tagged.command))
                 }
-                // a rescue moves only out of the spam folder, "Ist Spam" only out of an ordinary one
-                if access == .rescueFromJunk || access == .markAsJunk {
+                // a rescue moves only out of the spam folder, "Ist Spam" only out of an ordinary one,
+                // "Ablage ändern" out of none of trash, sent, drafts or All Mail
+                if access == .rescueFromJunk || access == .markAsJunk || access == .moveToFolder {
                     switch tagged.command {
                     case .uidMove, .uidCopy:
-                        if access == .rescueFromJunk {
+                        switch access {
+                        case .rescueFromJunk:
                             guard selectedIsJunk else { throw IMAPError.readOnlyViolation("MOVE aus einem Nicht-Spam-Ordner") }
-                        } else {
+                        case .markAsJunk:
                             guard selectedMayMarkJunk else { throw IMAPError.readOnlyViolation("MOVE aus einem Spam-, Papierkorb-, Gesendet- oder Entwurfsordner") }
+                        default:
+                            guard selectedMayGive else { throw IMAPError.readOnlyViolation("MOVE aus einem Papierkorb-, Gesendet-, Entwurfs- oder Alle-Nachrichten-Ordner") }
                         }
                     default: break
                     }
@@ -774,8 +785,8 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
                 } else if access == .restore, case .uidStore = tagged.command {
                     throw IMAPError.readOnlyViolation("STORE ohne UID-Liste")
                 }
-                // a delete (or rescue) connection flags and expunges only what it has just copied
-                if access == .moveToTrash || access == .rescueFromJunk || access == .markAsJunk {
+                // a delete (or any move) connection flags and expunges only what it has just copied
+                if access == .moveToTrash || access == .rescueFromJunk || access == .markAsJunk || access == .moveToFolder {
                     let uids: MessageIdentifierSetNonEmpty<UID>? = switch tagged.command {
                     case .uidStore(.set(let set), _, _), .uidExpunge(.set(let set)): set
                     default: nil

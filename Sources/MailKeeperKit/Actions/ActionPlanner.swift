@@ -316,9 +316,9 @@ extension ArchiveReader {
     }
 
     /// "Ablage ändern" on the server (6.9b, ADR-0011): per message and account one fetched
-    /// location — not in trash, sent, drafts or All Mail, INBOX first — into `mailbox`; nothing
-    /// where the mail already lies there. Skipped: accounts not set up here, and Gmail (folders
-    /// are labels there: a move is no move).
+    /// location — not in trash, sent, drafts or All Mail, INBOX first — into `mailbox`. Skipped:
+    /// where the mail already lies there, accounts not set up here, and Gmail (folders are labels
+    /// there: a move is no move).
     public func planMoveToFolder(_ filter: MessageFilter, mailbox: String, title: String, accounts: [AccountConfig]) throws -> (ActionJob, ActionPlanSummary) {
         let (whereClause, params) = try Self.whereClause(filter)
         let byID = Dictionary(accounts.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
@@ -337,11 +337,11 @@ extension ArchiveReader {
             FROM locations l JOIN messages m ON m.id = l.message_id LEFT JOIN blobs b ON b.sha256 = l.sha256
             WHERE \(QuerySQL.serverLocation) AND l.uid_validity IS NOT NULL AND l.uid BETWEEN 1 AND 4294967294
               AND NOT \(QuerySQL.sentLocation) AND NOT \(QuerySQL.trashLocation) AND NOT \(QuerySQL.draftsLocation)
-              AND l.mailbox != ? AND l.message_id IN (SELECT m.id FROM messages m\(whereClause))
-            ORDER BY m.date, l.message_id, upper(l.mailbox) = 'INBOX' DESC, l.last_seen DESC, l.id
-            """, [.text(mailbox)] + params) { row in
+              AND l.message_id IN (SELECT m.id FROM messages m\(whereClause))
+            ORDER BY m.date, l.message_id, l.mailbox = ? DESC, upper(l.mailbox) = 'INBOX' DESC, l.last_seen DESC, l.id
+            """, params + [.text(mailbox)]) { row in
             let key = "\(row.int(0))|\(row.text(1) ?? "")"
-            guard !there.contains(key), taken.insert(key).inserted else { return }
+            guard taken.insert(key).inserted else { return }
             withLocation.insert(row.int(0))
             let account = row.text(1) ?? ""
             var item = ActionItem(id: items.count, sha256: row.text(5) ?? "", messageID: row.text(6), size: Int(row.int(7)),
@@ -351,7 +351,10 @@ extension ArchiveReader {
                                                            uid: UInt32(truncatingIfNeeded: row.int(4))),
                                   identity: row.text(8))
             item.target = RestoreTarget(account: account, mailbox: mailbox)
-            if let config = byID[account] {
+            if there.contains(key) {  // said, not counted as "only in the archive"
+                item.state = .skipped
+                item.reason = String(localized: "Liegt auf dem Server schon dort")
+            } else if let config = byID[account] {
                 if config.kind == .gmail {
                     item.state = .skipped
                     item.reason = String(localized: "Bei Gmail sind Ordner Labels – dort ändert MailKeeper die Ablage auf dem Server noch nicht")
