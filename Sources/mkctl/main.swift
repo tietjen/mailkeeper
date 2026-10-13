@@ -484,7 +484,7 @@ func summarize(_ p: ImportProgress, start: Date) {
         let layout = try ArchiveLayout.open(at: root, create: false)
         let reader = try ArchiveReader(layout: layout)
         let store = GoldStore(layout: layout)
-        let labels = store.load()
+        let labels = try store.load()
         switch args.first {
         case "status", nil:
             print("gelabelt \(labels.labels.count) · übersprungen \(labels.skipped.count) (\(store.labelsURL.path))")
@@ -514,7 +514,7 @@ func summarize(_ p: ImportProgress, start: Date) {
                     print("  ✗ \(clean(titles[o.id] ?? o.id).prefix(70)): \(o.category?.label ?? "–") statt \(o.expected.map(\.label).joined(separator: "/"))"
                           + (o.expectedPhishing == .flagged ? " + Phishing" : "") + (o.error.map { " (\(clean($0)))" } ?? ""))
                 }
-                if let last = previous.last(where: { $0.set == r.set && $0.mode == r.mode && $0.model == r.model }) {
+                if let last = previous.last(where: { $0.set == r.set && $0.mode == r.mode && $0.model == r.model && $0.isComparable }) {
                     let (worse, flips) = r.comparison(since: last)
                     for line in flips + worse.map({ "Rückschritt: " + $0 }) { print("  seit \(last.time.formatted()): \(clean(line))") }
                 }

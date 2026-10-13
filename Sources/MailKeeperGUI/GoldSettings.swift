@@ -71,7 +71,7 @@ extension AppModel {
     }
 
     private func persistGold() {
-        guard let layout = reader?.layout else { return }
+        guard let layout = reader?.layout, goldLoadError == nil else { return }
         do { try GoldStore(layout: layout).save(goldLabels) } catch { goldMessage = "\(error)" }
     }
 
@@ -87,6 +87,8 @@ extension AppModel {
         goldMessage = nil
         goldResults = []
         goldProgress = GoldProgress(mode: GoldArchive.today, done: 0, total: labels.labels.count)
+        goldGeneration += 1
+        let generation = goldGeneration
         goldTask = Task.detached(priority: .utility) { [weak self] in
             var message: String?
             var results: [GoldResult] = []
@@ -101,9 +103,11 @@ extension AppModel {
                     for (mode, memory) in modes {
                         try Task.checkCancellation()
                         let items = try GoldArchive.items(reader: reader, labels: labels, memory: memory)
-                        await MainActor.run { self?.goldProgress = GoldProgress(mode: mode, done: 0, total: items.count) }
+                        await MainActor.run { if self?.goldGeneration == generation { self?.goldProgress = GoldProgress(mode: mode, done: 0, total: items.count) } }
                         let report = await runner.run(items, set: GoldArchive.set, mode: mode, model: model) { done, total in
-                            Task { @MainActor in if self?.goldProgress?.mode == mode { self?.goldProgress = GoldProgress(mode: mode, done: done, total: total) } }
+                            Task { @MainActor in
+                                if self?.goldGeneration == generation, self?.goldProgress?.mode == mode { self?.goldProgress = GoldProgress(mode: mode, done: done, total: total) }
+                            }
                         }
                         try Task.checkCancellation()  // a stopped run is no measurement
                         reports.append(report)
@@ -115,7 +119,7 @@ extension AppModel {
                 let previous = store.runs(as: GoldReport.self)
                 let titles = try GoldArchive.titles(reader: reader, identities: labels.labels.map(\.identity))
                 for r in reports {
-                    let last = previous.last { $0.set == r.set && $0.mode == r.mode && $0.model == r.model }
+                    let last = previous.last { $0.set == r.set && $0.mode == r.mode && $0.model == r.model && $0.isComparable }
                     let (worse, flips) = last.map { r.comparison(since: $0) } ?? ([], [])
                     results.append(GoldResult(report: r, worse: worse, flips: flips, titles: titles))
                     try store.appendRun(r)
@@ -126,7 +130,7 @@ extension AppModel {
                 message = "\(error)"
             }
             await MainActor.run {
-                guard let self, self.archiveRoot == root else { return }
+                guard let self, self.goldGeneration == generation else { return }
                 self.goldResults = results
                 self.goldMessage = message
                 self.goldProgress = nil
@@ -148,6 +152,9 @@ struct GoldSettings: View {
     var body: some View {
         Form {
             Section {
+                if let error = model.goldLoadError {
+                    Label(DisplayText.safe(error), systemImage: "exclamationmark.octagon").foregroundStyle(.red).font(.callout)
+                }
                 Text("Du ordnest Mails aus deinem Archiv selbst ein; MailKeeper misst daran, wie gut Regeln und KI sie einordnen – mit und ohne Gedächtnis. Die Labels bleiben in deinem Archivordner (gold.json), ändern nichts an deinen Mails und fließen nicht ins Gedächtnis.")
                     .font(.callout).foregroundStyle(.secondary).frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                 HStack {
@@ -155,6 +162,7 @@ struct GoldSettings: View {
                     Spacer()
                     Button("Labels ansehen …") { showLabels = true }.disabled(model.goldLabels.labels.isEmpty)
                     Button("Mails labeln …") { labelling = true }.keyboardShortcut("l", modifiers: [.command])
+                        .disabled(model.goldLoadError != nil || model.reader == nil)
                 }
                 Text("Für eine belastbare Zahl: etwa 80 Mails – je Absender eine, über alle Arten und den Spam-Ordner verteilt. MailKeepers eigene Einordnung bleibt beim Labeln verborgen.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -167,7 +175,7 @@ struct GoldSettings: View {
                         Spacer()
                         Button("Anhalten") { model.stopGold() }
                     } else {
-                        Text(model.aiRouter() == nil ? "Ohne KI: nur „MailKeeper heute“" : "MailKeeper heute, KI ohne und mit Gedächtnis – je Mail eine Anfrage")
+                        Text(model.aiConfig.enabled ? "MailKeeper heute, KI ohne und mit Gedächtnis – je Mail eine Anfrage" : "Ohne KI: nur „MailKeeper heute“")
                             .foregroundStyle(.secondary).font(.callout)
                         Spacer()
                         Button("Messen") { model.runGold() }.disabled(model.goldLabels.labels.count < 10)
@@ -283,7 +291,7 @@ struct GoldLabelSheet: View {
                         Button { label(mail, c) } label: {
                             Label("\(n + 1)  \(c.label)", systemImage: c.icon).frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .keyboardShortcut(KeyEquivalent(Character("\(n + 1)")), modifiers: [])
+                        .keyboardShortcut(n < 9 ? KeyEquivalent(Character("\(n + 1)")) : KeyEquivalent(" "), modifiers: n < 9 ? [] : [.command])
                     }
                 }
                 HStack {
@@ -337,9 +345,9 @@ struct GoldLabelSheet: View {
 struct GoldLabelList: View {
     let model: AppModel
     @Environment(\.dismiss) private var dismiss
+    @State private var titles: [String: String] = [:]
 
     var body: some View {
-        let titles = (try? model.reader.map { try GoldArchive.titles(reader: $0, identities: model.goldLabels.labels.map(\.identity)) }) ?? [:]
         VStack(alignment: .leading, spacing: 10) {
             Text("Deine Labels").font(.headline)
             List {
@@ -358,5 +366,8 @@ struct GoldLabelList: View {
         }
         .padding(20)
         .frame(width: 720)
+        .onAppear {  // once, not per render (two queries per label)
+            titles = (try? model.reader.map { try GoldArchive.titles(reader: $0, identities: model.goldLabels.labels.map(\.identity)) }) ?? [:]
+        }
     }
 }

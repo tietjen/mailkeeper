@@ -127,7 +127,7 @@ private struct GroupTableView: NSViewRepresentable {
             if reloaded {
                 source = groups
                 rows = sorted(groups)
-                table.reloadData()
+                reload(table)
             }
             let moved = selected != self.selected
             self.selected = selected
@@ -228,8 +228,16 @@ private struct GroupTableView: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
             rows = sorted(source)
-            tableView.reloadData()
+            reload(tableView)
             applySelection(scroll: true)
+        }
+
+        /// AppKit may trim the selection to the new rows and say so — that must not reach the
+        /// model in the middle of a SwiftUI update (review 6.6 S6); the selection is set again after.
+        private func reload(_ table: NSTableView) {
+            applyingSelection = true
+            defer { applyingSelection = false }
+            table.reloadData()
         }
 
         @objc func openClicked() {

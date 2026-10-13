@@ -143,6 +143,10 @@ public struct GoldReport: Sendable, Codable, Equatable {
         return lines
     }
 
+    /// A run to compare later runs with: one model answered, and it answered at all (review 6.6:
+    /// a fallback mixes models, a dead endpoint fails every mail).
+    public var isComparable: Bool { Set(outcomes.compactMap(\.model)).count <= 1 && errors < total }
+
     /// One line per mail that went wrong.
     public var misses: [String] {
         outcomes.filter { !$0.right }.map { o in
@@ -160,13 +164,22 @@ public struct GoldReport: Sendable, Codable, Equatable {
     /// decoding, batching: two of 32 mails flipped between three identical runs), so the
     /// category may lose `tolerance` mails before it counts as worse; phishing may not lose one.
     /// `worse` fails a check, `flips` are the mails that changed, said either way.
+    /// Only the mails both runs have are compared (review 6.6 S3: a private set grows — 30 more
+    /// labels are no "regression"); a change of the set is said as a flip line.
     public func comparison(since earlier: GoldReport, tolerance: Int = 2) -> (worse: [String], flips: [String]) {
         let before = Dictionary(earlier.outcomes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let common = Set(outcomes.map(\.id)).intersection(before.keys)
+        let now = GoldReport(set: set, mode: mode, model: model, time: time, outcomes: outcomes.filter { common.contains($0.id) })
+        let then = GoldReport(set: earlier.set, mode: earlier.mode, model: earlier.model, time: earlier.time,
+                              outcomes: earlier.outcomes.filter { common.contains($0.id) })
         var worse: [String] = []
-        if right < earlier.right - tolerance { worse.append("weniger richtig: \(right) statt \(earlier.right) (von \(total))") }
-        if falseAlarms > earlier.falseAlarms { worse.append("mehr Fehlalarme: \(falseAlarms) statt \(earlier.falseAlarms)") }
-        if phishingCaught < earlier.phishingCaught { worse.append("weniger Phishing erkannt: \(phishingCaught) statt \(earlier.phishingCaught)") }
+        if now.right < then.right - tolerance { worse.append("weniger richtig: \(now.right) statt \(then.right) (von \(now.total))") }
+        if now.falseAlarms > then.falseAlarms { worse.append("mehr Fehlalarme: \(now.falseAlarms) statt \(then.falseAlarms)") }
+        if now.phishingCaught < then.phishingCaught { worse.append("weniger Phishing erkannt: \(now.phishingCaught) statt \(then.phishingCaught)") }
         var flips: [String] = []
+        if common.count != total || common.count != earlier.total {
+            flips.append("Gold-Set geändert: \(earlier.total) → \(total) Mails; verglichen werden die \(common.count) gemeinsamen")
+        }
         for o in outcomes where o.error == nil {
             guard let b = before[o.id], b.error == nil, b.right != o.right else { continue }
             flips.append(o.right ? "jetzt richtig: \(o.id)" : "jetzt falsch: \(o.id) (\(o.category?.label ?? "–"))")
@@ -285,13 +298,14 @@ public struct GoldCase: Sendable, Codable, Equatable {
             let parsed = MIMEParser.parse(Data(c.mail.utf8))
             if parsed.from.first?.address.contains("@") != true { out.append("\(c.id): kein Absender") }
             if parsed.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && parsed.html == nil { out.append("\(c.id): kein Text") }
-            // the public repo carries no real mail: every address and link is made up
-            let words = c.mail.lowercased().split(whereSeparator: { " \n\t<>()\"'=;,/".contains($0) })
-            for w in words where w.contains("@") || w.hasPrefix("www.") || w.contains(".de") || w.contains(".com") {
-                let host = w.split(separator: "@").last.map(String.init) ?? String(w)
-                let clean = host.trimmingCharacters(in: CharacterSet(charactersIn: ".:"))
-                if clean.contains("."), !(clean.hasSuffix(".example") || clean.hasSuffix(".test") || clean.hasSuffix(".invalid")) {
-                    out.append("\(c.id): echte Domain? \(clean)")
+            // the public repo carries no real mail: every address and link is made up — any
+            // address, and any word that ends like a domain (review 6.6: not only .de and .com)
+            let words = c.mail.lowercased().split(whereSeparator: { " \n\t<>()\"'=;,/?&[]".contains($0) })
+            for w in words {
+                let host = (w.split(separator: "@").last.map(String.init) ?? String(w)).trimmingCharacters(in: CharacterSet(charactersIn: ".:"))
+                let looksLikeDomain = w.contains("@") || host.range(of: #"^[a-z0-9-]+(\.[a-z0-9-]+)*\.(com|net|org|io|eu|de|at|ch|info|biz|co|uk|us|me|app|dev|ai|shop|online|cloud|nl|fr|it|es)$"#, options: .regularExpression) != nil
+                if looksLikeDomain, host.contains("."), !(host.hasSuffix(".example") || host.hasSuffix(".test") || host.hasSuffix(".invalid")) {
+                    out.append("\(c.id): echte Domain? \(host)")
                 }
             }
         }
@@ -332,9 +346,11 @@ public enum GoldArchive {
             let warned = try reader.count(MessageFilter(text: "is:verdächtig ", ids: [id])) > 0
             let flagged = warned || c?.phishing == .suspicious || c?.phishing == .likely
             let e = expectation(label)
+            // who decided goes into the reason, not the model: "today" is several sources by design
+            let source = c.map { "\($0.source.rawValue)" + ($0.reason.map { ": \($0)" } ?? "") }
             return GoldOutcome(id: label.identity, expected: e.category, expectedPhishing: e.phishing, category: c?.category,
-                               phishing: flagged ? .suspicious : PhishingLevel.none, reason: c?.reason,
-                               model: c.map { $0.source.rawValue }, seconds: 0,
+                               phishing: flagged ? .suspicious : PhishingLevel.none, reason: source,
+                               model: nil, seconds: 0,
                                error: c?.category == nil ? String(localized: "noch offen") : nil)
         }
         return GoldReport(set: set, mode: today, model: "Regeln, ähnliche Mails, KI, du", outcomes: outcomes)

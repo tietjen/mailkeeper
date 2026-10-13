@@ -419,9 +419,12 @@ final class AppModel {
         textIndexTask = nil
         goldTask?.cancel()
         goldTask = nil
+        goldGeneration += 1
         goldProgress = nil
         goldResults = []
         goldMessage = nil
+        goldLabels = GoldLabels()  // the previous archive's labels never show for another
+        goldLoadError = nil
         textIndexToken = nil
         textIndexProgress = nil
         do {
@@ -454,7 +457,11 @@ final class AppModel {
             volumeEncrypted = layout.volumeIsEncrypted
             openError = nil
             selectedMessageID = nil
-            goldLabels = GoldStore(layout: layout).load()
+            do {
+                goldLabels = try GoldStore(layout: layout).load()
+            } catch {
+                goldLoadError = "\(error)"
+            }
             refresh()
             reloadUnfinishedJobs()
             startTextIndexing()
@@ -1850,7 +1857,11 @@ final class AppModel {
     // MARK: Gold set (6.6, ADR-0005 §7) — the views and runs live in GoldSettings.swift
 
     var goldLabels = GoldLabels()
+    /// gold.json is there but unreadable: nothing is saved over it (review 6.6 S5).
+    var goldLoadError: String?
     var goldProgress: GoldProgress?
+    /// Which run may publish (a run of an archive left and reopened must not).
+    var goldGeneration = 0
     var goldResults: [GoldResult] = []
     var goldMessage: String?
     var goldTask: Task<Void, Never>?

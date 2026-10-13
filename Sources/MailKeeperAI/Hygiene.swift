@@ -75,16 +75,22 @@ public struct MailSnapshot: Sendable, Equatable {
         self.listUnsubscribe = listUnsubscribe
         self.autoSubmitted = autoSubmitted
         self.attachments = attachments
-        // what speaks to an AI goes before any model reads the mail (6.6)
+        // what speaks to an AI goes before any model reads the mail (6.6) — in the text and in
+        // every other field the sender writes (review 6.6 S2: the display name, attachment names)
         let scan = PromptInjection.scan(text)
         self.text = scan.text
         injection = scan.found
         injectionStrong = scan.strong
-        if let strong = PromptInjection.grade(subject) {
-            injection.insert(String(subject.prefix(120)), at: 0)
+        func field(_ value: String) -> String {
+            guard let strong = PromptInjection.gradeField(value) else { return value }
+            injection.insert(String(PromptText.line(value, max: 120)), at: 0)
             injectionStrong = injectionStrong || strong
-            self.subject = PromptInjection.marker
+            return PromptInjection.marker
         }
+        self.subject = field(subject)
+        self.fromName = fromName.map(field)
+        self.listID = listID.map(field)
+        self.attachments = attachments.map(field)
     }
 
     /// MailKeeper's own word about removed passages — outside the fence.

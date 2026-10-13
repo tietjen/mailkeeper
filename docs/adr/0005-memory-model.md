@@ -107,7 +107,12 @@ address an AI are removed before any model reads the mail and reported outside t
 strong signs make it at least "Verdacht"), example decisions outside the fence, and a sharper
 `personal`; other prompt tweaks measured no gain and were dropped. Now llm-fast 30/32, the
 Mac's model 25/32. Examples do not override a strong category (a monitoring report stays a
-notification against three "→ work"): that is what rules (6.5b) are for.
+notification against three "→ work"): that is what rules (6.5b) are for. Review 6.6 (Fable): the
+text is cleaned before it is scanned (a zero-width character inside "Ignoriere" slipped past and
+came out readable), the display name, attachment names and List-Id are scanned too, the strong
+patterns want the AI as the head of the phrase (no alarm on "KI-Experte", "System: Jira ·
+Kategorie"), schema words alone are weak; runs are compared on the mails both have; an unreadable
+`gold.json` is reported and never saved over; runs are appended with O_APPEND.
 
 ## Consequences
 
