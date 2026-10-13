@@ -287,7 +287,9 @@ extension ArchiveReader {
             switch (row.text(0), row.text(1)) {
             case (nil, _), ("heuristic", _), ("similar", _): r.unchecked += 1
             case (_, "spam"): r.spam += 1
-            default: if !["verdacht", "ja"].contains(row.text(3) ?? "") { r.notSpam += 1 }  // phishing is no false positive (6.8)
+            default:
+                // exactly `is:fehlalarm`: a model's answer, no spam, no phishing (6.8; a user rule is no model)
+                if ["endpoint", "on-device"].contains(row.text(0) ?? ""), !["verdacht", "ja"].contains(row.text(3) ?? "") { r.notSpam += 1 }
             }
         }
         return r

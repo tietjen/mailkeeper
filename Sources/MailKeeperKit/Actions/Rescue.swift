@@ -93,9 +93,9 @@ public struct RescueExecutor: Sendable {
         // still lists it as an ordinary mailbox — else INBOX, and the result says so
         func destination(_ item: ActionItem) -> (name: String, note: String?) {
             guard !toJunk, let wanted = item.target?.mailbox, wanted.uppercased() != "INBOX" else { return (fallback, nil) }
-            guard let box = boxes.first(where: { $0.name == wanted }), box.selectable,
-                  box.specialUse.isDisjoint(with: [.junk, .trash, .sent, .drafts]),
-                  !RemoteMailbox.looksLikeTrashOrJunk(box.name), !RemoteMailbox.looksLikeSentOrDrafts(box.name) else {
+            // the same rule as the IMAP session's (review 6.8 B1/S2)
+            guard let box = boxes.first(where: { $0.name == wanted }),
+                  RemoteMailbox.mayTakeRescued(name: box.name, uses: box.specialUse, selectable: box.selectable, source: item.location!.mailbox) else {
                 return (fallback, String(localized: "„\(wanted)“ gibt es nicht mehr oder ist kein gewöhnlicher Ordner – in den Posteingang"))
             }
             return (box.name, nil)
@@ -171,7 +171,13 @@ public struct RescueExecutor: Sendable {
                 do {
                     if toJunk { try await server.moveToJunk(group.map { $0.location!.uid }) }
                     else { try await server.moveOutOfJunk(group.map { $0.location!.uid }, to: target) }
-                } catch let r as ServerRefusal { refusal = r.message }
+                } catch let r as ServerRefusal {
+                    refusal = r.message
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    refusal = "\(error)"  // this group fails, not the whole job (review 6.8 S2: it stayed claimed and hung)
+                }
                 let stillThere = try await server.present(group.map { $0.location!.uid })
                 moved += group.filter { !stillThere.contains($0.location!.uid) }
                 for item in group where stillThere.contains(item.location!.uid) {

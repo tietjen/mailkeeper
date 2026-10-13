@@ -11,6 +11,7 @@ struct PlanSheet: View {
     @State private var keepDate: Bool
     /// "Kein Spam" (6.8): each mail back where it lay, or all to one folder.
     @State private var rescueDestination = RescueDestination.origin
+    @State private var rescueFolders: [String] = []
     @Environment(\.dismiss) private var dismiss
 
     init(model: AppModel, plan: PlannedAction) {
@@ -56,7 +57,7 @@ struct PlanSheet: View {
                             Text("Ziel").foregroundStyle(.secondary)
                             Picker("", selection: Binding(get: { rescueDestination }, set: { rescueDestination = $0; model.retarget($0) })) {
                                 Text("Wo sie vorher lagen (sonst Posteingang)").tag(RescueDestination.origin)
-                                ForEach(model.rescueFolders(plan), id: \.self) { name in
+                                ForEach(rescueFolders, id: \.self) { name in
                                     Text(name.uppercased() == "INBOX" ? String(localized: "Alle in den Posteingang") : String(localized: "Alle nach „\(DisplayText.safe(name))“"))
                                         .tag(RescueDestination.folder(name))
                                 }
@@ -171,6 +172,7 @@ struct PlanSheet: View {
         }
         .padding(20)
         .frame(width: 520)
+        .task { if job.kind == .moveToInbox { rescueFolders = model.rescueFolders(plan) } }  // once, not per render
     }
 
     private var explanation: String {
@@ -326,7 +328,7 @@ struct SpamReviewBar: View {
             }
             Spacer()
             // 6.8: the server's false positives — seen first, then sent back in one plan
-            if model.searchText.contains("is:fehlalarm") {
+            if model.showsFalsePositives {
                 Button("Alle zurückholen …") { model.rescueFalsePositives() }
                     .disabled(model.actionRunning || model.messageIDs.isEmpty)
                     .help("Alle hier gelisteten Mails, die noch im Spam-Ordner auf dem Server liegen, dorthin zurück, wo sie vorher lagen (sonst Posteingang) – mit Plan und Rückfrage. Was nicht zurück soll, vorher mit „Ist Spam“ markieren: dann fällt es aus der Liste.")

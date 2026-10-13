@@ -170,6 +170,66 @@ struct SpamReviewTests {
         #expect(try r.detail(legit)?.locations.contains { $0.mailbox == "Projekte" && $0.isOnServer } == true)  // synced: recorded
     }
 
+    @Test("Review 6.8 B1/S2: one rule for where 'Kein Spam' may move a mail")
+    func whereARescueMayGo() {
+        let ok = { (name: String, uses: Set<SpecialUse>) in RemoteMailbox.mayTakeRescued(name: name, uses: uses, selectable: true, source: "Junk") }
+        #expect(ok("INBOX", []) && ok("Projekte", []) && ok("Archive", [.archive]) && ok("Kunden/2026", []))
+        #expect(!ok("[Gmail]/All Mail", [.all]) && !ok("[Gmail]/Starred", [.flagged]) && !ok("[Gmail]/Important", [.important]))
+        #expect(!ok("Bin", []) && !ok("Bulk Mail", []) && !ok("Junk E-mail", []) && !ok("INBOX.Trash", []) && !ok("Gesendet", []))
+        #expect(!ok("Alle Nachrichten", []) && !ok("Spam", []))
+        #expect(!RemoteMailbox.mayTakeRescued(name: "Junk", uses: [], selectable: true, source: "Junk"))  // not the source
+        #expect(!RemoteMailbox.mayTakeRescued(name: "Projekte", uses: [], selectable: false, source: "Junk"))  // \Noselect
+    }
+
+    @Test("Review 6.8 B1: a queue file naming All Mail or 'Bin' ends in INBOX")
+    func unsafeTargetsEndInTheInbox() async throws {
+        let (layout, writer, r) = try await Self.archive()
+        let legit = try #require(try r.messageIDs(MessageFilter(text: "subject:rechnung ")).first)
+        let lotto = try #require(try r.messageIDs(MessageFilter(text: "subject:gewinn ")).first)
+        let accounts = [AccountConfig.imap(id: "imap", username: "u", host: "mail.example.test")]
+        var (job, _) = try r.planRescue(MessageFilter(ids: [legit, lotto]), title: "x", accounts: accounts)
+        job.items[0].target = RestoreTarget(account: "imap", mailbox: "[Gmail]/All Mail")
+        job.items[1].target = RestoreTarget(account: "imap", mailbox: "Bin")
+        let server = FakeRescueServer(["INBOX": .init(validity: 7), "Spam": .init(validity: 5, uses: [.junk]),
+                                       "[Gmail]/All Mail": .init(validity: 2, uses: [.all]), "Bin": .init(validity: 3)])
+        await server.put(sampleMessage(id: "<legit@t.test>", subject: "Ihre Rechnung", from: "billing@stadtwerke.example"), uid: 1, in: "Spam")
+        await server.put(sampleMessage(id: "<junk@t.test>", subject: "Gewinn!", from: "win@lotto.example"), uid: 2, in: "Spam")
+        let store = ActionStore(layout: layout)
+        try store.create(job)
+        let done = try await RescueExecutor(writer: writer, store: store, audit: AuditLog(url: tempDir().appending(path: "a.jsonl")))
+            .run(job.id, accounts: accounts) { _ in server }
+        #expect(done.items.allSatisfy { $0.state == .done && $0.reason?.contains("kein gewöhnlicher Ordner") == true }, "\(done.reasons)")
+        let all = await server.ids(in: "[Gmail]/All Mail"), bin = await server.ids(in: "Bin"), inbox = await server.ids(in: "INBOX")
+        #expect(all.isEmpty && bin.isEmpty && inbox.count == 2)
+    }
+
+    @Test("Review 6.8 S1/S4/S5: history of the spam folder, the review's count, a tie in the origin")
+    func historyCountAndTie() async throws {
+        let (_, writer, r) = try await Self.archive()
+        let lotto = try #require(try r.messageIDs(MessageFilter(text: "subject:gewinn ")).first)
+        // the server purged its spam folder: no longer "is:junk", but "is:war-im-spam"
+        _ = try await writer.markGone(account: "imap", mailbox: "Spam", uidValidity: 5, uids: [2])
+        #expect(try r.count(MessageFilter(text: "is:junk ", ids: [lotto])) == 0 && r.count(MessageFilter(text: "is:war-im-spam ", ids: [lotto])) == 1)
+        // a user rule's label is no model's word: not counted as "laut KI kein Spam"
+        let legit = try #require(try r.messageIDs(MessageFilter(text: "subject:rechnung ")).first)
+        _ = try await writer.classifyHeuristically()
+        _ = try await writer.saveRule(name: "Stadtwerke", query: "sender:billing@stadtwerke.example", action: .category(.invoice))
+        _ = try await writer.applyCategoryRules()
+        #expect(try r.classification(of: legit)?.source == .rule)
+        #expect(try r.junkReview().notSpam == r.count(MessageFilter(text: "is:fehlalarm ")))
+        // a tie in last_seen: the gone row before the present one, INBOX before others
+        _ = try await writer.ingest([(sampleMessage(id: "<legit@t.test>", subject: "Ihre Rechnung", from: "billing@stadtwerke.example"),
+                                      LocationInfo(account: "imap", mailbox: "Projekte", uidValidity: 3, uid: 4)),
+                                     (sampleMessage(id: "<legit@t.test>", subject: "Ihre Rechnung", from: "billing@stadtwerke.example"),
+                                      LocationInfo(account: "imap", mailbox: "INBOX", uidValidity: 7, uid: 9))])
+        _ = try await writer.markGone(account: "imap", mailbox: "Projekte", uidValidity: 3, uids: [4])
+        _ = try await writer.markGone(account: "imap", mailbox: "INBOX", uidValidity: 7, uids: [9])
+        let (job, _) = try r.planRescue(MessageFilter(ids: [legit]), title: "x", accounts: [AccountConfig.imap(id: "imap", username: "u", host: "mail.example.test")])
+        #expect(["INBOX", "Projekte"].contains(job.items.first?.target?.mailbox ?? ""))  // deterministic: the same on every plan
+        let again = try r.planRescue(MessageFilter(ids: [legit]), title: "x", accounts: [AccountConfig.imap(id: "imap", username: "u", host: "mail.example.test")]).0
+        #expect(again.items.first?.target == job.items.first?.target)
+    }
+
     @Test("6.8: 'is:fehlalarm' is what the review counts as 'laut KI kein Spam'; 'Kein Spam' ends a model's spam category")
     func falsePositivesAndTheEndOfASpamCategory() async throws {
         let (_, writer, r) = try await Self.archive()

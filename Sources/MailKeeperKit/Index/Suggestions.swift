@@ -73,7 +73,7 @@ extension ArchiveReader {
         try bucket(.largeOld, "larger:10M before:1y", Self.suggestionMinimum.large, String(localized: "Große alte Mails")) { n, bytes, server in
             String(localized: "\(n) Mails über 10 MB, älter als ein Jahr – zusammen \(bytes.formatted(.byteCount(style: .file))); \(place(server)). Vom Server löschen kostet nichts, das Archiv behält sie; aus dem Archiv gelöscht sind sie nach 30 Tagen endgültig weg – nur, wenn du die Anhänge nirgends brauchst.")
         }
-        try bucket(.oldSpam, "is:junk before:30d (kategorie:spam OR is:phishing)", Self.suggestionMinimum.spam,
+        try bucket(.oldSpam, "is:war-im-spam before:30d (kategorie:spam OR is:phishing)", Self.suggestionMinimum.spam,
                    String(localized: "Bestätigter Spam")) { n, _, server in
             String(localized: "\(n) Mails im Spam-Ordner, älter als 30 Tage, die eine KI oder du als Spam oder Phishing bewertet hat; \(place(server)).")
         }

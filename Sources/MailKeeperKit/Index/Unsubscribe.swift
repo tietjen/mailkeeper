@@ -79,7 +79,9 @@ extension ArchiveReader {
             blocked.append(String(localized: "Die Prüfung deines Servers ist fehlgeschlagen – der Absender ist vermutlich gefälscht."))
         }
         let ham = c?.verdict == "ham"
-        let inJunk = try count(MessageFilter(text: "is:junk ", ids: [messageID])) > 0
+        // ever in a spam folder: a server that purged its spam folder makes old spam no cleaner
+        // (review 6.8 B2) — the user's "kein Spam" lifts it as before
+        let inJunk = try count(MessageFilter(text: "is:war-im-spam ", ids: [messageID])) > 0
         let spam = !ham && (c?.verdict == "spam" || c?.category == .spam || inJunk)
         if spam {
             blocked.append(String(localized: "Bei Spam bestätigt eine Abmeldung nur, dass deine Adresse existiert – lösche die Mail lieber."))

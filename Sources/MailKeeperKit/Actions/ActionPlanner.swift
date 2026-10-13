@@ -252,7 +252,7 @@ extension ArchiveReader {
             let origin = try db.queryOne("""
                 SELECT l.mailbox FROM locations l JOIN messages m ON m.id = l.message_id
                 WHERE m.identity = ? AND l.account_id = ? AND l.uid IS NOT NULL AND \(QuerySQL.ordinaryLocation)
-                ORDER BY l.last_seen DESC LIMIT 1
+                ORDER BY l.last_seen DESC, l.on_server ASC, upper(l.mailbox) = 'INBOX' DESC, l.id DESC LIMIT 1
                 """, [.optional(items[i].identity), .text(account)]) { $0.text(0) } ?? nil
             items[i].target = RestoreTarget(account: account, mailbox: origin ?? "INBOX")
         }
@@ -269,7 +269,7 @@ extension ArchiveReader {
     /// mail instead of where it lay): no spam, trash, sent, drafts or All Mail; INBOX first.
     public func ordinaryMailboxes(account: String) throws -> [String] {
         try db.query("""
-            SELECT DISTINCT l.mailbox FROM locations l WHERE l.account_id = ? AND l.uid IS NOT NULL AND \(QuerySQL.ordinaryLocation)
+            SELECT DISTINCT l.mailbox FROM locations l WHERE l.account_id = ? AND l.uid IS NOT NULL AND l.on_server = 1 AND \(QuerySQL.ordinaryLocation)
             ORDER BY upper(l.mailbox) = 'INBOX' DESC, l.mailbox COLLATE NOCASE
             """, [.text(account)]) { $0.text(0) }.compactMap { $0 }
     }

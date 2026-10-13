@@ -110,6 +110,7 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
     private var rescueTarget: MailboxName?
     /// Special-use roles by display name, from the last LIST (restore never writes into Trash/Junk).
     private var mailboxUses: [String: Set<SpecialUse>] = [:]
+    private var mailboxSelectable: [String: Bool] = [:]
     /// The mailbox opened with SELECT, and the UIDs this connection appended per mailbox: the
     /// only messages a restore may label.
     private var selectedMailbox: String?
@@ -262,6 +263,7 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
             let selectable = !attributes.contains("\\noselect") && !attributes.contains("\\nonexistent")
             mailboxNames[display] = info.path.name
             mailboxUses[display] = special
+            mailboxSelectable[display] = selectable
             if display.uppercased() == "INBOX" { inbox = info.path.name }
             out.append(RemoteMailbox(name: display, specialUse: special, selectable: selectable))
         }
@@ -428,11 +430,8 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
     /// Whether a listed mailbox may take mail back out of the spam folder (6.8): INBOX, or any
     /// selectable mailbox that is no spam, trash, sent or drafts mailbox — by role and by name.
     func mayTakeRescued(_ display: String) -> Bool {
-        guard mailboxNames[display] != nil, display != selectedMailbox else { return false }
-        if display.uppercased() == "INBOX" { return true }
-        let uses = mailboxUses[display] ?? []
-        return uses.isDisjoint(with: [.junk, .trash, .sent, .drafts])
-            && !RemoteMailbox.looksLikeTrashOrJunk(display) && !RemoteMailbox.looksLikeSentOrDrafts(display)
+        guard mailboxNames[display] != nil, let source = selectedMailbox else { return false }
+        return RemoteMailbox.mayTakeRescued(name: display, uses: mailboxUses[display] ?? [], selectable: mailboxSelectable[display] ?? false, source: source)
     }
 
     /// Moves UIDs of the selected spam mailbox to `destination` (a mailbox the server listed:

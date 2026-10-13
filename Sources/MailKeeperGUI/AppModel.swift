@@ -502,7 +502,7 @@ final class AppModel {
     func refresh() {
         guard let reader else { return }
         junkReview = try? reader.junkReview()
-        suspiciousCount = (try? reader.count(MessageFilter(base: "is:verdächtig -is:junk"))) ?? 0
+        suspiciousCount = (try? reader.count(MessageFilter(base: "is:verdächtig -is:war-im-spam"))) ?? 0
         memoryItems = (try? reader.memoryItems()) ?? []
         reloadAuthServers()  // in the background; until then the last result serves (review 6.7 S3)
         relations = (try? reader.relations(includeRejected: true)) ?? []
@@ -523,7 +523,7 @@ final class AppModel {
         case .saved(let id): MessageFilter(base: savedSearches.first { $0.id == id }?.query)
         case .trash: MessageFilter(trash: .only)
         case .spamReview: MessageFilter(base: "is:junk")
-        case .suspicious: MessageFilter(base: "is:verdächtig -is:junk")
+        case .suspicious: MessageFilter(base: "is:verdächtig -is:war-im-spam")
         case .all, nil: MessageFilter()
         }
     }
@@ -1025,7 +1025,7 @@ final class AppModel {
         case .mailbox(let a, let m): SavedSearchStore.query(account: a, mailbox: m, text: text)
         case .saved(let id): SavedSearchStore.query(base: savedSearches.first { $0.id == id }?.query, text: text)
         case .spamReview: SavedSearchStore.query(base: "is:junk", text: text)
-        case .suspicious: SavedSearchStore.query(base: "is:verdächtig -is:junk", text: text)
+        case .suspicious: SavedSearchStore.query(base: "is:verdächtig -is:war-im-spam", text: text)
         case .all, .trash, nil: SavedSearchStore.query(text: text)
         }
         return SavedSearch(name: group.name ?? group.key, query: query)
@@ -1054,7 +1054,7 @@ final class AppModel {
         case .mailbox(let a, let m): SavedSearchStore.query(account: a, mailbox: m, text: searchText)
         case .saved(let id): SavedSearchStore.query(base: savedSearches.first { $0.id == id }?.query, text: searchText)
         case .spamReview: SavedSearchStore.query(base: "is:junk", text: searchText)
-        case .suspicious: SavedSearchStore.query(base: "is:verdächtig -is:junk", text: searchText)
+        case .suspicious: SavedSearchStore.query(base: "is:verdächtig -is:war-im-spam", text: searchText)
         case .all, .trash, nil: SavedSearchStore.query(text: searchText)
         }
     }
@@ -2299,8 +2299,15 @@ final class AppModel {
     /// folder on a server, through the plan sheet — the user sees the list first and takes out
     /// with "Ist Spam" what must stay.
     func rescueFalsePositives() {
-        plan(.moveToInbox, filter: MessageFilter(text: "is:fehlalarm on:server "),
-             title: String(localized: "Laut KI kein Spam"))
+        // what the list shows — its search, narrowed to what lies on a server (review 6.8 S3)
+        var filter = lastFilter ?? MessageFilter(text: "is:fehlalarm ")
+        filter.text = (filter.text ?? "") + " on:server "
+        plan(.moveToInbox, filter: filter, title: String(localized: "Laut KI kein Spam"))
+    }
+
+    /// The list shows `is:fehlalarm` (not its negation): "Alle zurückholen" is offered.
+    var showsFalsePositives: Bool {
+        searchText.range(of: #"(^|\s)is:fehlalarm(\s|$)"#, options: .regularExpression) != nil
     }
 
     /// The plan sheet's target for "Kein Spam" (6.8): each mail's own folder, or one for all.
@@ -2326,7 +2333,7 @@ final class AppModel {
 
     /// The folders a plan's "Kein Spam" may choose for all (one account only; else INBOX or each its own).
     func rescueFolders(_ plan: PlannedAction) -> [String] {
-        let accounts = Set(plan.job.items.compactMap(\.location?.account))
+        let accounts = Set(plan.job.items.filter { $0.state == .planned }.compactMap(\.location?.account))
         guard accounts.count == 1, let account = accounts.first else { return ["INBOX"] }
         let known = (try? reader?.ordinaryMailboxes(account: account)) ?? []
         return known.contains { $0.uppercased() == "INBOX" } ? known : ["INBOX"] + known

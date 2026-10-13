@@ -6,26 +6,45 @@ public enum SpecialUse: String, Sendable, Codable, CaseIterable {
 }
 
 public struct RemoteMailbox: Sendable, Hashable {
+    /// The usual names of the special mailboxes, last path component, lowercased — one list for
+    /// the sync, the queries and every name veto (review 6.8 B1: the veto's list had lacked "bin",
+    /// "junk mail", "bulk mail").
+    public static let junkNames = ["junk", "spam", "junk e-mail", "junk-e-mail", "junk mail", "bulk mail"]
+    public static let trashNames = ["trash", "papierkorb", "deleted items", "deleted messages", "gelöschte elemente", "gelöschte objekte", "bin"]
+    public static let sentNames = ["sent", "sent items", "sent messages", "sent mail", "gesendet",
+                                   "gesendete objekte", "gesendete elemente", "gesendete nachrichten"]
+    public static let draftsNames = ["drafts", "draft", "entwürfe", "entwurf"]
+    /// Names that mean the special mailbox only at the top level: "Bin" is a trash, "Projekte/bin"
+    /// a user's folder (Phase 4 kept restores into it possible).
+    public static let topLevelOnlyNames: Set<String> = ["bin"]
+
+    /// Gmail-like views a rescue must not move into (All Mail would only take the inbox away).
+    static let viewNames = ["all mail", "alle nachrichten", "starred", "markiert", "important", "wichtig"]
+
+    static func lastComponent(_ name: String) -> String {
+        let parts = name.split(whereSeparator: { $0 == "/" || $0 == "." })
+        let last = (parts.last.map(String.init) ?? name).lowercased()
+        return parts.count > 1 && topLevelOnlyNames.contains(last) ? "" : last
+    }
+
+    /// Without SPECIAL-USE roles: a spam folder by its usual name (rescue only moves out of it).
+    public static func looksLikeJunk(_ name: String) -> Bool { junkNames.contains(lastComponent(name)) }
+
     /// Without SPECIAL-USE roles on the server: a name veto against writing into a trash or junk
     /// folder (never used to *find* one — deleting goes only to a role-marked \Trash).
-    /// Without SPECIAL-USE roles: a spam folder by its usual name (rescue only moves out of it).
-    public static func looksLikeJunk(_ name: String) -> Bool {
-        let last = (name.split(whereSeparator: { $0 == "/" || $0 == "." }).last.map(String.init) ?? name).lowercased()
-        return ["junk", "spam", "junk e-mail", "junk-e-mail", "junk mail", "bulk mail"].contains(last)
-    }
+    public static func looksLikeTrashOrJunk(_ name: String) -> Bool { (junkNames + trashNames).contains(lastComponent(name)) }
 
-    public static func looksLikeTrashOrJunk(_ name: String) -> Bool {
-        let last = (name.split(whereSeparator: { $0 == "/" || $0 == "." }).last.map(String.init) ?? name).lowercased()
-        return ["trash", "junk", "spam", "deleted items", "deleted messages", "papierkorb", "gelöschte elemente",
-                "gelöschte objekte", "junk-e-mail"].contains(last)
-    }
+    /// Sent or drafts by their usual names ("Ist Spam" never moves out of them — review 6 S6).
+    public static func looksLikeSentOrDrafts(_ name: String) -> Bool { (sentNames + draftsNames).contains(lastComponent(name)) }
 
-    /// Without SPECIAL-USE roles: sent or drafts by their usual names ("Ist Spam" never moves
-    /// out of them — review 6 S6).
-    public static func looksLikeSentOrDrafts(_ name: String) -> Bool {
-        let last = (name.split(whereSeparator: { $0 == "/" || $0 == "." }).last.map(String.init) ?? name).lowercased()
-        return ["sent", "sent items", "sent messages", "sent mail", "gesendet", "gesendete objekte", "gesendete elemente",
-                "gesendete nachrichten", "drafts", "draft", "entwürfe", "entwurf"].contains(last)
+    /// Where "Kein Spam" may move a mail (6.8) — the one rule for the executor and the IMAP
+    /// session: INBOX, or a selectable mailbox other than the source with no role but Archive,
+    /// whose name is no spam, trash, sent, drafts or a Gmail-like view (review 6.8 B1/S2).
+    public static func mayTakeRescued(name: String, uses: Set<SpecialUse>, selectable: Bool, source: String) -> Bool {
+        guard name != source, selectable else { return false }
+        if name.uppercased() == "INBOX" { return true }
+        return uses.subtracting([.archive]).isEmpty && !looksLikeTrashOrJunk(name) && !looksLikeSentOrDrafts(name)
+            && !viewNames.contains(lastComponent(name))
     }
 
     /// Decoded display name (modified UTF-7 resolved), e.g. "[Gmail]/Entwürfe". This is the

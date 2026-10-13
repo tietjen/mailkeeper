@@ -65,6 +65,24 @@ struct UnsubscribeTests {
         #expect(try r.unsubscribeAssessment(for: try id("junk"))?.isBlocked == false)
     }
 
+    @Test("Review 6.8 B2: spam the server purged from its spam folder stays locked")
+    func purgedSpamStaysLocked() async throws {
+        let (writer, r, id) = try await Self.archive([("ok", "<https://esp.example/u?id=9>", true, Self.signed),
+                                                      ("ok2", "<https://esp.example/u?id=8>", true, Self.signed),
+                                                      ("ok3", "<https://esp.example/u?id=7>", true, Self.signed),
+                                                      ("junk", "<https://esp.example/u?id=5>", true, Self.signed)])
+        _ = writer
+        _ = try id("junk")
+        // fetched over IMAP from the spam folder (a UID), then purged by the server
+        _ = try await writer.ingest([(Self.mail("served", unsubscribe: "<https://esp.example/u?id=4>", post: true, auth: Self.signed),
+                                      LocationInfo(account: "x", mailbox: "Junk", uidValidity: 5, uid: 1))])
+        let served = try id("served")
+        #expect(try r.unsubscribeAssessment(for: served)?.isBlocked == true)
+        _ = try await writer.markGone(account: "x", mailbox: "Junk", uidValidity: 5, uids: [1])
+        #expect(try r.count(MessageFilter(text: "is:junk ", ids: [served])) == 0)
+        #expect(try r.unsubscribeAssessment(for: served)?.isBlocked == true)  // gone from the server, still spam
+    }
+
     @Test("Review 6.5c B1: a replayed signed mail with an unsubscribe header put on top is locked; unsigned headers get no one click")
     func replayAndSignatureCoverage() async throws {
         let replay = Self.mail("replay", unsubscribe: "<https://esp.example/u?id=1>", post: true, auth: Self.signed,

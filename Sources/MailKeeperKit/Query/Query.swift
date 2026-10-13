@@ -49,6 +49,9 @@ public enum QueryPredicate: Sendable, Equatable {
     /// In a spam folder, a model judged it no spam and no phishing, the user has not decided:
     /// a false positive of the server's filter, probably (6.8).
     case isFalsePositive
+    /// Lay in a spam folder at some time — on the server or gone since (6.8 review: the server's
+    /// purge of its spam folder must not make old spam look clean).
+    case wasInJunk
     case flag(Flag)
     case onServer
     case archiveOnly
@@ -391,7 +394,8 @@ public enum QueryParser {
                 case "phishing", "betrug": return (.predicate(.isPhishing), "Phishing (Verdacht)")
                 case "suspicious", "verdächtig", "verdaechtig", "verdacht": return (.predicate(.isSuspicious), "verdächtig")
                 case "fehlalarm", "false-positive", "kein-spam-laut-ki": return (.predicate(.isFalsePositive), "laut KI kein Spam")
-                default: throw QueryError("„is:\(value)“ kenne ich nicht — unread, read, flagged, answered, list, sent, junk, phishing, verdächtig oder fehlalarm.")
+                case "war-im-spam", "was-junk", "jemals-im-spam": return (.predicate(.wasInJunk), "war im Spam-Ordner")
+                default: throw QueryError("„is:\(value)“ kenne ich nicht — unread, read, flagged, answered, list, sent, junk, phishing, verdächtig, fehlalarm oder war-im-spam.")
                 }
             case .category:
                 let word = try required().lowercased()

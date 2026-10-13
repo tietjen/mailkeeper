@@ -122,6 +122,8 @@ struct QuerySQL {
             return location(Self.sentLocation)
         case .inJunk:
             return location(Self.currentJunkLocation)
+        case .wasInJunk:
+            return location(Self.junkLocation)
         case .isFalsePositive:  // in parentheses: "-is:fehlalarm" negates all of it
             return "(" + location(Self.currentJunkLocation) + """
                  AND m.id IN (SELECT c.message_id FROM classifications c WHERE c.source IN ('endpoint', 'on-device')
@@ -168,8 +170,7 @@ struct QuerySQL {
 
     /// How servers and mail programs name the sent mailbox (last path component, any case) —
     /// mbsync imports carry only the name; Gmail's All Mail carries the \Sent label instead.
-    static let sentNames = ["sent", "sent items", "sent messages", "sent mail", "gesendet",
-                            "gesendete objekte", "gesendete elemente", "gesendete nachrichten"]
+    static let sentNames = RemoteMailbox.sentNames
 
     /// Fixed strings only (no user value): the mailbox's role from the server, its last component
     /// in `sentNames`, or Gmail's label.
@@ -178,7 +179,7 @@ struct QuerySQL {
         return "(" + ([role("sent")] + names(sentNames) + [label]).joined(separator: " OR ") + ")"
     }()
 
-    static let junkNames = ["junk", "spam", "junk e-mail", "junk-e-mail", "junk mail", "bulk mail"]
+    static let junkNames = RemoteMailbox.junkNames
     /// The role, or — only for accounts whose server marks no junk mailbox (imports, old servers) —
     /// the usual names, as the rescue does (a user folder "Projekte/Spam" is no spam folder there).
     /// Where a mail may go back to out of the spam folder (6.8): no spam, trash, sent or drafts
@@ -193,18 +194,21 @@ struct QuerySQL {
     static let junkLocation: String = "(" + role("junk") + " OR ((" + names(junkNames).joined(separator: " OR ")
         + ") AND l.account_id NOT IN (SELECT account_id FROM mailbox_roles WHERE instr(roles, ' junk ') > 0)))"
 
-    static let draftsNames = ["drafts", "draft", "entwürfe", "entwurf"]
+    static let draftsNames = RemoteMailbox.draftsNames
     /// Drafts, by role or — for accounts whose server marks none — by the usual names.
     static let draftsLocation: String = "(" + role("drafts") + " OR ((" + names(draftsNames).joined(separator: " OR ")
         + ") AND l.account_id NOT IN (SELECT account_id FROM mailbox_roles WHERE instr(roles, ' drafts ') > 0)))"
 
-    static let trashNames = ["trash", "papierkorb", "deleted items", "deleted messages", "gelöschte elemente", "gelöschte objekte", "bin"]
+    static let trashNames = RemoteMailbox.trashNames
     /// The trash, by role or — for accounts whose server marks none — by the usual names.
     static let trashLocation: String = "(" + role("trash") + " OR ((" + names(trashNames).joined(separator: " OR ")
         + ") AND l.account_id NOT IN (SELECT account_id FROM mailbox_roles WHERE instr(roles, ' trash ') > 0)))"
 
     private static func names(_ list: [String]) -> [String] {
-        list.flatMap { n in ["mk_lower(l.mailbox) = '\(n)'", "mk_lower(l.mailbox) LIKE '%/\(n)'", "mk_lower(l.mailbox) LIKE '%.\(n)'"] }
+        list.flatMap { n in
+            RemoteMailbox.topLevelOnlyNames.contains(n) ? ["mk_lower(l.mailbox) = '\(n)'"]  // "Projekte/bin" is a user's folder
+                : ["mk_lower(l.mailbox) = '\(n)'", "mk_lower(l.mailbox) LIKE '%/\(n)'", "mk_lower(l.mailbox) LIKE '%.\(n)'"]
+        }
     }
 
     private static func role(_ name: String) -> String {

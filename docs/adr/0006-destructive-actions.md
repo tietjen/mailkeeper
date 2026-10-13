@@ -99,7 +99,14 @@ APPEND, Proton rebuilds messages and ignores the APPEND date, Dovecot is textboo
    server, or an import's folder) — a rescued mail left the review; "Kein Spam" also ends a "Spam"
    category, whoever gave it. Live on the mailcow test account: a folder → Junk → back to the
    folder. MailKeeper sets no `$Junk`/`$NotJunk` keywords (the access could not); filters that
-   learn by keyword alone do not see the decision.
+   learn by keyword alone do not see the decision. Review 6.8 (Fable): one rule for the target,
+   shared by executor and session (`RemoteMailbox.mayTakeRescued`: INBOX, or a selectable mailbox
+   other than the source with no role but Archive — never All Mail, Starred, Important — whose
+   name is no spam, trash, sent, drafts or Gmail-like view; one list of names for sync, queries
+   and vetoes, "Bin" a trash only at the top level); a move the session refuses fails its group,
+   not the job; `is:war-im-spam` (ever in a spam folder) keeps the unsubscribe lock, "Verdächtig"
+   and the old-spam suggestion right after a server purges its spam folder; "Alle zurückholen"
+   takes the list as shown; a user rule never calls spam what the user called no spam.
 9. **"Ist Spam → Spam-Ordner" (6.4, TJ 2026-10-12):** the other direction of §8 with the same
    rails. Own IMAP access `.markAsJunk`: SELECT a mailbox that is no spam, trash, sent or drafts
    mailbox (by role and by name, always — review 6.7 S7: a server marking only \Junk and \Trash

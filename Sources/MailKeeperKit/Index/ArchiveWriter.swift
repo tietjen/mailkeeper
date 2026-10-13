@@ -780,7 +780,13 @@ public actor ArchiveWriter {
                     version = CASE WHEN classifications.category = 'spam' AND (excluded.verdict = 'ham' OR classifications.source = 'user')
                                    THEN 0 ELSE classifications.version END,
                     source = CASE WHEN classifications.category = 'spam' AND (excluded.verdict = 'ham' OR classifications.source = 'user')
-                                  THEN 'heuristic' ELSE classifications.source END
+                                  THEN 'heuristic' ELSE classifications.source END,
+                    model = CASE WHEN classifications.category = 'spam' AND (excluded.verdict = 'ham' OR classifications.source = 'user')
+                                 THEN NULL ELSE classifications.model END,
+                    reason = CASE WHEN classifications.category = 'spam' AND (excluded.verdict = 'ham' OR classifications.source = 'user')
+                                  THEN NULL ELSE classifications.reason END,
+                    rule = CASE WHEN classifications.category = 'spam' AND (excluded.verdict = 'ham' OR classifications.source = 'user')
+                                THEN NULL ELSE classifications.rule END
                 """, [.double(time), .optional(verdict), .text(identity)])
         }
     }
@@ -1187,7 +1193,9 @@ extension ArchiveWriter {
                     UPDATE classifications SET category = ?, source = 'user-rule', rule = ?, reason = ?, model = NULL
                     WHERE message_id IN (SELECT value FROM json_each(?)) AND source != 'user'
                       AND NOT (source = 'user-rule' AND rule = ? AND category = ?)
-                    """, [.text(category.rawValue), .text(rule.id), .text(rule.name), .text(json), .text(rule.id), .text(category.rawValue)])
+                      AND NOT (? = 'spam' AND coalesce(verdict, '') = 'ham')  -- a rule never calls spam what the user called no spam (6.8)
+                    """, [.text(category.rawValue), .text(rule.id), .text(rule.name), .text(json), .text(rule.id), .text(category.rawValue),
+                          .text(category.rawValue)])
                 changed += db.changes
             }
         }
