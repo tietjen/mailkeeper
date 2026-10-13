@@ -120,7 +120,7 @@ extension AppModel {
                 let titles = try GoldArchive.titles(reader: reader, identities: labels.labels.map(\.identity))
                 for r in reports {
                     let last = previous.last { $0.set == r.set && $0.mode == r.mode && $0.model == r.model && $0.isComparable }
-                    let (worse, flips) = last.map { r.comparison(since: $0) } ?? ([], [])
+                    let (worse, flips) = last.map { GoldArchive.comparison(r, since: $0) } ?? ([], [])
                     results.append(GoldResult(report: r, worse: worse, flips: flips, titles: titles))
                     try store.appendRun(r)
                 }

@@ -515,8 +515,12 @@ func summarize(_ p: ImportProgress, start: Date) {
                           + (o.expectedPhishing == .flagged ? " + Phishing" : "") + (o.error.map { " (\(clean($0)))" } ?? ""))
                 }
                 if let last = previous.last(where: { $0.set == r.set && $0.mode == r.mode && $0.model == r.model && $0.isComparable }) {
-                    let (worse, flips) = r.comparison(since: last)
-                    for line in flips + worse.map({ "Rückschritt: " + $0 }) { print("  seit \(last.time.formatted()): \(clean(line))") }
+                    let (worse, flips) = GoldArchive.comparison(r, since: last)
+                    for line in flips + worse.map({ "Rückschritt: " + $0 }) {
+                        // the private set names mails by identity: the title instead
+                        let named = titles.reduce(line) { $0.replacingOccurrences(of: $1.key, with: String($1.value.prefix(70))) }
+                        print("  seit \(last.time.formatted()): \(clean(named))")
+                    }
                 }
                 try store.appendRun(r)
             }

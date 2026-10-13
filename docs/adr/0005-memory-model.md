@@ -112,7 +112,15 @@ text is cleaned before it is scanned (a zero-width character inside "Ignoriere" 
 came out readable), the display name, attachment names and List-Id are scanned too, the strong
 patterns want the AI as the head of the phrase (no alarm on "KI-Experte", "System: Jira ·
 Kategorie"), schema words alone are weak; runs are compared on the mails both have; an unreadable
-`gold.json` is reported and never saved over; runs are appended with O_APPEND.
+`gold.json` is reported and never saved over; runs are appended with O_APPEND. **TJ's set (80
+mails, 2026-10-13):** first run — MailKeeper today 37/80, the model without memory 49/80, with
+memory 49/80 (false alarms 4 → 2). Many misses were conventions, not errors (bookings, login
+alerts, school mail); TJ decided: travel only for being on the way (and a rule that called the
+hairdresser travel was fixed, heuristics v3), login alerts stay account/security, his own
+preferences go in as notes. Second run with two notes: today 41/80, without memory 55/80, **with
+memory 59/80** — the memory now adds four mails (the school's three senders, a doctor's
+appointment, an election helper). Real mail wobbles more than the repo set: the private set is
+compared with tolerances of two mails, one phishing case and two false alarms.
 
 ## Consequences
 
