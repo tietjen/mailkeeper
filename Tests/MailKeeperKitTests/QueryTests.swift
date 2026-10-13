@@ -439,6 +439,12 @@ struct GroupDetailTests {
             #expect(UnsubscribeInfo.parse(listUnsubscribe: bad, post: nil) == nil, "\(bad)")
         }
         #expect(UnsubscribeInfo.parse(listUnsubscribe: nil, post: nil) == nil)
+        // encoded words (Benchmark Email), split over two words: decoded, then checked like any other
+        let encoded = UnsubscribeInfo.parse(listUnsubscribe: "=?us-ascii?q?=3Chttps=3A=2F=2Fclt1=2Elist=2Etest=2Fud=3Fa%2B?= =?us-ascii?q?b%3D%3D=3E?=",
+                                            post: "List-Unsubscribe=One-Click")
+        #expect(encoded?.https?.absoluteString == "https://clt1.list.test/ud?a%2Bb%3D%3D" && encoded?.oneClick == true)
+        #expect(UnsubscribeInfo.parse(listUnsubscribe: "=?us-ascii?q?=3Cjavascript=3Aalert(1)=3E?=", post: nil) == nil)
+        #expect(UnsubscribeInfo.parse(listUnsubscribe: "=?us-ascii?q?=3Chttps=3A=2F=2Fa=2Etest=2Fx_y=3E?=", post: nil) == nil)  // "_" is a space
     }
 
     @Test func detailOfAGroupWithinTheScope() async throws {

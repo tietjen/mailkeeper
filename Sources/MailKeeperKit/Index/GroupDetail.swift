@@ -44,7 +44,11 @@ public struct UnsubscribeInfo: Sendable, Equatable {
     }
 
     public static func parse(listUnsubscribe: String?, post: String?) -> UnsubscribeInfo? {
-        guard let raw = listUnsubscribe, raw.count <= 4_096 else { return nil }
+        // some mailing services (Benchmark Email: Kickstarlaunch) send it as RFC 2047 encoded
+        // words, "=?us-ascii?q?=3Chttps=3A…=3E?=" — mail programs decode it, so do we; what comes
+        // out goes through the same checks
+        guard let encoded = listUnsubscribe, encoded.count <= 4_096 else { return nil }
+        let raw = EncodedWords.decode(encoded)
         var info = UnsubscribeInfo(https: nil, mailto: nil, oneClick: false)
         var rest = Substring(raw)
         while let open = rest.firstIndex(of: "<"), let close = rest[open...].firstIndex(of: ">") {
@@ -55,7 +59,7 @@ public struct UnsubscribeInfo: Sendable, Equatable {
             if scheme == "https", url.host?.isEmpty == false, info.https == nil { info.https = url }
             if scheme == "mailto", info.mailto == nil { info.mailto = cleanMailto(url) }
         }
-        info.oneClick = post.map { $0.lowercased().replacingOccurrences(of: " ", with: "") == "list-unsubscribe=one-click" } ?? false
+        info.oneClick = post.map { EncodedWords.decode($0).lowercased().replacingOccurrences(of: " ", with: "") == "list-unsubscribe=one-click" } ?? false
         return info.preferred == nil ? nil : info
     }
 }

@@ -34,7 +34,7 @@ usage: mkctl [--archive <dir>] <command>
   export (<query…> | --all) (--eml <dir> | --mbox <file>)
                                               write messages out: one .eml each (exact bytes, never
                                               overwrites) or one mbox (mboxrd); blobs verified first
-  show <id>                                   one message: headers, locations, text
+  show <id> [--headers]                                   one message: headers, locations, text
   account add gmail <address> --id <id>       add a Gmail account (app password, All Mail + labels)
   account add proton <address> --id <id> [--port 1143] [--trust <fingerprint>]
                                               add a Proton Mail Bridge account (local, pinned certificate)
@@ -614,9 +614,13 @@ func summarize(_ p: ImportProgress, start: Date) {
         }
 
     case "show":
-        guard let idText = args.first, let id = Int64(idText) else { throw CLIError(description: "show <id>") }
+        guard let idText = args.first, let id = Int64(idText) else { throw CLIError(description: "show <id> [--headers]") }
         let reader = try ArchiveReader(layout: try ArchiveLayout.open(at: root, create: false))
         guard let d = try reader.detail(id), let p = try reader.parsedMessage(id) else { throw CLIError(description: "no message \(id)") }
+        if args.contains("--headers") {  // the raw header lines (unfolded), e.g. List-Unsubscribe and DKIM-Signature
+            for f in p.headers.fields { print(clean("\(f.name): \(f.rawValue)").prefix(600)) }
+            return
+        }
         print("Subject:    \(clean(p.subject))")
         print("From:       \(clean(p.from.map(\.display).joined(separator: ", ")))")
         print("To:         \(clean(p.to.map(\.display).joined(separator: ", ")))")
