@@ -2635,22 +2635,28 @@ final class AppModel {
     func removeAccount(_ id: String, deletePassword: Bool) async {
         guard let layout = reader?.layout, let account = accountConfigs.first(where: { $0.id == id }) else { return }
         try? AccountStore(layout: layout).remove(id)
-        let stillUsed = accountConfigs.contains { $0.id != id && CredentialStore.key(for: $0) == CredentialStore.key(for: account) }
-        if deletePassword, !stillUsed {
-            // Google first, then the keychain, and awaited: quitting right after must not leave
-            // a grant behind that nothing can reach any more (Nachprüfung 7.1 S4)
-            if account.oauth != nil, let token = try? credentials.refreshToken(for: account) {
-                await GoogleOAuth.revoke(token)
-            }
-            try? credentials.delete(for: account)
-            await OAuthTokens2Go.shared.forget(account)
+        let stillUsed = sharesMailbox(account)
+        reloadAccounts(layout)  // the list updates now, not after Google has answered
+        guard deletePassword, !stillUsed else { return }
+        // Google first, then the keychain — the keychain entry is the only copy of the token.
+        // Awaited, so quitting right after cannot strand a grant nothing can reach any more.
+        if account.oauth != nil, let token = try? credentials.refreshToken(for: account), !(await GoogleOAuth.revoke(token)) {
+            accountError = String(localized: "Konto entfernt. Der Widerruf bei Google hat nicht geklappt – hol ihn unter „Verbundene Apps“ nach: https://myaccount.google.com/connections")
         }
-        reloadAccounts(layout)
+        try? credentials.delete(for: account)
+        await OAuthTokens2Go.shared.forget(account)
     }
 
-    /// Whether a sign-in for this mailbox is already stored (asked before a discarded token is
-    /// revoked: a revoke ends the whole grant, not just that token).
-    func hasStoredSignIn(_ account: AccountConfig) -> Bool { credentials.hasRefreshToken(for: account) }
+    /// Something to say about an account that is not an error of the moment (a revoke that did
+    /// not reach Google, say) — shown in Settings › Konten.
+    var accountError: String?
+
+    /// Whether another account here fetches the same mailbox — then removing this one leaves
+    /// the credential (and the Google sign-in) alone, and the button says so.
+    func sharesMailbox(_ account: AccountConfig?) -> Bool {
+        guard let account else { return false }
+        return accountConfigs.contains { $0.id != account.id && CredentialStore.key(for: $0) == CredentialStore.key(for: account) }
+    }
 
     /// Back from the Google sign-in to an app password. The refresh token stays in the keychain
     /// — another archive may use the same mailbox, and Google is where a sign-in is revoked.

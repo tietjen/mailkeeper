@@ -35,7 +35,7 @@ usage: mkctl [--archive <dir>] <command>
                                               write messages out: one .eml each (exact bytes, never
                                               overwrites) or one mbox (mboxrd); blobs verified first
   show <id> [--headers]                                   one message: headers, locations, text
-  account add gmail <address> --id <id> [--google-client-id <id>] [--google-client-secret]
+  account add gmail <address> --id <id> [--google | --google-client-id <id>] [--google-client-secret]
                                               add a Gmail account (All Mail + labels); with a
                                               client id: sign in with Google instead of a password
   account add proton <address> --id <id> [--port 1143] [--trust <fingerprint>]
@@ -759,11 +759,9 @@ func summarize(_ p: ImportProgress, start: Date) {
                 config.oauth = AccountConfig.OAuth(clientID: OAuthTokens2Go.storedClientID(client.id))
                 let signedIn = try await signInWithGoogle(client: client, loginHint: user)
                 if let address = signedIn.email, !GoogleOAuth.sameMailbox(address, user) {
-                    // nothing is stored for a brand-new account: handing the token back costs nothing
-                    if let spare = signedIn.refreshToken, !credentials.hasRefreshToken(for: config) {
-                        await GoogleOAuth.revoke(spare)
-                    }
-                    throw CLIError(description: "angemeldet als \(clean(address)), eingerichtet wird \(clean(user))")
+                    // not revoked: the token belongs to the account that signed in, which may be
+                    // another one still in use — a revoke ends its whole grant (Nachprüfung 7.1 S1)
+                    throw CLIError(description: "angemeldet als \(clean(address)), eingerichtet wird \(clean(user)) – die Anmeldung bleibt bei Google stehen (Verbundene Apps)")
                 }
                 tokens = signedIn
                 clientSecretToSave = secret.isEmpty ? nil : secret
@@ -817,9 +815,7 @@ func summarize(_ p: ImportProgress, start: Date) {
             }
             let tokens = try await signInWithGoogle(client: client, loginHint: a.username)
             if let address = tokens.email, !GoogleOAuth.sameMailbox(address, a.username) {
-                // a revoke would end the whole grant, the working sign-in included
-                if let spare = tokens.refreshToken, !credentials.hasRefreshToken(for: a) { await GoogleOAuth.revoke(spare) }
-                throw CLIError(description: "angemeldet als \(clean(address)), das Konto ist \(clean(a.username))")
+                throw CLIError(description: "angemeldet als \(clean(address)), das Konto ist \(clean(a.username)) – die Anmeldung bleibt bei Google stehen (Verbundene Apps)")
             }
             guard let refresh = tokens.refreshToken else {
                 throw CLIError(description: "Google hat kein Refresh-Token geschickt – bitte erneut anmelden")
@@ -863,8 +859,10 @@ func summarize(_ p: ImportProgress, start: Date) {
             if !keep && !shared {
                 // a Google sign-in is told to Google as well, or it would stay listed there (7.1)
                 if a.oauth != nil, let token = try? credentials.refreshToken(for: a) {
-                    await GoogleOAuth.revoke(token)  // Google first: the keychain entry is the only copy
-                    revoked = true
+                    revoked = await GoogleOAuth.revoke(token)  // Google first: the keychain is the only copy
+                    if !revoked {
+                        print("Widerruf bei Google nicht möglich – nachholen unter https://myaccount.google.com/connections")
+                    }
                 }
                 try credentials.delete(for: a)
             }

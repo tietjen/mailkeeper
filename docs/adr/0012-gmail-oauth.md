@@ -49,17 +49,20 @@ darf diesen Weg also nicht verbauen, ihn aber auch nicht heute schon bezahlen.
    gehaltene Token sofort tot: eine abgelehnte Anmeldung verwirft es deshalb und versucht es
    genau einmal mit einem frischen (`SyncCoordinator.connect`), damit der Nutzer „bitte neu
    anmelden“ zu sehen bekommt statt bis zu einer Stunde „Anmeldung abgelehnt“.
-6. **Widerrufen wird nur, was wirklich weg soll.** Googles `/revoke` nimmt der App die
+6. **Widerrufen wird nur auf ausdrücklichen Wunsch.** Googles `/revoke` nimmt der App die
    Zustimmung des Nutzers — nach allem, was die Doku sagt, fällt damit die **ganze Freigabe**
-   für diesen Client, nicht nur das genannte Token. Darum widerruft MailKeeper ausschließlich
-   beim „Entfernen und Google-Anmeldung widerrufen“ (dort zuerst bei Google, dann im
-   Schlüsselbund, und abgewartet — ein Beenden der App darf die Freigabe nicht verwaist
-   zurücklassen) und bei einem abgebrochenen oder abgelehnten Anmeldeversuch, für den **keine**
-   Anmeldung im Schlüsselbund liegt. Ein ersetztes oder rotiertes Token wird *nicht* widerrufen:
-   es gehört zur selben Freigabe wie das neue, und ein Widerruf hätte das frisch Angemeldete
-   gleich miterledigt. **Annahme, nicht gemessen** — ein Gegenbeweis (zwei Anmeldungen, eine
-   widerrufen, mit der anderen erneuern) wäre der Anlass, das hier zu ändern. Wer zurück auf ein
-   App-Passwort geht, behält die Anmeldung; widerrufen wird sie dann bei Google.
+   für diesen Client, nicht nur das genannte Token. Darum widerruft MailKeeper an genau einer
+   Stelle: beim „Entfernen und Google-Anmeldung widerrufen“ — zuerst bei Google, dann im
+   Schlüsselbund (dessen Eintrag ist die einzige Kopie), abgewartet, und wenn Google nicht
+   erreichbar war, sagt MailKeeper das, statt den Widerruf stumm verschwinden zu lassen.
+   Nirgends sonst: ein ersetztes, rotiertes, abgebrochenes oder wegen falscher Adresse
+   verworfenes Token bleibt stehen. Gerade der Fall „falsche Adresse“ zeigt, warum: das Token
+   gehört dann dem Konto, das sich im Browser angemeldet hat — womöglich einem **anderen**, das
+   gerade läuft. Eine ungenutzte Freigabe kostet einen Eintrag unter „Verbundene Apps“; ein
+   falscher Widerruf kostet ein funktionierendes Konto. **Annahme, nicht gemessen** — der
+   Gegenbeweis (zweimal anmelden, eine Anmeldung widerrufen, mit der anderen erneuern) wäre der
+   Anlass, das hier zu ändern. Wer zurück auf ein App-Passwort geht, behält die Anmeldung
+   ebenfalls; widerrufen wird sie dann bei Google.
 7. **Der Rückkanal gehört genau einer Anmeldung.** Der Port ist für jeden Prozess auf dem Mac
    sichtbar; angenommen wird nur eine Weiterleitung mit dem `state` dieser Anmeldung, alles
    andere bekommt 404 und der Server wartet weiter. Kommt bis zum Zeitablauf nur Fremdes, sagt

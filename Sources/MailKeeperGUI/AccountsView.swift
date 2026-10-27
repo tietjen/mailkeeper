@@ -69,6 +69,9 @@ struct AccountsSettings: View {
             if let message {
                 Text(message).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
             }
+            if let note = model.accountError {
+                Text(DisplayText.safe(note)).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
+            }
             Text("Abgerufen wird nur lesend: MailKeeper verändert auf dem Server nichts. Passwörter liegen im Schlüsselbund, nicht im Archiv.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -80,7 +83,9 @@ struct AccountsSettings: View {
         .sheet(item: $toPassword) { account in UsePasswordSheet(model: model, account: account) }
         .confirmationDialog("Konto „\(removing.map { DisplayText.safe($0.displayName) } ?? "")“ entfernen?",
                             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
-            Button(removing?.oauth == nil ? "Entfernen und Passwort löschen" : "Entfernen und Google-Anmeldung widerrufen",
+            Button(removing?.oauth == nil ? "Entfernen und Passwort löschen"
+                   : model.sharesMailbox(removing) ? "Entfernen (Anmeldung bleibt, anderes Konto nutzt sie)"
+                   : "Entfernen und Google-Anmeldung widerrufen",
                    role: .destructive) {
                 if let r = removing { selection = nil; Task { await model.removeAccount(r.id, deletePassword: true) } }
             }
@@ -185,17 +190,15 @@ struct GoogleSignInSheet: View {
         .onDisappear { cancel() }
     }
 
-    /// A sign-in nobody waits for any more is stopped. A token that was fetched but never saved
-    /// is handed back to Google only when nothing is stored for this mailbox — a revoke ends the
-    /// whole grant, so cancelling must never cost the account its working sign-in
-    /// (Nachprüfung 7.1 B1).
+    /// A sign-in nobody waits for any more is stopped. The token is dropped but **not** revoked:
+    /// a revoke ends the whole grant of that Google account, and after a mismatch the token
+    /// belongs to the account that was signed in — which may be another one of TJ's, still in
+    /// use (Nachprüfung 7.1 S1). An unused grant costs an entry under "Verbundene Apps"; a wrong
+    /// revoke costs a working account.
     private func cancel() {
         signingIn?.cancel()
         signingIn = nil
-        guard let spare = tokens?.refreshToken else { return }
         tokens = nil
-        let account = account
-        Task { if await !model.hasStoredSignIn(account) { await GoogleOAuth.revoke(spare) } }
     }
 
     private func run() async {
@@ -208,8 +211,7 @@ struct GoogleSignInSheet: View {
             guard let client else { throw OAuthError.notConfigured(account.id) }
             let signedIn = try await GoogleSignIn.run(client: client, loginHint: account.username)
             if let mail = signedIn.email, !GoogleOAuth.sameMailbox(mail, account.username) {
-                error = String(localized: "Angemeldet als \(DisplayText.safe(mail)) – das Konto ist \(DisplayText.safe(account.username)). Melde dich mit derselben Adresse an.")
-                if let spare = signedIn.refreshToken, !model.hasStoredSignIn(account) { await GoogleOAuth.revoke(spare) }
+                error = String(localized: "Angemeldet als \(DisplayText.safe(mail)) – das Konto ist \(DisplayText.safe(account.username)). Melde dich mit derselben Adresse an. Die Anmeldung bleibt bei Google stehen; dort kannst du sie unter „Verbundene Apps“ entfernen.")
                 return
             }
             tokens = signedIn
@@ -471,15 +473,12 @@ struct AddAccountSheet: View {
         }
     }
 
-    /// A sign-in nobody waits for any more is stopped; a token of an account that was never
-    /// saved goes back to Google (nothing is stored for it, so no working grant is at stake).
+    /// A sign-in nobody waits for any more is stopped. The token is dropped, not revoked — see
+    /// `GoogleSignInSheet.cancel()`.
     private func cancelSignIn() {
         signingIn?.cancel()
         signingIn = nil
-        guard let spare = tokens?.refreshToken else { return }
         tokens = nil
-        let candidate = config
-        Task { if await !model.hasStoredSignIn(candidate) { await GoogleOAuth.revoke(spare) } }
     }
 
     private func runCheck() async {
@@ -487,7 +486,7 @@ struct AddAccountSheet: View {
         error = nil
         defer { working = false }
         if google, let mail = tokens?.email, !GoogleOAuth.sameMailbox(mail, user) {
-            error = String(localized: "Angemeldet als \(DisplayText.safe(mail)) – eingerichtet wird \(DisplayText.safe(user)). Melde dich mit derselben Adresse an.")
+            error = String(localized: "Angemeldet als \(DisplayText.safe(mail)) – eingerichtet wird \(DisplayText.safe(user)). Melde dich mit derselben Adresse an. Die Anmeldung bleibt bei Google stehen; dort kannst du sie unter „Verbundene Apps“ entfernen.")
             return
         }
         do {

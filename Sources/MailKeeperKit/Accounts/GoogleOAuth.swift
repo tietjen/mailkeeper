@@ -166,12 +166,16 @@ public extension GoogleOAuth {
     /// derselben Freigabe. Deshalb wird hier nur widerrufen, wenn die Anmeldung wirklich weg
     /// soll — nie, um ein ersetztes oder verworfenes Token aufzuräumen, solange eine gültige
     /// Anmeldung im Schlüsselbund liegt (Nachprüfung 7.1 B1).
-    static func revoke(_ refreshToken: String) async {
+    @discardableResult
+    static func revoke(_ refreshToken: String) async -> Bool {
         var request = URLRequest(url: revocation)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data(form(["token": refreshToken]).utf8)
-        _ = try? await URLSession.shared.data(for: request)
+        request.timeoutInterval = 10  // offline, this must not hold a window for a minute
+        guard let (_, response) = try? await URLSession.shared.data(for: request) else { return false }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        return status == 200 || status == 400  // 400: already revoked or expired — gone either way
     }
 
     private static func post(_ fields: [String: String]) async throws -> OAuthTokens {
