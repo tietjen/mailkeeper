@@ -15,6 +15,21 @@ public struct AccountConfig: Codable, Sendable, Equatable, Identifiable {
         case startTLSPinned(fingerprint: String?)
     }
 
+    /// How the account signs in. Absent (the only form before 7.1) means a password.
+    public struct OAuth: Codable, Sendable, Equatable {
+        public enum Provider: String, Codable, Sendable { case google }
+        public var provider: Provider
+        /// The Google Cloud client of whoever set the account up; nil uses the one MailKeeper
+        /// ships with, if a build ever has one (ADR-0012). The client secret, where the provider
+        /// wants one, lives in the keychain beside the refresh token.
+        public var clientID: String?
+
+        public init(provider: Provider = .google, clientID: String?) {
+            self.provider = provider
+            self.clientID = clientID
+        }
+    }
+
     public var id: String
     public var kind: Kind
     public var displayName: String
@@ -24,9 +39,11 @@ public struct AccountConfig: Codable, Sendable, Equatable, Identifiable {
     public var security: Security
     public var policy: SyncPolicy
     public var created: Date
+    /// Set = sign in with the provider instead of a password (7.1).
+    public var oauth: OAuth?
 
     public init(id: String, kind: Kind, displayName: String, username: String, host: String, port: Int,
-                security: Security, policy: SyncPolicy, created: Date = Date()) {
+                security: Security, policy: SyncPolicy, created: Date = Date(), oauth: OAuth? = nil) {
         self.id = id
         self.kind = kind
         self.displayName = displayName
@@ -36,6 +53,7 @@ public struct AccountConfig: Codable, Sendable, Equatable, Identifiable {
         self.security = security
         self.policy = policy
         self.created = created
+        self.oauth = oauth
     }
 
     /// Presets: Gmail (All Mail + labels, app password), Proton Mail Bridge (local, pinned
@@ -196,6 +214,36 @@ public struct CredentialStore: Sendable {
     public func delete(for account: AccountConfig) throws {
         let status = SecItemDelete(query(account) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw AccountError.keychain(status) }
+        try deleteSecret(key: Self.refreshTokenKey(for: account))
+        try deleteSecret(key: Self.clientSecretKey(for: account))
+    }
+
+    // MARK: Sign-in with a provider (7.1): the refresh token takes the password's place
+
+    public static func refreshTokenKey(for account: AccountConfig) -> String { "oauth-refresh:" + key(for: account) }
+    public static func clientSecretKey(for account: AccountConfig) -> String { "oauth-client-secret:" + key(for: account) }
+
+    public func saveRefreshToken(_ token: String, for account: AccountConfig) throws {
+        try saveSecret(token, key: Self.refreshTokenKey(for: account),
+                       label: "MailKeeper – \(account.displayName)", description: "Google-Anmeldung (MailKeeper)")
+    }
+
+    public func refreshToken(for account: AccountConfig) throws -> String? {
+        try secret(key: Self.refreshTokenKey(for: account))
+    }
+
+    public func saveClientSecret(_ secret: String, for account: AccountConfig) throws {
+        try saveSecret(secret, key: Self.clientSecretKey(for: account),
+                       label: "MailKeeper – \(account.displayName)", description: "Google-Client-Secret (MailKeeper)")
+    }
+
+    public func clientSecret(for account: AccountConfig) throws -> String? {
+        try secret(key: Self.clientSecretKey(for: account))
+    }
+
+    /// Whether the account can sign in at all: a password, or a refresh token for an OAuth account.
+    public func hasCredential(for account: AccountConfig) -> Bool {
+        account.oauth == nil ? exists(for: account) : secretExists(key: Self.refreshTokenKey(for: account))
     }
 
     // MARK: Other secrets (the KI endpoint's API key)

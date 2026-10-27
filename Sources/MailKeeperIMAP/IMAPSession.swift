@@ -88,6 +88,13 @@ public enum IMAPAccess: Sendable, Equatable {
     case moveToFolder
 }
 
+/// How a connection proves who it is: a password (LOGIN), or an OAuth access token
+/// (AUTHENTICATE XOAUTH2, 7.1 — Gmail).
+public enum IMAPCredential: Sendable {
+    case password(String)
+    case oauth2(accessToken: String)
+}
+
 /// One IMAP connection, read-only unless opened with `access: .moveToTrash`: mailboxes are opened
 /// with EXAMINE, bodies fetched with BODY.PEEK, and every command passes an allowlist.
 /// Commands are serialised; the session is not meant for concurrent use.
@@ -135,6 +142,11 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
     /// silent while a command is outstanding (and between commands).
     public static func connect(_ endpoint: IMAPEndpoint, username: String, password: String,
                                access: IMAPAccess = .readOnly, readTimeout: TimeAmount = .seconds(120)) async throws -> IMAPSession {
+        try await connect(endpoint, username: username, credential: .password(password), access: access, readTimeout: readTimeout)
+    }
+
+    public static func connect(_ endpoint: IMAPEndpoint, username: String, credential: IMAPCredential,
+                               access: IMAPAccess = .readOnly, readTimeout: TimeAmount = .seconds(120)) async throws -> IMAPSession {
         let session: IMAPSession
         let clock = ContinuousClock(), start = clock.now
         do {
@@ -147,7 +159,7 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         }
         do {
             let t = clock.now
-            try await session.secureAndLogin(username: username, password: password)
+            try await session.secureAndLogin(username: username, credential: credential)
             debug("starttls+login \(clock.now - t)")
         } catch {
             await session.close()
@@ -195,14 +207,34 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         if case .untagged(.conditionalState(.bye(let text))) = first { throw IMAPError.connection(Self.clean(text.text)) }
     }
 
-    private func secureAndLogin(username: String, password: String) async throws {
+    private func secureAndLogin(username: String, credential: IMAPCredential) async throws {
         if case .startTLS = endpoint.security { try await startTLS(pinned: nil, verifyChain: true) }
         if case .startTLSPinned(let fp) = endpoint.security { try await startTLS(pinned: fp, verifyChain: false) }
-        let login = try await run(.login(username: username, password: password), failure: { IMAPError.authentication($0) })
-        serverCapabilities = Self.capabilities(in: login)
+        let answer: Result
+        switch credential {
+        case .password(let password):
+            answer = try await run(.login(username: username, password: password), failure: { IMAPError.authentication($0) })
+        case .oauth2(let token):
+            // The mechanism has to be offered: without the capability the server would see the
+            // token as a password attempt, and some log that.
+            serverCapabilities = Self.capabilities(in: try await run(.capability))
+            guard serverCapabilities.contains("AUTH=XOAUTH2") else {
+                throw IMAPError.authentication("Der Server bietet keine Anmeldung mit Google-Token (AUTH=XOAUTH2)")
+            }
+            let initial = InitialResponse(ByteBuffer(bytes: Array(Self.xoauth2(user: username, token: token).utf8)))
+            answer = try await run(.authenticate(mechanism: .init("XOAUTH2"), initialResponse: initial),
+                                   failure: { IMAPError.authentication($0) })
+        }
+        serverCapabilities = Self.capabilities(in: answer)
         if serverCapabilities.isEmpty { serverCapabilities = Self.capabilities(in: try await run(.capability)) }
         gmail = serverCapabilities.contains("X-GM-EXT-1")
         condstore = serverCapabilities.contains("CONDSTORE") || serverCapabilities.contains("QRESYNC")
+    }
+
+    /// The SASL XOAUTH2 initial response, before base64 (Google's format):
+    /// `user=<address>^Aauth=Bearer <token>^A^A`.
+    static func xoauth2(user: String, token: String) -> String {
+        "user=\(user)\u{01}auth=Bearer \(token)\u{01}\u{01}"
     }
 
     /// STARTTLS, then the TLS handler goes first in the pipeline (so LOGIN never travels in
@@ -866,6 +898,12 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
                 }
             case .fatal(let text):
                 throw IMAPError.connection(Self.clean(text.text))
+            case .authenticationChallenge:
+                // XOAUTH2 that failed: the server states why in the challenge and waits for an
+                // empty line before it sends the tagged NO. Its text is base64 JSON with the
+                // status, never anything to echo — the NO below carries the message.
+                channel.write(IMAPClientHandler.Message.part(.continuationResponse(ByteBuffer())), promise: nil)
+                channel.flush()
             default:
                 continue
             }

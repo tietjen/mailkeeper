@@ -39,6 +39,18 @@ struct ReadOnlyGuardTests {
         #expect(IMAPSession.isReadOnly(IMAPSession.presenceCommand(esearch: true)))
     }
 
+    @Test("7.1: the XOAUTH2 initial response is Google's SASL format, and the token stays out of logs")
+    func xoauth2InitialResponse() {
+        let sasl = IMAPSession.xoauth2(user: "tj@gmail.example", token: "ya29.a0-TOKEN")
+        #expect(sasl == "user=tj@gmail.example\u{01}auth=Bearer ya29.a0-TOKEN\u{01}\u{01}")
+        #expect(sasl.hasSuffix("\u{01}\u{01}") && sasl.filter { $0 == "\u{01}" }.count == 3)
+        // AUTHENTICATE is a reading command for the allowlist: it changes nothing on the server,
+        // and the name a debug line prints carries no token.
+        let command = Command.authenticate(mechanism: .init("XOAUTH2"), initialResponse: InitialResponse(ByteBuffer(string: sasl)))
+        #expect(IMAPSession.isReadOnly(command))
+        #expect(!IMAPSession.name(of: command).contains("ya29"))
+    }
+
     @Test("6.9b: 'Ablage ändern' moves only into the one target of that move") func moveToFolderAllowlist() {
         let target = MailboxName(ByteBuffer(string: "Projekte"))
         let other = MailboxName(ByteBuffer(string: "Trash"))

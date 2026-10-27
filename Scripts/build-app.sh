@@ -102,6 +102,9 @@ cat > "$ENT" <<ENTITLEMENTS
 <dict>
   <key>com.apple.security.app-sandbox</key><$([[ $DEV == 1 ]] && echo false || echo true)/>
   <key>com.apple.security.network.client</key><true/>
+  <!-- 7.1: the loopback redirect of the Google sign-in (RFC 8252) listens on 127.0.0.1
+       for the seconds the browser needs to come back. -->
+  <key>com.apple.security.network.server</key><true/>
   <key>com.apple.security.files.user-selected.read-write</key><true/>
   <key>com.apple.security.files.bookmarks.app-scope</key><true/>
 </dict>

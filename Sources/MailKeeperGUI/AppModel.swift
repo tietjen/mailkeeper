@@ -1930,13 +1930,14 @@ final class AppModel {
 
     // MARK: Accounts & sync (read-only)
 
+    /// Whether the account can sign in at all — a password, or a Google sign-in (7.1).
     func hasPassword(_ account: AccountConfig) -> Bool {
         passwordPresent[account.id] ?? false
     }
 
     private func reloadAccounts(_ layout: ArchiveLayout) {
         accountConfigs = (try? AccountStore(layout: layout).load()) ?? []
-        passwordPresent = Dictionary(uniqueKeysWithValues: accountConfigs.map { ($0.id, credentials.exists(for: $0)) })
+        passwordPresent = Dictionary(uniqueKeysWithValues: accountConfigs.map { ($0.id, credentials.hasCredential(for: $0)) })
         aiConfig = AIConfigStore(layout: layout).load()
         aiKeyStored = aiConfig.secretKey.map(credentials.secretExists) ?? false
         aiRouterCache = nil
@@ -2600,6 +2601,33 @@ final class AppModel {
         reloadAccounts(layout)
     }
 
+    /// A Gmail account that signs in with Google (7.1, ADR-0012): the refresh token and, where
+    /// the client has one, the client secret go into the keychain — never into the archive.
+    func addAccount(_ account: AccountConfig, tokens: OAuthTokens, clientSecret: String?) throws {
+        guard let layout = reader?.layout else { return }
+        guard let refresh = tokens.refreshToken else { throw OAuthError.noRefreshToken(account.id) }
+        try AccountStore(layout: layout).add(account)
+        if let clientSecret, !clientSecret.isEmpty { try credentials.saveClientSecret(clientSecret, for: account) }
+        try credentials.saveRefreshToken(refresh, for: account)
+        let signedIn = account
+        Task { await OAuthTokens2Go.shared.remember(tokens, for: signedIn) }
+        reloadAccounts(layout)
+    }
+
+    /// Signs an existing account in again, or moves it from its app password to Google — the
+    /// account keeps its id, so the archive stays with it.
+    func signIn(_ id: String, clientID: String, clientSecret: String?, tokens: OAuthTokens) throws {
+        guard let layout = reader?.layout, var account = accountConfigs.first(where: { $0.id == id }) else { return }
+        guard let refresh = tokens.refreshToken else { throw OAuthError.noRefreshToken(id) }
+        account.oauth = AccountConfig.OAuth(clientID: clientID)
+        if let clientSecret, !clientSecret.isEmpty { try credentials.saveClientSecret(clientSecret, for: account) }
+        try credentials.saveRefreshToken(refresh, for: account)
+        try AccountStore(layout: layout).update(account)
+        let signedIn = account
+        Task { await OAuthTokens2Go.shared.remember(tokens, for: signedIn) }
+        reloadAccounts(layout)
+    }
+
     /// Removes the account configuration; archived mail stays. The keychain entry is shared by
     /// every archive using the same mailbox, so deleting it is the caller's explicit choice.
     func removeAccount(_ id: String, deletePassword: Bool) {
@@ -2612,9 +2640,9 @@ final class AppModel {
 
     func testAccount(_ id: String) async -> String {
         guard let account = accountConfigs.first(where: { $0.id == id }) else { return "" }
-        guard let password = try? credentials.password(for: account) else { return String(localized: "Kein Passwort im Schlüsselbund.") }
         do {
-            let check = try await SyncCoordinator.check(account, password: password)
+            let credential = try await SyncCoordinator.credential(for: account, credentials: credentials)
+            let check = try await SyncCoordinator.check(account, credential: credential)
             return String(localized: "Verbindung ok — abgerufen werden \(check.selected.count) von \(check.mailboxes.count) Postfächern.")
         } catch {
             return "\(error)"

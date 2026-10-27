@@ -38,8 +38,19 @@ public struct ConnectionCheck: Sendable {
     public var certificateFingerprint: String?
 }
 
-/// Glue for CLI and app: password from the keychain, connect, sync, close.
+/// Glue for CLI and app: credential from the keychain, connect, sync, close.
 public enum SyncCoordinator {
+    /// How this account signs in: its password, or — for a signed-in account (7.1) — a fresh
+    /// access token, refreshed here so a long sync does not run into an expiring one.
+    public static func credential(for account: AccountConfig,
+                                  credentials: CredentialStore = CredentialStore()) async throws -> IMAPCredential {
+        guard account.oauth != nil else {
+            guard let password = try credentials.password(for: account) else { throw SyncError.noPassword(account.id) }
+            return .password(account.normalizedPassword(password))
+        }
+        return .oauth2(accessToken: try await OAuthTokens2Go.shared.accessToken(for: account, credentials: credentials))
+    }
+
     /// Runs a planned server-delete job (ADR-0006): one connection per account, opened with the
     /// narrow `.moveToTrash` access; everything else stays refused by the allowlist.
     public static func deleteOnServer(_ jobID: UUID, writer: ArchiveWriter, accounts: [AccountConfig],
@@ -49,9 +60,9 @@ public enum SyncCoordinator {
         return try await executor.run(jobID, connect: { id in
             guard let account = accounts.first(where: { $0.id == id }) else { throw SyncError.unknownAccount(id) }
             if case .startTLSPinned(nil) = account.security { throw SyncError.unconfirmedCertificate(id) }
-            guard let password = try credentials.password(for: account) else { throw SyncError.noPassword(id) }
             return try await IMAPSession.connect(IMAPEndpoint(account), username: account.username,
-                                                 password: account.normalizedPassword(password), access: .moveToTrash)
+                                                 credential: try await credential(for: account, credentials: credentials),
+                                                 access: .moveToTrash)
         }, progress: progress)
     }
 
@@ -65,9 +76,9 @@ public enum SyncCoordinator {
         return try await executor.run(jobID, accounts: accounts, connect: { id in
             guard let account = accounts.first(where: { $0.id == id }) else { throw SyncError.unknownAccount(id) }
             if case .startTLSPinned(nil) = account.security { throw SyncError.unconfirmedCertificate(id) }
-            guard let password = try credentials.password(for: account) else { throw SyncError.noPassword(id) }
             return try await IMAPSession.connect(IMAPEndpoint(account), username: account.username,
-                                                 password: account.normalizedPassword(password), access: .restore,
+                                                 credential: try await credential(for: account, credentials: credentials),
+                                                 access: .restore,
                                                  readTimeout: .seconds(300))
         }, progress: progress)
     }
@@ -81,9 +92,9 @@ public enum SyncCoordinator {
         return try await executor.run(jobID, accounts: accounts, connect: { id in
             guard let account = accounts.first(where: { $0.id == id }) else { throw SyncError.unknownAccount(id) }
             if case .startTLSPinned(nil) = account.security { throw SyncError.unconfirmedCertificate(id) }
-            guard let password = try credentials.password(for: account) else { throw SyncError.noPassword(id) }
             return try await IMAPSession.connect(IMAPEndpoint(account), username: account.username,
-                                                 password: account.normalizedPassword(password), access: .rescueFromJunk)
+                                                 credential: try await credential(for: account, credentials: credentials),
+                                                 access: .rescueFromJunk)
         }, progress: progress)
     }
 
@@ -96,9 +107,9 @@ public enum SyncCoordinator {
         return try await executor.run(jobID, accounts: accounts, connect: { id in
             guard let account = accounts.first(where: { $0.id == id }) else { throw SyncError.unknownAccount(id) }
             if case .startTLSPinned(nil) = account.security { throw SyncError.unconfirmedCertificate(id) }
-            guard let password = try credentials.password(for: account) else { throw SyncError.noPassword(id) }
             return try await IMAPSession.connect(IMAPEndpoint(account), username: account.username,
-                                                 password: account.normalizedPassword(password), access: .markAsJunk)
+                                                 credential: try await credential(for: account, credentials: credentials),
+                                                 access: .markAsJunk)
         }, progress: progress)
     }
 
@@ -110,17 +121,22 @@ public enum SyncCoordinator {
         return try await executor.run(jobID, accounts: accounts, connect: { id in
             guard let account = accounts.first(where: { $0.id == id }) else { throw SyncError.unknownAccount(id) }
             if case .startTLSPinned(nil) = account.security { throw SyncError.unconfirmedCertificate(id) }
-            guard let password = try credentials.password(for: account) else { throw SyncError.noPassword(id) }
             return try await IMAPSession.connect(IMAPEndpoint(account), username: account.username,
-                                                 password: account.normalizedPassword(password), access: .moveToFolder)
+                                                 credential: try await credential(for: account, credentials: credentials),
+                                                 access: .moveToFolder)
         }, progress: progress)
     }
 
-    /// Connects with an explicit password (setup) and reports mailboxes and, for a bridge in
-    /// learn mode, the certificate fingerprint to confirm.
+    /// Connects with a credential the caller just obtained (setup: a typed password, or the
+    /// token of a sign-in that has not been saved yet) and reports mailboxes and, for a bridge
+    /// in learn mode, the certificate fingerprint to confirm.
     public static func check(_ account: AccountConfig, password: String) async throws -> ConnectionCheck {
+        try await check(account, credential: .password(account.normalizedPassword(password)))
+    }
+
+    public static func check(_ account: AccountConfig, credential: IMAPCredential) async throws -> ConnectionCheck {
         let session = try await IMAPSession.connect(IMAPEndpoint(account), username: account.username,
-                                                    password: account.normalizedPassword(password), readTimeout: .seconds(30))
+                                                    credential: credential, readTimeout: .seconds(30))
         do {
             let boxes = try await session.mailboxes()
             let check = ConnectionCheck(capabilities: await session.serverCapabilities, mailboxes: boxes,
@@ -136,9 +152,8 @@ public enum SyncCoordinator {
     public static func sync(_ account: AccountConfig, writer: ArchiveWriter, credentials: CredentialStore = CredentialStore(),
                             progress: @escaping @Sendable (SyncProgress) -> Void = { _ in }) async throws -> SyncReport {
         if case .startTLSPinned(nil) = account.security { throw SyncError.unconfirmedCertificate(account.id) }
-        guard let password = try credentials.password(for: account) else { throw SyncError.noPassword(account.id) }
         let session = try await IMAPSession.connect(IMAPEndpoint(account), username: account.username,
-                                                    password: account.normalizedPassword(password))
+                                                    credential: try await credential(for: account, credentials: credentials))
         do {
             let report = try await SyncEngine(writer: writer, account: account.info, policy: account.policy)
                 .run(source: session, progress: progress)
