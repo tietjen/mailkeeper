@@ -239,6 +239,16 @@ struct OAuthAccountTests {
         #expect(OAuthTokens2Go.storedClientID("  ") == nil)
     }
 
+    @Test("Nachprüfung 7.1 B1: a typed secret counts even when the client id comes from elsewhere")
+    func typedSecretWins() {
+        let store = CredentialStore(service: "de.paranoidsecurity.MailKeeper.tests")
+        var account = AccountConfig.gmail(id: "g", address: "tj@gmail.example")
+        account.oauth = AccountConfig.OAuth(clientID: "111-known.apps.googleusercontent.com")
+        let resolved = OAuthTokens2Go.clientForSignIn(typedID: "", typedSecret: " GOCSPX-typed ",
+                                                      account: account, credentials: store)
+        #expect(resolved?.id == "111-known.apps.googleusercontent.com" && resolved?.secret == "GOCSPX-typed")
+    }
+
     @Test("7.1 review S7: Gmail ignores dots and googlemail.com — the same mailbox is not refused")
     func gmailAddressesAreFolded() {
         #expect(GoogleOAuth.sameMailbox("t.j@gmail.com", "tj@gmail.com"))

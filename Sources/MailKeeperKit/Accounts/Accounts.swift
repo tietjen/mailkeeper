@@ -251,6 +251,13 @@ public struct CredentialStore: Sendable {
         try secret(key: Self.clientSecretKey(for: account))
     }
 
+    /// Whether a sign-in for this mailbox is stored — asked before a discarded token is handed
+    /// back to Google: a revoke takes the whole grant, so one must not be sent while a good
+    /// sign-in is in the keychain (Nachprüfung 7.1 B1).
+    public func hasRefreshToken(for account: AccountConfig) -> Bool {
+        secretExists(key: Self.refreshTokenKey(for: account))
+    }
+
     /// Whether the account can sign in at all: a password, or a refresh token for an OAuth account.
     public func hasCredential(for account: AccountConfig) -> Bool {
         account.oauth == nil ? exists(for: account) : secretExists(key: Self.refreshTokenKey(for: account))

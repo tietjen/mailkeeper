@@ -82,10 +82,10 @@ struct AccountsSettings: View {
                             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
             Button(removing?.oauth == nil ? "Entfernen und Passwort löschen" : "Entfernen und Google-Anmeldung widerrufen",
                    role: .destructive) {
-                if let r = removing { model.removeAccount(r.id, deletePassword: true); selection = nil }
+                if let r = removing { selection = nil; Task { await model.removeAccount(r.id, deletePassword: true) } }
             }
             Button(removing?.oauth == nil ? "Entfernen, Passwort behalten" : "Entfernen, angemeldet bleiben") {
-                if let r = removing { model.removeAccount(r.id, deletePassword: false); selection = nil }
+                if let r = removing { selection = nil; Task { await model.removeAccount(r.id, deletePassword: false) } }
             }
         } message: {
             Text(removing?.oauth == nil
@@ -185,15 +185,17 @@ struct GoogleSignInSheet: View {
         .onDisappear { cancel() }
     }
 
-    /// A sign-in nobody waits for any more is stopped, and a token that was fetched but never
-    /// saved is handed back to Google — else a grant would linger there (review 7.1 S4/S5).
+    /// A sign-in nobody waits for any more is stopped. A token that was fetched but never saved
+    /// is handed back to Google only when nothing is stored for this mailbox — a revoke ends the
+    /// whole grant, so cancelling must never cost the account its working sign-in
+    /// (Nachprüfung 7.1 B1).
     private func cancel() {
         signingIn?.cancel()
         signingIn = nil
-        if let spare = tokens?.refreshToken {
-            tokens = nil
-            Task { await GoogleOAuth.revoke(spare) }
-        }
+        guard let spare = tokens?.refreshToken else { return }
+        tokens = nil
+        let account = account
+        Task { if await !model.hasStoredSignIn(account) { await GoogleOAuth.revoke(spare) } }
     }
 
     private func run() async {
@@ -207,7 +209,7 @@ struct GoogleSignInSheet: View {
             let signedIn = try await GoogleSignIn.run(client: client, loginHint: account.username)
             if let mail = signedIn.email, !GoogleOAuth.sameMailbox(mail, account.username) {
                 error = String(localized: "Angemeldet als \(DisplayText.safe(mail)) – das Konto ist \(DisplayText.safe(account.username)). Melde dich mit derselben Adresse an.")
-                if let spare = signedIn.refreshToken { await GoogleOAuth.revoke(spare) }
+                if let spare = signedIn.refreshToken, !model.hasStoredSignIn(account) { await GoogleOAuth.revoke(spare) }
                 return
             }
             tokens = signedIn
@@ -469,14 +471,15 @@ struct AddAccountSheet: View {
         }
     }
 
-    /// A sign-in nobody waits for any more is stopped; an unsaved token goes back to Google.
+    /// A sign-in nobody waits for any more is stopped; a token of an account that was never
+    /// saved goes back to Google (nothing is stored for it, so no working grant is at stake).
     private func cancelSignIn() {
         signingIn?.cancel()
         signingIn = nil
-        if let spare = tokens?.refreshToken {
-            tokens = nil
-            Task { await GoogleOAuth.revoke(spare) }
-        }
+        guard let spare = tokens?.refreshToken else { return }
+        tokens = nil
+        let candidate = config
+        Task { if await !model.hasStoredSignIn(candidate) { await GoogleOAuth.revoke(spare) } }
     }
 
     private func runCheck() async {

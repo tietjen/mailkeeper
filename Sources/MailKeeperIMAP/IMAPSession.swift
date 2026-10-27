@@ -33,6 +33,8 @@ public enum IMAPError: Error, CustomStringConvertible, Equatable {
     case connection(String)
     case pinMismatch(expected: String, actual: String)
     case authentication(String)
+    /// The server does not offer the mechanism at all — a different token will not help.
+    case unsupportedAuthentication(String)
     case command(String, String)
     case readOnlyViolation(String)
     case closed
@@ -46,6 +48,7 @@ public enum IMAPError: Error, CustomStringConvertible, Equatable {
         case .connection(let s): "Verbindung fehlgeschlagen: \(s)"
         case .pinMismatch(let e, let a): "Zertifikat der Bridge hat sich geändert (erwartet \(e.prefix(16))…, erhalten \(a.prefix(16))…)"
         case .authentication(let s): "Anmeldung abgelehnt: \(s)"
+        case .unsupportedAuthentication(let s): "Anmeldung nicht möglich: \(s)"
         case .command(let c, let s): "\(c) abgelehnt: \(s)"
         case .readOnlyViolation(let c): "\(c) ist im Nur-Lese-Modus nicht erlaubt"
         case .closed: "Verbindung geschlossen oder Zeitüberschreitung"
@@ -219,7 +222,7 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
             // token as a password attempt, and some log that.
             serverCapabilities = Self.capabilities(in: try await run(.capability))
             guard serverCapabilities.contains("AUTH=XOAUTH2") else {
-                throw IMAPError.authentication("Der Server bietet keine Anmeldung mit Google-Token (AUTH=XOAUTH2)")
+                throw IMAPError.unsupportedAuthentication("Der Server bietet keine Anmeldung mit Google-Token (AUTH=XOAUTH2)")
             }
             let initial = InitialResponse(ByteBuffer(bytes: Array(Self.xoauth2(user: username, token: token).utf8)))
             answer = try await run(.authenticate(mechanism: .init("XOAUTH2"), initialResponse: initial),

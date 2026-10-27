@@ -16,8 +16,11 @@ darf diesen Weg also nicht verbauen, ihn aber auch nicht heute schon bezahlen.
 
 ## Decision
 
-1. **OAuth tritt neben das App-Passwort, nicht an seine Stelle.** Ein Gmail-Konto meldet sich
-   per Passwort oder per Google an; beide Wege bleiben. `AccountConfig.oauth` fehlt bei allen
+1. **OAuth tritt neben das App-Passwort, nicht an seine Stelle** — und drängt sich nie auf:
+   die Google-Anmeldung läuft nur, wenn sie gewählt wurde (GUI-Schalter, `--google` bzw.
+   `--google-client-id`). Auch ein mitgelieferter Client macht `--password-stdin` nicht
+   unerreichbar. Ein Gmail-Konto meldet sich per Passwort oder per Google an; beide Wege
+   bleiben, in beide Richtungen umstellbar. `AccountConfig.oauth` fehlt bei allen
    Konten von vor 7.1, und das heißt weiterhin „Passwort“ — eine `accounts.json` aus Phase 6
    liest sich unverändert.
 2. **Der Client gehört dem, der MailKeeper betreibt.** Jedes Konto trägt die Client-ID eines
@@ -46,12 +49,17 @@ darf diesen Weg also nicht verbauen, ihn aber auch nicht heute schon bezahlen.
    gehaltene Token sofort tot: eine abgelehnte Anmeldung verwirft es deshalb und versucht es
    genau einmal mit einem frischen (`SyncCoordinator.connect`), damit der Nutzer „bitte neu
    anmelden“ zu sehen bekommt statt bis zu einer Stunde „Anmeldung abgelehnt“.
-6. **Nicht benutzte Anmeldungen gehen an Google zurück.** Google hält bis zu 50 Refresh-Tokens
-   je Client und Nutzer; ein verworfener Anmeldeversuch (Abbrechen, fehlgeschlagene Prüfung,
-   falsches Konto) und ein ersetztes Token werden widerrufen, ebenso beim „Entfernen und
-   Google-Anmeldung widerrufen“. Ein Sonderfall bleibt stehen: wer von Google zurück auf ein
-   App-Passwort geht, behält die Anmeldung im Schlüsselbund — ein anderes Archiv könnte dasselbe
-   Postfach damit abrufen; widerrufen wird sie dann bei Google.
+6. **Widerrufen wird nur, was wirklich weg soll.** Googles `/revoke` nimmt der App die
+   Zustimmung des Nutzers — nach allem, was die Doku sagt, fällt damit die **ganze Freigabe**
+   für diesen Client, nicht nur das genannte Token. Darum widerruft MailKeeper ausschließlich
+   beim „Entfernen und Google-Anmeldung widerrufen“ (dort zuerst bei Google, dann im
+   Schlüsselbund, und abgewartet — ein Beenden der App darf die Freigabe nicht verwaist
+   zurücklassen) und bei einem abgebrochenen oder abgelehnten Anmeldeversuch, für den **keine**
+   Anmeldung im Schlüsselbund liegt. Ein ersetztes oder rotiertes Token wird *nicht* widerrufen:
+   es gehört zur selben Freigabe wie das neue, und ein Widerruf hätte das frisch Angemeldete
+   gleich miterledigt. **Annahme, nicht gemessen** — ein Gegenbeweis (zwei Anmeldungen, eine
+   widerrufen, mit der anderen erneuern) wäre der Anlass, das hier zu ändern. Wer zurück auf ein
+   App-Passwort geht, behält die Anmeldung; widerrufen wird sie dann bei Google.
 7. **Der Rückkanal gehört genau einer Anmeldung.** Der Port ist für jeden Prozess auf dem Mac
    sichtbar; angenommen wird nur eine Weiterleitung mit dem `state` dieser Anmeldung, alles
    andere bekommt 404 und der Server wartet weiter. Kommt bis zum Zeitablauf nur Fremdes, sagt

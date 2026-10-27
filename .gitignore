@@ -10,3 +10,6 @@ test-accounts*.json
 pins.json
 Spikes/*/build/
 build/
+# scratch: icon bundles and ad-hoc queries stay out of the repo
+*.sql
+MailKeeper-AppIconSet.zip

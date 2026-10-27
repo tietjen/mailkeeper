@@ -49,6 +49,9 @@ struct ReadOnlyGuardTests {
         let command = Command.authenticate(mechanism: .init("XOAUTH2"), initialResponse: InitialResponse(ByteBuffer(string: sasl)))
         #expect(IMAPSession.isReadOnly(command))
         #expect(!IMAPSession.name(of: command).contains("ya29"))
+        // a server without the mechanism is a different failure: a fresh token would not help,
+        // so the sign-in is not retried (Nachprüfung 7.1)
+        #expect(IMAPError.unsupportedAuthentication("x") != IMAPError.authentication("x"))
     }
 
     @Test("6.9b: 'Ablage ändern' moves only into the one target of that move") func moveToFolderAllowlist() {

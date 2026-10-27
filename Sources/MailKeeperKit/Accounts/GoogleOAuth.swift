@@ -159,7 +159,13 @@ public extension GoogleOAuth {
         return tokens
     }
 
-    /// Tells Google the refresh token is gone (best effort: a revoked or expired one answers 400).
+    /// Tells Google the sign-in is over (best effort: a revoked or expired token answers 400).
+    ///
+    /// **Googles Widerruf gilt der Freigabe, nicht dem einzelnen Token**: ein `/revoke` nimmt der
+    /// App die Zustimmung dieses Nutzers, und damit fallen auch die anderen Refresh-Tokens
+    /// derselben Freigabe. Deshalb wird hier nur widerrufen, wenn die Anmeldung wirklich weg
+    /// soll — nie, um ein ersetztes oder verworfenes Token aufzuräumen, solange eine gültige
+    /// Anmeldung im Schlüsselbund liegt (Nachprüfung 7.1 B1).
     static func revoke(_ refreshToken: String) async {
         var request = URLRequest(url: revocation)
         request.httpMethod = "POST"
@@ -284,7 +290,10 @@ public actor OAuthTokens2Go {
         let id = typedID.trimmingCharacters(in: .whitespacesAndNewlines)
         let secret = typedSecret.trimmingCharacters(in: .whitespacesAndNewlines)
         let known = account.flatMap { client(for: $0, credentials: credentials) }
-        guard !id.isEmpty else { return known ?? GoogleOAuth.builtInClient }
+        guard !id.isEmpty else {
+            guard let fallback = known ?? GoogleOAuth.builtInClient else { return nil }
+            return (fallback.id, secret.isEmpty ? fallback.secret : secret)  // a typed secret wins
+        }
         if !secret.isEmpty { return (id, secret) }
         // the same client as before (or the built-in one): its secret is already known
         if let known, known.id == id { return known }
@@ -314,10 +323,9 @@ public actor OAuthTokens2Go {
             throw OAuthError.noRefreshToken(account.id)
         }
         let fresh = try await GoogleOAuth.refresh(refreshToken, clientID: client.id, clientSecret: client.secret)
-        if let new = fresh.refreshToken, new != refreshToken {
-            try credentials.saveRefreshToken(new, for: account)
-            await GoogleOAuth.revoke(refreshToken)  // Google keeps up to 50 per client and user
-        }
+        // A rotated refresh token replaces the stored one; the old one is NOT revoked — that
+        // would take the whole grant with it, the new token included.
+        if let new = fresh.refreshToken, new != refreshToken { try credentials.saveRefreshToken(new, for: account) }
         cache[key] = Self.cacheable(fresh)
         return fresh.accessToken
     }

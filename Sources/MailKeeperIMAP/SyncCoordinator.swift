@@ -140,9 +140,20 @@ public enum SyncCoordinator {
         try await check(account, credential: .password(account.normalizedPassword(password)))
     }
 
+    /// Tests an account the way a sync would open it — a signed-in account that was revoked
+    /// gets a fresh token instead of a stale "Anmeldung abgelehnt" (Nachprüfung 7.1).
+    public static func check(_ account: AccountConfig,
+                             credentials: CredentialStore = CredentialStore()) async throws -> ConnectionCheck {
+        try await report(on: try await connect(account, credentials: credentials, readTimeout: .seconds(30)), for: account)
+    }
+
     public static func check(_ account: AccountConfig, credential: IMAPCredential) async throws -> ConnectionCheck {
         let session = try await IMAPSession.connect(IMAPEndpoint(account), username: account.username,
                                                     credential: credential, readTimeout: .seconds(30))
+        return try await report(on: session, for: account)
+    }
+
+    private static func report(on session: IMAPSession, for account: AccountConfig) async throws -> ConnectionCheck {
         do {
             let boxes = try await session.mailboxes()
             let check = ConnectionCheck(capabilities: await session.serverCapabilities, mailboxes: boxes,

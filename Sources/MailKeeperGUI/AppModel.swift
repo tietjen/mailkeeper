@@ -2619,37 +2619,38 @@ final class AppModel {
     func signIn(_ id: String, clientID: String, clientSecret: String?, tokens: OAuthTokens) throws {
         guard let layout = reader?.layout, var account = accountConfigs.first(where: { $0.id == id }) else { return }
         guard let refresh = tokens.refreshToken else { throw OAuthError.noRefreshToken(id) }
-        // the sign-in that is being replaced is handed back to Google, so no grant piles up
-        let replaced = account.oauth == nil ? nil : try? credentials.refreshToken(for: account)
         account.oauth = AccountConfig.OAuth(clientID: OAuthTokens2Go.storedClientID(clientID))
         if let clientSecret, !clientSecret.isEmpty { try credentials.saveClientSecret(clientSecret, for: account) }
         try credentials.saveRefreshToken(refresh, for: account)
         try AccountStore(layout: layout).update(account)
+        // the token this replaces is not revoked: Google's revoke ends the whole grant and
+        // would take the new sign-in with it (Nachprüfung 7.1 B1)
         let signedIn = account
-        Task { [replaced] in
-            await OAuthTokens2Go.shared.remember(tokens, for: signedIn)
-            if let replaced, replaced != refresh { await GoogleOAuth.revoke(replaced) }
-        }
+        Task { await OAuthTokens2Go.shared.remember(tokens, for: signedIn) }
         reloadAccounts(layout)
     }
 
     /// Removes the account configuration; archived mail stays. The keychain entry is shared by
     /// every archive using the same mailbox, so deleting it is the caller's explicit choice.
-    func removeAccount(_ id: String, deletePassword: Bool) {
+    func removeAccount(_ id: String, deletePassword: Bool) async {
         guard let layout = reader?.layout, let account = accountConfigs.first(where: { $0.id == id }) else { return }
         try? AccountStore(layout: layout).remove(id)
         let stillUsed = accountConfigs.contains { $0.id != id && CredentialStore.key(for: $0) == CredentialStore.key(for: account) }
         if deletePassword, !stillUsed {
-            // a Google sign-in is told to Google as well, or it would stay listed there (7.1)
-            let token = account.oauth == nil ? nil : try? credentials.refreshToken(for: account)
-            try? credentials.delete(for: account)
-            Task { [account] in
-                await OAuthTokens2Go.shared.forget(account)
-                if let token { await GoogleOAuth.revoke(token) }
+            // Google first, then the keychain, and awaited: quitting right after must not leave
+            // a grant behind that nothing can reach any more (Nachprüfung 7.1 S4)
+            if account.oauth != nil, let token = try? credentials.refreshToken(for: account) {
+                await GoogleOAuth.revoke(token)
             }
+            try? credentials.delete(for: account)
+            await OAuthTokens2Go.shared.forget(account)
         }
         reloadAccounts(layout)
     }
+
+    /// Whether a sign-in for this mailbox is already stored (asked before a discarded token is
+    /// revoked: a revoke ends the whole grant, not just that token).
+    func hasStoredSignIn(_ account: AccountConfig) -> Bool { credentials.hasRefreshToken(for: account) }
 
     /// Back from the Google sign-in to an app password. The refresh token stays in the keychain
     /// — another archive may use the same mailbox, and Google is where a sign-in is revoked.
@@ -2666,8 +2667,7 @@ final class AppModel {
     func testAccount(_ id: String) async -> String {
         guard let account = accountConfigs.first(where: { $0.id == id }) else { return "" }
         do {
-            let credential = try await SyncCoordinator.credential(for: account, credentials: credentials)
-            let check = try await SyncCoordinator.check(account, credential: credential)
+            let check = try await SyncCoordinator.check(account, credentials: credentials)
             return String(localized: "Verbindung ok — abgerufen werden \(check.selected.count) von \(check.mailboxes.count) Postfächern.")
         } catch {
             return "\(error)"
