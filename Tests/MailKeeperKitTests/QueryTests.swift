@@ -265,9 +265,14 @@ struct SavedSearchTests {
         let s = { (t: String) in QueryCompletion.suggestions(for: t, folders: ["INBOX", "Archiv/2019", "Mein Ordner"],
                                                              accounts: ["gmail"], labels: ["Steuer"]) }
         #expect(s("rechnung fr").map(\.completion) == ["rechnung from:"])
-        #expect(s("ha").map(\.title) == ["has:"])
+        #expect(s("ha").map(\.title) == ["has:", "hat:"])  // 7b: the German names are offered too
         #expect(s("has:p").map(\.completion) == ["has:pdf "])
         #expect(s("-is:un").map(\.completion) == ["-is:unread "])
+        // 7b: what the language can, the suggestions show — spam states and the categories
+        #expect(s("is:ver").map(\.completion) == ["is:verdächtig "])
+        #expect(s("ist:fehl").map(\.completion) == ["ist:fehlalarm "])
+        #expect(s("kategorie:rech").map(\.completion) == ["kategorie:rechnung "])
+        #expect(s("art:per").map(\.completion) == ["art:persönlich "])
         #expect(s("ordner:ar").map(\.completion) == ["ordner:Archiv/2019 "])
         #expect(s("folder:mein").map(\.completion) == ["folder:\"Mein Ordner\" "])
         #expect(s("(a OR label:st").map(\.completion) == ["(a OR label:Steuer "])

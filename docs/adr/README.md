@@ -12,5 +12,10 @@
 | [0008](0008-query-language.md) | One query language for search field, saved searches and AI | accepted |
 | [0009](0009-attachment-text-out-of-process.md) | PDF text extracted out of process, in a sandboxed XPC service | accepted |
 | [0010](0010-spam-phishing-signals.md) | Spam and phishing: separate signals, the user decides | accepted |
+| [0011](0011-archive-placement.md) | The archive's own placement of a mail (Ablage) | accepted |
+| [0012](0012-gmail-oauth.md) | Gmail sign-in with Google (OAuth, PKCE, loopback) | accepted |
 
 Evidence for 0001–0004 and 0007: [spike results](../spikes/README.md).
+
+Für Leserinnen und Leser, die wissen wollen *wie* statt *warum*:
+[Wie MailKeeper gebaut ist](../architektur.md).

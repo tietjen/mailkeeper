@@ -101,9 +101,13 @@ struct QueryHelp: View {
         ("after:2024-03  before:2025  until:2024-12-31", "ab (einschließlich), vor, bis einschließlich"),
         ("date:2024-05  after:30d  before:1y", "Zeitraum; relativ: d, w, m, y"),
         ("account:gmail  folder:INBOX  folder:Archiv/*", "Konto, Ordner (mit Unterordnern)"),
-        ("label:Steuer  list:newsletter.example", "Label, Mailingliste"),
-        ("is:unread  is:flagged  is:answered  is:list", "Status"),
+        ("label:Steuer  list:newsletter.example  listid:…", "Label, Mailingliste (enthält / genau)"),
+        ("domain:bank.de  pdf:mahnung", "Absenderdomain genau, Text in PDF-Anhängen"),
+        ("is:unread  is:flagged  is:answered  is:list  is:sent", "Status"),
+        ("is:junk  is:war-im-spam  is:fehlalarm  is:phishing  is:verdächtig", "Spam und Phishing"),
+        ("kategorie:rechnung  art:offen", "Art: newsletter, benachrichtigung, rechnung, bestellung,\nkonto, persönlich, arbeit, reise, spam — oder offen"),
         ("on:server  only:archive", "noch auf dem Server / nur noch im Archiv"),
+        ("msgid:…  konversation:…", "eine Mail über ihre Message-ID / ihre ganze Unterhaltung"),
         ("-wort  -from:x", "ausschließen"),
         ("a OR b  ( … )", "oder, Klammern"),
     ]
@@ -119,9 +123,13 @@ struct QueryHelp: View {
                     }
                 }
             }
-            Text("Deutsch geht auch: von: an: betreff: hat: ist: ab: vor: bis: datum: konto: ordner: größer: kleiner:")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Deutsch geht auch: von: an: betreff: text: anhang: datei: absender: hat: ist: art: ab: seit: vor: bis: datum: konto: ordner: in: liste: auf: nur: größer: kleiner: konversation: anhangtext:")
+                Text("Umlaute und ß sind egal (mueller findet Müller). Ein Tippfehler in einem Feldwert bricht die Suche ab – damit er eine Trefferliste nie vergrößert.")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Spacer()
                 Button("Fertig") { dismiss() }.keyboardShortcut(.defaultAction)

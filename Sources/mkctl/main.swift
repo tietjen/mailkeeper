@@ -54,12 +54,13 @@ usage: mkctl [--archive <dir>] <command>
   embed                                       vectors for semantic search (endpoint), then categories from similar mails
   similar <id> [--limit n] | meaning <text…>  mails like a message / by meaning (needs embed)
   summarize <id> [--thread]                   KI: summary of a message or its whole conversation
-  relations [list | suggest]                   relationship register: confirmed ones, or suggestions from the history
-  gold [status | candidates | run [--no-ai]]    the private gold set: labels, what comes next, a measurement (6.6)
-  unsubscribe [query] [--limit N]              how "Abmelden" judges the newest list mails (read-only)
+  relations [list | suggest [--limit N]]                   relationship register: confirmed ones, or suggestions from the history
+  gold [status | candidates [--limit N] | run [--no-ai]]    the private gold set: labels, what comes next, a measurement (6.6)
+  unsubscribe [query] [--limit N] [--dkim]              how "Abmelden" judges the newest list mails (read-only)
   cleanup                                     cleanup suggestions: where deleting pays off (read-only)
   rules [list | suggest]                      the user's rules (with what is ready), or suggestions from repeated decisions
   memory [list | note <text…> | term <text…> | forget <id>… | export [file] | import <file>]
+      note/term: [--about <sender|domain|list>] [--account <id>]
                                               what MailKeeper learned: notes, terms, examples from your decisions
   ai status | test                            KI settings of the archive; connection test (endpoint, on-device)
   ai config [--on|--off] [--endpoint <url>] [--model <task>=<alias>]… [--on-device on|off]

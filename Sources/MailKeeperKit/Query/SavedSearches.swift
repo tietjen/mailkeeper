@@ -126,12 +126,27 @@ public enum QueryCompletion {
         ("list:", "Mailingliste (Teil der List-Id)"), ("sender:", "exakte Absenderadresse"),
         ("domain:", "exakte Absender-Domain"), ("listid:", "exakte List-Id"), ("filename:", "Name eines Anhangs"),
         ("body:", "nur im Text"), ("pdf:", "nur im Text von PDF-Anhängen"), ("only:archive", "nicht mehr auf dem Server"), ("on:server", "noch auf dem Server"),
+        ("kategorie:", "Art der Mail — oder offen"), ("msgid:", "exakte Message-ID"),
+        ("konversation:", "die ganze Unterhaltung einer Message-ID"),
+        // the German names people actually type; the English ones above stay first
+        ("von:", "Absender, Name oder Adresse"), ("an:", "Empfänger (An, Cc)"), ("betreff:", "Betreff"),
+        ("hat:", "anhang · pdf · bild · kalender"), ("ist:", "Zustand der Mail"), ("art:", "Art der Mail"),
+        ("ab:", "ab Datum: 2024, 2024-03, 17.3.2024, 30d"), ("vor:", "vor Datum"), ("bis:", "bis einschließlich"),
+        ("datum:", "im Zeitraum: 2024-05, heute"), ("größer:", "größer als: 500K, 5M"), ("kleiner:", "kleiner als"),
+        ("ordner:", "Ordner (Archiv/* für Unterordner)"), ("in:", "Ordner"), ("konto:", "Konto"),
+        ("liste:", "Mailingliste (Teil der List-Id)"), ("absender:", "exakte Absenderadresse"),
+        ("anhang:", "Name eines Anhangs"), ("datei:", "Name eines Anhangs"), ("text:", "nur im Text"),
+        ("anhangtext:", "nur im Text von PDF-Anhängen"),
     ]
 
     static let values: [String: [(String, String)]] = [
         "has": [("attachment", "mit Anhang"), ("pdf", "mit PDF"), ("image", "mit Bild"), ("calendar", "mit Kalendereintrag")],
         "is": [("unread", "ungelesen"), ("read", "gelesen"), ("flagged", "markiert"), ("answered", "beantwortet"),
-               ("list", "Newsletter und Listen")],
+               ("list", "Newsletter und Listen"), ("sent", "aus einem Gesendet-Ordner"),
+               ("junk", "liegt jetzt in einem Spam-Ordner"), ("war-im-spam", "lag irgendwann in einem Spam-Ordner"),
+               ("fehlalarm", "im Spam-Ordner, laut KI aber harmlos"), ("phishing", "Phishing laut KI"),
+               ("verdächtig", "Phishing, Spam oder eine Warnung")],
+        "category": MailCategory.allCases.map { ($0.queryWord, $0.label) } + [("offen", "noch nicht eingeordnet")],
         "after": [("30d", "letzte 30 Tage"), ("1y", "letztes Jahr"), ("heute", "heute")],
         "before": [("1y", "älter als ein Jahr"), ("5y", "älter als fünf Jahre")],
         "date": [("heute", "heute"), ("gestern", "gestern")],
