@@ -6,8 +6,10 @@ eines auf einer externen Platte.
 
 ## Das erste Archiv
 
-Beim ersten Start legt MailKeeper ein **Standard-Archiv** im eigenen Ordner an. Das genügt für
-den Anfang. Willst du es woanders haben:
+Beim ersten Start legt MailKeeper ein **Standard-Archiv** in seinem eigenen Container an
+(`~/Library/Containers/de.paranoidsecurity.MailKeeper/Data/Library/Application Support/MailKeeper/Archive`).
+Das genügt zum Ausprobieren — wer auch mit `mkctl` arbeiten oder das Archiv gezielt sichern
+will, legt es besser an einem selbst gewählten Ort an:
 
 - **Ablage › Neues Archiv anlegen …** — der Ordner muss **leer** sein. („„…“ ist nicht leer. Ein
   neues Archiv braucht einen leeren Ordner.“)
@@ -19,8 +21,9 @@ Der Fenstertitel zeigt immer, in welchem Archiv du gerade bist, und die Statusle
 rechts den Pfad.
 
 > **Während ein Abruf, ein Import oder eine Aktion läuft, lässt sich das Archiv nicht
-> wechseln.** MailKeeper sagt dann, was läuft — anhalten kannst du es mit dem **×** in der
-> Statusleiste; was fertig ist, bleibt fertig.
+> wechseln.** MailKeeper sagt dann, was läuft. Eine **Aktion** kannst du mit dem **×** in der
+> Statusleiste anhalten; was fertig ist, bleibt fertig. Ein **Abruf oder Import** läuft zu Ende
+> — beide arbeiten inkrementell, ein Abbruch würde also nur Zeit kosten.
 
 ## Wo es liegen sollte
 
@@ -49,7 +52,9 @@ erreichbar. Ist das Laufwerk angeschlossen?“, wenn sie fehlt.
 ├── ai.json             KI-Einstellungen, ohne Schlüssel
 ├── saved-searches.json deine Ansichten
 ├── gold.json           deine Labels für die Messung
-└── queue.json          laufende Aktionen
+├── gold-runs.jsonl     die Ergebnisse der Messungen
+├── queue/              laufende Aktionen, eine Datei je Auftrag
+└── archive.json · .lock · tmp/
 ```
 
 Wahrheit sind **blobs** und **journal**. Alles andere lässt sich daraus wieder herstellen:

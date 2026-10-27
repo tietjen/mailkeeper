@@ -90,14 +90,20 @@ eigen, wenn er
 Dass es mehrere sein dürfen, ist kein Luxus: Ein Postfach zieht um. In TJs Archiv stehen 27 030
 Mails von einem Server und danach 7 093 von einem anderen — beide sind echt.
 
+Was dein Server sagt, fasst MailKeeper zu drei Antworten zusammen: **bestanden** bei
+`dmarc=pass`, **fehlgeschlagen** bei `dmarc=fail` oder wenn DKIM *und* SPF beide scheitern, und
+sonst **weder noch** — ein einzelnes `dkim=fail` bei bestandenem SPF ist also noch keine
+Warnung.
+
 Prüfergebnisse **jedes anderen Servers zählen nichts** und werden nicht einmal als Prüfung
 angezeigt. Auch das Modell bekommt sie nicht zu sehen: Es soll nicht in Versuchung kommen, einer
 gefälschten Zeile zu glauben.
 
-> **Was das nicht schafft.** Ein ruhendes Konto mit sehr wenigen Mails ließe sich mit genug
-> gefälschten Kopfzeilen (etwa 20) überstimmen. Der Hostname allein reicht nie — das war eine
-> frühere Lücke: Bei einem Anbieter, der gar keine solche Zeile setzt, hätten fünf gefälschte
-> genügt, um einen fremden Server zum „eigenen“ zu machen.
+> **Was das nicht schafft.** Ein ruhendes Konto mit sehr wenigen Mails lässt sich überstimmen:
+> mit **20** gefälschten Kopfzeilen, solange es unter 40 Mails hat — und mit **5**, wenn der
+> angegebene Servername zur IMAP-Domain des Kontos passt und das Konto unter 25 Mails hat. Der
+> Hostname ist also kein Freifahrtschein, aber er senkt die Hürde deutlich. (Dass er allein
+> genügte, war eine frühere Lücke; seitdem ist er nur noch das Zünglein an der Waage.)
 
 ## Links prüfen, ohne sie anzuklicken
 
@@ -110,7 +116,7 @@ wird im Text selbst:
 | nackte IP-Adresse statt eines Namens | kein seriöser Absender tut das |
 | Punycode (`xn--…`) | Buchstaben, die wie andere aussehen |
 | Kurz-URL-Dienst | versteckt das Ziel |
-| ungewöhnliches Schema | weder `https:` noch `mailto:` |
+| ungewöhnliches Schema | weder `https:`, `http:` noch `mailto:` |
 | Benutzername vor dem Host | `https://bank.de@angreifer.example` — alles vor dem `@` ist Text |
 
 Die Befunde siehst du beim Darüberfahren und im Leser, und das Modell bekommt sie als Befunde
@@ -145,7 +151,7 @@ Pro Mail läuft eine feste Prüfung — kein Modell, nur Vergleiche:
 |---|---|
 | **bekannte Beziehung** | Absender gehört zu einer bestätigten Beziehung — zusammen mit dem Urteil deines eigenen Servers |
 | **Doppelgänger** | Name oder Domain trägt den Namen einer bekannten Beziehung, kommt aber von **einer anderen Domain** |
-| **Prüfung fehlgeschlagen** | dein eigener Server sagt: DKIM oder DMARC nicht bestanden |
+| **Prüfung fehlgeschlagen** | dein eigener Server sagt: **DMARC** nicht bestanden — oder DKIM **und** SPF beide nicht |
 | **Erstkontakt** | an einer Adresse, die du als öffentlich hinterlegt hast |
 
 **Doppelgänger ist der klassische Angriff.** „Sparkasse Service“ von `sparkasse-sicherheit.example`
@@ -181,14 +187,19 @@ Jede echte Mail, die dort liegen bleibt, verschlechtert die Erkennung.
 vorher lag** (sonst in den Posteingang). Für eine einzelne Mail ist es ein Klick; für viele
 zeigt MailKeeper erst die Liste, du nimmst heraus, was doch Spam ist, und bestätigst einmal.
 
-In der Seitenleiste führt **„Laut KI kein Spam“** die Mails im Spam-Ordner auf, die das Modell
-für harmlos hält und über die noch niemand entschieden hat.
+In der Seitenleiste steht **„Spam-Prüfung“** mit der Zahl derer, die das Modell für harmlos
+hält. Klickst du darauf, erscheint über der Liste eine Leiste mit der Aufschlüsselung und den
+Knöpfen **„Laut KI kein Spam (N) …“** bzw. **„Alle zurückholen …“**, „Kein Spam“, „Ist Spam“
+und „Spam-Ordner prüfen“.
 
 ### „Ist Spam“ — die Mail gehört dorthin
 
 Der umgekehrte Weg: Die Mail wandert in den Spam-Ordner des Servers, und dein Spamfilter lernt
 mit. Nie aus Gesendet, Entwürfen, Papierkorb oder einem Spam-Ordner heraus — das wird abgelehnt,
 egal ob die Ordner über ihre Rolle oder über ihren Namen erkannt werden.
+
+Im Leser erscheint der Knopf bei einer unauffälligen Mail nicht; dort führt das **Kontextmenü**
+der Liste hin. Sichtbar wird er, sobald MailKeeper selbst etwas bemerkt hat.
 
 ### „Einschätzung korrigieren“
 

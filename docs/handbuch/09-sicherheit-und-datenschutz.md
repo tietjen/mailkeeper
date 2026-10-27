@@ -11,7 +11,7 @@ vollständig — auch dort, wo die Antwort unbequem ist.
 | Suchen, Einordnen durch Regeln, Linkprüfung | **nein**, alles lokal |
 | KI-Anfragen | zu **deinem** Endpunkt, oder nirgendwohin (Modell auf dem Mac) |
 | Einbettungen | zu deinem Endpunkt |
-| Google-Anmeldung | zu Google — die Anmeldung selbst läuft in deinem Browser |
+| Google-Anmeldung | zu Google — die Anmeldung läuft in deinem Browser; danach bei jedem Abruf eine Token-Erneuerung, beim Entfernen des Kontos der Widerruf |
 | Abmelden vom Newsletter | zum Abmeldeziel, auf deinen Klick |
 | Telemetrie, Absturzberichte, Nutzungsstatistik | **gibt es nicht** |
 
@@ -28,13 +28,16 @@ MailKeeper ohne jede KI.
 ├── index.sqlite   Suchindex, Volltext, Vektoren — neu baubar
 ├── accounts.json  Konten OHNE Geheimnisse
 ├── ai.json        KI-Einstellungen OHNE Schlüssel
-└── queue.json     laufende Aktionen
+├── queue/         laufende Aktionen, eine Datei je Auftrag
+├── gold-runs.jsonl  die Messungen
+└── archive.json · .lock · tmp/   Kennung, Sperre, Arbeitsdateien
 ```
 
 Dazu: `~/Library/Logs/MailKeeper/audit.jsonl` (Aktionen) und `ai.jsonl` (KI-Aufrufe) —
 **beide nur mit Metadaten**, keine Inhalte, keine Prompts, keine Antworten.
 
-Und der **Schlüsselbund**: Passwörter, Google-Refresh-Tokens, API-Schlüssel. Nie im Archiv.
+Und der **Schlüsselbund**: Passwörter, Google-Refresh-Tokens, das Google-Client-Secret,
+API-Schlüssel. Nie im Archiv.
 
 ### Das Archiv ist nicht verschlüsselt
 
@@ -55,16 +58,24 @@ Die ausgelieferte App läuft in Apples App-Sandbox und hat genau diese Rechte:
 
 | Recht | Wofür |
 |---|---|
-| Netz als Client | IMAP, KI-Endpunkt, Google |
-| Netz als Server | **nur** `127.0.0.1`, nur für die Sekunden der Google-Anmeldung |
-| vom Nutzer gewählte Dateien | das Archiv, Importe, Export |
+| `network.client` | IMAP, KI-Endpunkt, Google |
+| `network.server` | der Rückweg der Google-Anmeldung |
+| `files.user-selected.read-write` | das Archiv, Importe, Export |
+| `files.bookmarks.app-scope` | merkt sich das gewählte Archiv, damit es beim nächsten Start ohne neuen Dialog aufgeht |
 
 Das Server-Recht ist der einzige Zuwachs der letzten Phase und hat einen schmalen Zweck: Der
 Browser muss nach der Google-Anmeldung zurückkommen können (so sieht es der Standard für native
-Apps vor). Der Server bindet **nur** die Loopback-Adresse, nimmt genau eine Weiterleitung an —
-und zwar nur die mit der Zufallskennung dieser Anmeldung — und endet dann.
+Apps vor).
 
-**HTTP nur für `localhost` und `.ziti`.** Jeder andere KI-Endpunkt braucht HTTPS.
+**Das Recht selbst ist dabei nicht auf eine Adresse beschränkt** — die Sandbox erlaubt damit
+grundsätzlich jeden lauschenden Socket. Dass MailKeeper ausschließlich `127.0.0.1` bindet, genau
+eine Weiterleitung mit der Zufallskennung dieser Anmeldung annimmt und danach aufhört, ist
+Verhalten des Programms, keine Zusicherung des Systems. Nachlesen lässt es sich in
+`Sources/MailKeeperKit/Accounts/GoogleOAuth.swift`.
+
+**HTTP nur für `localhost` und `.ziti`.** Das prüft MailKeeper selbst und lehnt beim Sichern
+alles andere ab; Apples Transportsicherheit allein wäre großzügiger und ließe auch Klartext ins
+lokale Netz zu. Jeder andere KI-Endpunkt braucht also HTTPS.
 
 **Text aus PDFs** gewinnt ein eigener XPC-Dienst, der selbst in einer Sandbox sitzt, kein Netz
 hat und keine Dateien sieht. PDF-Parser sind historisch eine beliebte Angriffsfläche; ein
@@ -86,7 +97,9 @@ MailKeeper dagegen:
 - **Zeitversetzt gilt dasselbe:** Was aus Mailinhalten gelernt wird, ist als abgeleitet
   gekennzeichnet, wird nie von selbst zur Regel und darf die Vorsicht nur erhöhen.
 
-In Tests mit Injektionsproben wurde keine befolgt.
+In den Proben mit dem Endpunkt (Stand 2026-10-13) wurde keine Injektion befolgt. Das Modell
+auf dem Mac ist anfälliger: Vor dem Entfernen der Aufforderungen folgte es in einer früheren
+Messung zweien von ihnen.
 
 ## Enge Zugriffsrechte auf dem Server
 
@@ -122,10 +135,12 @@ Ehrlich aufgezählt, weil ein falsches Sicherheitsgefühl schlimmer ist als kein
 - **Das Archiv verschlüsselt sich nicht selbst** (siehe oben).
 - **Ein ruhendes Konto mit sehr wenigen Mails** ließe sich mit genügend gefälschten
   `Authentication-Results`-Kopfzeilen dazu bringen, einen fremden Server für den eigenen zu
-  halten (siehe [Kapitel 6](06-spam-und-phishing.md)).
-- **Die KI irrt.** Gemessen am Gold-Set erkennt der Endpunkt-Weg 30 von 32 Arten richtig, das
-  Mac-Modell 26. Eine Einordnung ist ein Hinweis, kein Urteil — deshalb löscht auch nie etwas
-  deswegen.
+  halten: **20** solcher Kopfzeilen, solange das Konto unter 40 Mails hat — oder nur **5**, wenn
+  der angegebene Servername zur IMAP-Domain des Kontos passt und das Konto unter 25 Mails hat
+  (siehe [Kapitel 6](06-spam-und-phishing.md)).
+- **Die KI irrt.** Gemessen am Gold-Set trifft der Endpunkt-Weg 30 von 32 Arten, das Mac-Modell
+  27 — und bei Phishing 7 von 7 gegenüber 4 von 7. Eine Einordnung ist ein Hinweis, kein Urteil
+  — deshalb löscht auch nie etwas deswegen.
 - **Kein Virenscanner.** MailKeeper prüft Links und Kopfzeilen, nicht Anhänge auf Schadcode.
 - **Endgültig gelöscht ist endgültig.** Nach dem Archiv-Papierkorb (30 Tage) ist eine Mail weg,
   wenn kein Backup sie hat.

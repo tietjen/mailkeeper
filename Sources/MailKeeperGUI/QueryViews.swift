@@ -125,7 +125,7 @@ struct QueryHelp: View {
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text("Deutsch geht auch: von: an: betreff: text: anhang: datei: absender: hat: ist: art: ab: seit: vor: bis: datum: konto: ordner: in: liste: auf: nur: größer: kleiner: konversation: anhangtext:")
-                Text("Umlaute und ß sind egal (mueller findet Müller). Ein Tippfehler in einem Feldwert bricht die Suche ab – damit er eine Trefferliste nie vergrößert.")
+                Text("Umlaute und ß sind egal (mueller findet Müller) – außer bei den exakten Feldern sender: domain: konto: ordner: label: listid:, wo nur Groß/klein egal ist. Ein Tippfehler in einem Feldwert bricht die Suche ab – damit er eine Trefferliste nie vergrößert.")
             }
             .font(.caption)
             .foregroundStyle(.secondary)

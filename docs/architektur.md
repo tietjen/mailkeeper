@@ -65,7 +65,7 @@ flowchart LR
         B["<b>blobs/</b><br/>aa/bb/&lt;sha256&gt;.eml<br/><i>die Mails, Byte für Byte</i>"]
         J["<b>journal/</b><br/>&lt;konto&gt;/&lt;jjjj-mm&gt;.jsonl<br/><i>alles, was nicht in den Bytes steht</i>"]
         I["<b>index.sqlite</b><br/><i>Projektion, neu baubar</i>"]
-        A["accounts.json · queue.json · ai.json"]
+        A["accounts.json · ai.json · queue/"]
     end
     B --> I
     J --> I
@@ -114,7 +114,8 @@ wird.
 
 Abgerufen wird inkrementell ab der höchsten bekannten UID. Wechselt die UIDVALIDITY, wird der
 Ordner neu eingelesen. Verschwundene Mails werden als „nicht mehr auf dem Server“ vermerkt, nicht
-gelöscht. Abbrechen ist jederzeit möglich; der nächste Lauf macht weiter.
+gelöscht. Ein laufender Abruf lässt sich in der App nicht anhalten — er arbeitet inkrementell, der
+nächste Lauf macht ohnehin weiter; im Terminal beendet Ctrl-C ein `mkctl sync`.
 
 **Was ein Konto abruft**, bestimmt seine Auswahl: eine Positivliste von Ordnern (`include`),
 Ausschlüsse, und ob der Spam-Ordner mitgelesen wird. Papierkorb und Spam bleiben sonst außen
@@ -136,7 +137,7 @@ Platte — ein Absturz mittendrin verliert nichts, der Auftrag lässt sich forts
 
 **Vor dem Löschen auf dem Server** müssen alle Bedingungen gelten: geprüfter Blob vorhanden ·
 der Ort stimmt noch (UIDVALIDITY unverändert, Message-ID unmittelbar vorher für diese UID neu
-geholt) · die Mail ist älter als die **Schonfrist** des Kontos (Standard 30 Tage) · sie ist
+geholt) · die Mail ist älter als die **Schonfrist**, die im Plan-Blatt für diesen Lauf gilt (Standard 30 Tage) · sie ist
 nicht geschützt. Gelöscht heißt: verschieben in den Papierkorb des Servers. Endgültig löschen
 ist eine eigene, ausdrückliche Entscheidung.
 
@@ -156,7 +157,7 @@ möglich:
 | `restore` | `APPEND` in einen vorhandenen Ordner, Labels nur auf selbst Hochgeladenes |
 | `rescueFromJunk` | aus dem Spam-Ordner heraus an *ein* geprüftes Ziel |
 | `markAsJunk` | aus einem gewöhnlichen Ordner in den Spam-Ordner |
-| `moveToFolder` | „Ablage ändern“: in *einen* geprüften Ordner, nie aus Papierkorb/Gesendet/Entwürfen |
+| `moveToFolder` | „Ablage ändern“: in *einen* geprüften Ordner, nie aus Papierkorb, Gesendet, Entwürfen oder „Alle Nachrichten“ |
 
 ## Suchen
 
@@ -251,8 +252,10 @@ hineinschreiben** — auch der Absender selbst. Sie ist nur dann etwas wert, wen
 sie geschrieben hat, denn nur er hat tatsächlich geprüft.
 
 MailKeeper lernt deshalb pro Konto, welche Server die eigenen sind: einer, der mindestens die
-Hälfte aller eingehenden Mails des Kontos gestempelt hat, im letzten Jahr oder überhaupt — oder
-ein Fünftel, wenn sein Hostname zur IMAP-Domain des Kontos passt. Ergebnisse von jedem anderen
+Hälfte aller eingehenden Mails des Kontos gestempelt hat (mindestens 20), im letzten Jahr oder
+überhaupt — oder ein Fünftel (mindestens 5), wenn sein Hostname zur IMAP-Domain des Kontos
+passt. Ein Server, der in einem anderen Konto schon als eigen gilt, zählt hier ab einem
+Viertel. Ergebnisse von jedem anderen
 Server zählen **nichts** und werden auch nicht als Prüfung angezeigt.
 
 > Beim Review fiel auf, dass eine frühere Fassung nur Mails *mit* dieser Kopfzeile gezählt hat.
@@ -313,9 +316,9 @@ welche Beispiele, welches Absenderprofil. Jeder Eintrag lässt sich dort direkt 
 
 | | |
 |---|---|
-| **Sandbox** | Die ausgelieferte App läuft in der App-Sandbox. Rechte: Netz als Client, ein Server-Socket nur auf `127.0.0.1` für die Google-Anmeldung, vom Nutzer gewählte Dateien. |
+| **Sandbox** | Die ausgelieferte App läuft in der App-Sandbox. Vier Rechte: Netz als Client, Netz als Server (für den Rückweg der Google-Anmeldung — das Recht selbst ist nicht auf eine Adresse beschränkt, MailKeeper bindet aber nur `127.0.0.1`), vom Nutzer gewählte Dateien und app-bezogene Lesezeichen für das gewählte Archiv. |
 | **Schlüsselbund** | Passwörter, Refresh-Tokens und API-Schlüssel liegen im Schlüsselbund, nie im Archiv. Schlüssel ist die Postfach-Identität, damit zwei Archive desselben Postfachs sich einen Eintrag teilen. |
-| **ATS** | HTTP nur für `localhost` und `.ziti`; bei einem nicht-lokalen Endpunkt warnt MailKeeper. |
+| **ATS** | MailKeeper selbst lässt HTTP nur für `localhost`, `127.0.0.1`, `::1`, `*.localhost` und `*.ziti` zu und lehnt beim Sichern alles andere ab; Apples Transportsicherheit erlaubt darüber hinaus Klartext ins lokale Netz. Bei einem nicht-lokalen Endpunkt warnt MailKeeper. |
 | **PDF-Text** | Text aus Anhängen wird in einem eigenen XPC-Dienst gewonnen, der in der Sandbox sitzt, kein Netz hat und keine Dateien sieht (ADR-0009) — PDF-Parser sind historisch eine beliebte Angriffsfläche. |
 | **Protokolle** | `~/Library/Logs/MailKeeper/audit.jsonl` (Aktionen) und `ai.jsonl` (KI-Aufrufe) enthalten nur Metadaten — keine Inhalte, keine Prompts, keine Antworten. |
 

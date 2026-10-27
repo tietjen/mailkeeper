@@ -18,6 +18,13 @@ export MAILKEEPER_ARCHIVE=~/MeinArchiv    # für die Sitzung
 Ohne beides: `~/Library/Application Support/MailKeeper/Archive`. Die Reihenfolge der Argumente
 ist egal — `mkctl search rechnung --archive ~/X` geht auch.
 
+> **Achtung:** Das ist **nicht** das Standard-Archiv der App. Die läuft in einer Sandbox und legt
+> ihres in ihrem Container ab
+> (`~/Library/Containers/de.paranoidsecurity.MailKeeper/Data/Library/Application Support/…`).
+> Wer beide Wege nutzt, legt das Archiv an einen selbst gewählten Ort und gibt `--archive`
+> immer mit — sonst prüft `mkctl verify` ein leeres Archiv und meldet brav, dass alles in
+> Ordnung ist.
+
 Ein Archiv **anlegen** können nur `init`, `import` und `account add`; alles andere erwartet ein
 vorhandenes. Fehler gehen nach stderr (`mkctl: …`), der Rückgabewert ist dann 1.
 
@@ -163,7 +170,8 @@ mkctl rebuild-index    # Index aus blobs + journal neu; 1 bei fehlenden Dateien
 ## Was nur die App kann
 
 Gespeicherte Ansichten anlegen und löschen, Mails fürs Gold-Set labeln, Beziehungen bestätigen,
-Regeln annehmen, „Ablage ändern“, „Kein Spam“/„Ist Spam“ und das Abmelden. `mkctl` zeigt
+Regeln annehmen, „Ablage ändern“, „Art ändern“, „Kein Spam“/„Ist Spam“, das Abmelden sowie
+alles rund um den Archiv-Papierkorb (löschen, wiederherstellen, leeren). `mkctl` zeigt
 Vorschläge und Zustände, entscheidet aber nicht.
 
 ## Ein Beispiel: nächtliche Sicherung

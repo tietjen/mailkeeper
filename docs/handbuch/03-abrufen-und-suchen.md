@@ -146,7 +146,8 @@ Zwei Fälle, mit Absicht verschieden:
 - **Unbekanntes Wort vor einem Doppelpunkt** = gewöhnlicher Suchtext. `re:hallo` sucht nach
   „re:hallo“, `https://x.de` nach dem Link.
 - **Bekanntes Feld mit ungültigem Wert** = Fehler, und die Suche läuft **nicht**. `hat:video`
-  sagt dir, dass es nur `anhang`, `pdf`, `bild` oder `kalender` gibt.
+  sagt dir, dass es nur `attachment`, `pdf`, `image` oder `calendar` gibt — die deutschen
+  Wörter `anhang`, `bild` und `kalender` versteht es genauso.
 
 Der Grund für die Strenge: Auf einer Treffermenge wird manchmal gelöscht. Ein Tippfehler darf
 sie nie *größer* machen.

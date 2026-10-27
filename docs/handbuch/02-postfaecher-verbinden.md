@@ -10,10 +10,11 @@ Dieses Kapitel zeigt für jede Art, was zu tun ist — und was MailKeeper dabei 
 > ([Kapitel 7](07-aufraeumen.md)).
 
 Konten verwaltest du unter **Einstellungen › Konten**. Jedes Konto hat ein **Kürzel**
-(Kleinbuchstaben, Ziffern, `-` und `_`), das im Archiv die Ordner benennt — es lässt sich
+(Kleinbuchstaben, Ziffern, `-` und `_`, höchstens 40 Zeichen), das im Archiv die Ordner benennt — es lässt sich
 später nicht ändern, also wähle es mit Bedacht: `gmail-privat`, `arbeit`, `proton`.
 
-Passwörter und Anmeldungen liegen im **Schlüsselbund**, nie im Archiv. Der Eintrag gehört zur
+Passwörter, Google-Anmeldungen und das Google-Client-Secret liegen im **Schlüsselbund**, nie im
+Archiv. Der Eintrag gehört zur
 Postfach-Identität (`adresse@host:port`), nicht zum Archiv — zwei Archive desselben Postfachs
 teilen sich also einen Eintrag.
 
@@ -93,7 +94,10 @@ angefasst.
 
 ## Vorhandene Archive einlesen
 
-Ohne Server, über die Kommandozeile:
+In der App unter **Ablage › Importieren**: „Maildir-Ordner …“, „mbox-Datei (auch Google
+Takeout) …“ oder „Ordner mit .eml-Dateien …“. Dasselbe Menü liegt in der Symbolleiste.
+
+Auf der Kommandozeile, mit mehr Einfluss auf die Zuordnung:
 
 ```bash
 mkctl --archive ~/MailKeeperArchive import maildir ~/MailArchive --account alt

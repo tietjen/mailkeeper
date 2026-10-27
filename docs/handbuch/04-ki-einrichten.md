@@ -23,9 +23,11 @@ Läuft der Endpunkt auf einem anderen Rechner — deinem Server im Keller, einem
 Arbeitszimmer —, verlassen die Anfragen diesen Mac und gehen dorthin. Steht er im Internet,
 warnt MailKeeper. Wählst du nur „dieser Mac“, bleibt alles hier.
 
-**Was in einer Anfrage steht:** Betreff, Absender, einige Kopfzeilen, die Link-Befunde und ein
-begrenzter Auszug des Textes — bei Zusammenfassungen mehr (bis 24 000 Zeichen am Endpunkt,
-kompakte 5 000 für das Mac-Modell). **Nicht** enthalten sind Anhänge.
+**Was in einer Anfrage steht:** Betreff, Absender, einige Kopfzeilen, die **Namen** der Anhänge,
+die Link-Befunde und ein begrenzter Auszug des Textes — bei Zusammenfassungen mehr (bis 24 000
+Zeichen am Endpunkt, kompakte 5 000 für das Mac-Modell). Beim Einordnen kommen die Dinge dazu,
+die MailKeeper selbst weiß: deine Notizen, passende Beispiele, das Absenderprofil und das
+Ergebnis der Echtheitsprüfung. **Der Inhalt von Anhängen geht nie mit.**
 
 **Was protokolliert wird:** `~/Library/Logs/MailKeeper/ai.jsonl` hält fest, *dass* eine Anfrage
 lief — Aufgabe, Weg, Modell, Sekunden, Tokens, Ergebnis. **Nie der Prompt und nie die Antwort.**
@@ -37,12 +39,13 @@ Schlüssel liegt im Schlüsselbund.
 
 | Feld | Bedeutung |
 |---|---|
-| **Aktiv** | ohne Haken fragt MailKeeper nie ein Modell |
-| **Endpunkt** | Basis-Adresse der OpenAI-kompatiblen Schnittstelle, z. B. `http://127.0.0.1:11434/v1` |
-| **Schlüssel** | falls dein Dienst einen verlangt (LiteLLM: Virtual Key); landet im Schlüsselbund |
-| **Modell je Aufgabe** | Alias pro Aufgabe; leer = `llm-fast`, für Einbettungen `embedding` |
-| **Auf diesem Mac, wenn der Endpunkt fehlt** | Apples Modell als Ausweichweg |
-| **Zeitlimit** | Sekunden je Anfrage (Standard 120) |
+| **KI-Funktionen verwenden** | ohne Haken fragt MailKeeper nie ein Modell |
+| **Adresse** | Basis-Adresse der OpenAI-kompatiblen Schnittstelle, z. B. `http://127.0.0.1:11434/v1` |
+| **API-Schlüssel** | falls dein Dienst einen verlangt (LiteLLM: Virtual Key); landet im Schlüsselbund |
+| **Modell je Aufgabe** | vier Felder: Suche in Alltagssprache, Einordnen, Zusammenfassen, Embeddings; leer = `llm-fast`, für Embeddings `embedding` |
+| **Modell auf diesem Mac verwenden, wenn der Endpoint fehlt oder nicht antwortet** | Apples Modell als Ausweichweg |
+
+Das Zeitlimit je Anfrage (120 Sekunden) steht nicht in der Oberfläche, sondern in `ai.json`.
 
 Es gibt fünf Aufgaben mit eigenem Modell-Alias: **search** (Alltagssprache → Suchanfrage),
 **classify** (Art einer Mail), **summarize** (Zusammenfassung), **embed** (Vektoren für die
@@ -74,8 +77,10 @@ Server starten (Standardport 1234), ein Instruct-Modell und ein Embedding-Modell
 LiteLLM ist ein Gateway vor mehreren Modellen und vergibt Aliasse. Endpunkt ist die Basis-URL
 mit `/v1`, der Schlüssel ein Virtual Key, die Modellnamen sind deine Aliasse (etwa `llm-fast`).
 
-> **HTTP statt HTTPS** erlaubt MailKeeper nur für `localhost` und `.ziti`-Namen — das ist eine
-> Einstellung der App-Transportsicherheit und mit Absicht eng. Alles andere braucht HTTPS.
+> **HTTP statt HTTPS** erlaubt MailKeeper nur für `localhost`, `127.0.0.1`, `::1`,
+> `*.localhost` und `*.ziti`. Das ist MailKeepers eigene Prüfung beim Sichern — Apples
+> Transportsicherheit wäre großzügiger und ließe auch Klartext ins lokale Netz. Alles andere
+> braucht HTTPS.
 
 Zum Schluss **Verbindung testen**. Der Test sagt, welcher Weg geantwortet hat.
 
@@ -84,13 +89,16 @@ Zum Schluss **Verbindung testen**. Der Test sagt, welcher Weg geantwortet hat.
 Ohne Endpunkt reicht **Auf diesem Mac**. Apples Modell läuft auf dem Gerät, ist deutlich
 kleiner und entsprechend schwächer — in der Messung gegen ein Gold-Set aus 32 Mails:
 
-| | richtig eingeordnet | Phishing erkannt | Dauer |
-|---|---|---|---|
-| Endpunkt (`llm-fast`) | 30 von 32 | 7 von 7 | 159 s |
-| Dieser Mac | 26 von 32 | 4 von 7 | 63 s |
+| | Art richtig | Phishing erkannt | Fehlalarme | Dauer |
+|---|---|---|---|---|
+| Endpunkt (`llm-fast`) | 30 von 32 | 7 von 7 | 0 | 158 s |
+| Dieser Mac | 27 von 32 | 4 von 7 | 1 | 63 s |
 
-Das Mac-Modell ist schneller und findet trotzdem die Hälfte der Phishing-Versuche; bei den
-Arten verwechselt es öfter etwas. **Für Einbettungen taugt es nicht** — die Bedeutungssuche und
+Zählt man Art **und** Phishing zusammen als richtig, sind es 30 gegenüber 25 von 32.
+
+Das Mac-Modell ist mehr als doppelt so schnell und trifft die Art fast genauso oft; beim
+Phishing lässt es gut die Hälfte durch. Genau dafür ist es die Rückfallebene und nicht die
+erste Wahl. **Für Einbettungen taugt es nicht** — die Bedeutungssuche und
 die Stufe „ähnliche Mails“ brauchen einen Endpunkt.
 
 ## Wie MailKeeper zwischen beiden wählt
@@ -148,7 +156,7 @@ Die Grenze ist nicht Geschmackssache, sondern eingebaut:
 ## Prüfen, ob es etwas taugt
 
 MailKeeper bringt einen **Gold-Lauf** mit: eine Menge Mails mit bekannter richtiger Antwort.
-Unter Einstellungen › Gold-Set labelst du Mails selbst, und ein Lauf misst, wie gut die aktuelle
+Unter Einstellungen › **Messung** labelst du Mails selbst, und ein Lauf misst, wie gut die aktuelle
 Einrichtung sie trifft — richtige Art, erkanntes Phishing, Fehlalarme, Dauer.
 
 Das lohnt sich nach jedem Wechsel des Modells oder des Endpunkts. Ein Prompt, der sich für ein

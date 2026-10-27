@@ -56,7 +56,8 @@ Das Archiv behält alles.
 
 ### Auf dem Server löschen
 
-Aus dem Kontextmenü, dem Menü **Mails**, oder für eine ganze Gruppe über **Aufräumen …**.
+Aus dem Kontextmenü der Liste, dem Menü **Bearbeiten**, oder für eine ganze Gruppe über
+**Aufräumen …**.
 
 Es öffnet sich der **Plan**: wie viele Mails, wie groß, je Konto aufgeschlüsselt, mit Beispielen
 — und was **übersprungen** wird und warum. Erst dein Klick auf **Ausführen** startet etwas.
