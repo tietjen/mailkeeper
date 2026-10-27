@@ -24,9 +24,19 @@ public struct AccountConfig: Codable, Sendable, Equatable, Identifiable {
         /// wants one, lives in the keychain beside the refresh token.
         public var clientID: String?
 
+        /// A pasted client id often carries a space or a newline; stored raw it would break
+        /// every later refresh with `invalid_client`, and signing in again would store it again
+        /// (review 7.1 S1). Empty means: the client the app ships with.
         public init(provider: Provider = .google, clientID: String?) {
             self.provider = provider
-            self.clientID = clientID
+            let trimmed = clientID?.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.clientID = (trimmed?.isEmpty ?? true) ? nil : trimmed
+        }
+
+        public init(from decoder: Decoder) throws {
+            let box = try decoder.container(keyedBy: CodingKeys.self)
+            self.init(provider: try box.decode(Provider.self, forKey: .provider),
+                      clientID: try box.decodeIfPresent(String.self, forKey: .clientID))
         }
     }
 
@@ -233,7 +243,7 @@ public struct CredentialStore: Sendable {
     }
 
     public func saveClientSecret(_ secret: String, for account: AccountConfig) throws {
-        try saveSecret(secret, key: Self.clientSecretKey(for: account),
+        try saveSecret(secret.trimmingCharacters(in: .whitespacesAndNewlines), key: Self.clientSecretKey(for: account),
                        label: "MailKeeper – \(account.displayName)", description: "Google-Client-Secret (MailKeeper)")
     }
 

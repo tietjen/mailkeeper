@@ -770,7 +770,13 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         guard Self.isReadOnly(command) || Self.isAllowedChange(command, access: access, trash: trash, inbox: rescueTarget, junk: junk) else {
             throw IMAPError.readOnlyViolation(Self.name(of: command))
         }
-        return try await perform(name: Self.name(of: command), isLogin: { if case .login = command { true } else { false } }(),
+        // LOGIN and AUTHENTICATE both say "Anmeldung abgelehnt", not "… abgelehnt" (review 7.1 S6):
+        // the caller branches on .authentication to sign in again.
+        let isLogin = switch command {
+        case .login, .authenticate: true
+        default: false
+        }
+        return try await perform(name: Self.name(of: command), isLogin: isLogin,
                                  failure: failure) { tag in [.tagged(TaggedCommand(tag: tag, command: command))] }
     }
 

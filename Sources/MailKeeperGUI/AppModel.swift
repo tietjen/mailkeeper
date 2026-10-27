@@ -2619,12 +2619,17 @@ final class AppModel {
     func signIn(_ id: String, clientID: String, clientSecret: String?, tokens: OAuthTokens) throws {
         guard let layout = reader?.layout, var account = accountConfigs.first(where: { $0.id == id }) else { return }
         guard let refresh = tokens.refreshToken else { throw OAuthError.noRefreshToken(id) }
-        account.oauth = AccountConfig.OAuth(clientID: clientID)
+        // the sign-in that is being replaced is handed back to Google, so no grant piles up
+        let replaced = account.oauth == nil ? nil : try? credentials.refreshToken(for: account)
+        account.oauth = AccountConfig.OAuth(clientID: OAuthTokens2Go.storedClientID(clientID))
         if let clientSecret, !clientSecret.isEmpty { try credentials.saveClientSecret(clientSecret, for: account) }
         try credentials.saveRefreshToken(refresh, for: account)
         try AccountStore(layout: layout).update(account)
         let signedIn = account
-        Task { await OAuthTokens2Go.shared.remember(tokens, for: signedIn) }
+        Task { [replaced] in
+            await OAuthTokens2Go.shared.remember(tokens, for: signedIn)
+            if let replaced, replaced != refresh { await GoogleOAuth.revoke(replaced) }
+        }
         reloadAccounts(layout)
     }
 
@@ -2634,7 +2639,27 @@ final class AppModel {
         guard let layout = reader?.layout, let account = accountConfigs.first(where: { $0.id == id }) else { return }
         try? AccountStore(layout: layout).remove(id)
         let stillUsed = accountConfigs.contains { $0.id != id && CredentialStore.key(for: $0) == CredentialStore.key(for: account) }
-        if deletePassword, !stillUsed { try? credentials.delete(for: account) }
+        if deletePassword, !stillUsed {
+            // a Google sign-in is told to Google as well, or it would stay listed there (7.1)
+            let token = account.oauth == nil ? nil : try? credentials.refreshToken(for: account)
+            try? credentials.delete(for: account)
+            Task { [account] in
+                await OAuthTokens2Go.shared.forget(account)
+                if let token { await GoogleOAuth.revoke(token) }
+            }
+        }
+        reloadAccounts(layout)
+    }
+
+    /// Back from the Google sign-in to an app password. The refresh token stays in the keychain
+    /// — another archive may use the same mailbox, and Google is where a sign-in is revoked.
+    func usePassword(_ id: String, password: String) throws {
+        guard let layout = reader?.layout, var account = accountConfigs.first(where: { $0.id == id }) else { return }
+        account.oauth = nil
+        try credentials.save(password, for: account)
+        try AccountStore(layout: layout).update(account)
+        let changed = account
+        Task { await OAuthTokens2Go.shared.forget(changed) }
         reloadAccounts(layout)
     }
 

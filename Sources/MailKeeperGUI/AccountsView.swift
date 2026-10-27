@@ -9,6 +9,7 @@ struct AccountsSettings: View {
     @State private var adding = false
     @State private var removing: AccountConfig?
     @State private var signingIn: AccountConfig?
+    @State private var toPassword: AccountConfig?
     @State private var message: String?
 
     var body: some View {
@@ -52,6 +53,10 @@ struct AccountsSettings: View {
                         .help(gmail.oauth == nil
                               ? "Statt des App-Passworts mit Google anmelden. Das Konto behält seine Kennung und sein Archiv."
                               : "Die Anmeldung bei Google erneuern (nach Passwortwechsel, Entzug oder abgelaufenem Zugriff)")
+                    if gmail.oauth != nil {
+                        Button("App-Passwort …") { toPassword = gmail }
+                            .help("Wieder mit einem App-Passwort anmelden — der Weg zurück, falls die Google-Anmeldung nicht mehr geht")
+                    }
                 }
                 Spacer()
                 Button("Verbindung testen") {
@@ -72,16 +77,20 @@ struct AccountsSettings: View {
         .frame(width: 560, height: 380)
         .sheet(isPresented: $adding) { AddAccountSheet(model: model) }
         .sheet(item: $signingIn) { account in GoogleSignInSheet(model: model, account: account) }
+        .sheet(item: $toPassword) { account in UsePasswordSheet(model: model, account: account) }
         .confirmationDialog("Konto „\(removing.map { DisplayText.safe($0.displayName) } ?? "")“ entfernen?",
                             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
-            Button("Entfernen und Passwort löschen", role: .destructive) {
+            Button(removing?.oauth == nil ? "Entfernen und Passwort löschen" : "Entfernen und Google-Anmeldung widerrufen",
+                   role: .destructive) {
                 if let r = removing { model.removeAccount(r.id, deletePassword: true); selection = nil }
             }
-            Button("Entfernen, Passwort behalten") {
+            Button(removing?.oauth == nil ? "Entfernen, Passwort behalten" : "Entfernen, angemeldet bleiben") {
                 if let r = removing { model.removeAccount(r.id, deletePassword: false); selection = nil }
             }
         } message: {
-            Text("Archivierte Mails bleiben erhalten. Das Passwort im Schlüsselbund gilt auch für andere Archive, die dieses Postfach abrufen.")
+            Text(removing?.oauth == nil
+                 ? "Archivierte Mails bleiben erhalten. Das Passwort im Schlüsselbund gilt auch für andere Archive, die dieses Postfach abrufen."
+                 : "Archivierte Mails bleiben erhalten. Widerrufen meldet die Anmeldung auch bei Google ab — das gilt für jedes Archiv, das dieses Postfach mit dieser Anmeldung abruft.")
         }
     }
 
@@ -112,7 +121,8 @@ struct GoogleClientFields: View {
             SecureField("Client-Secret", text: $clientSecret, prompt: Text("falls dein Client eines hat"))
             HStack {
                 Button(signedIn == nil ? "Mit Google anmelden …" : "Erneut anmelden …", action: signIn)
-                    .disabled(working || !GoogleOAuth.isPlausibleClientID(clientID))
+                    .disabled(working || !(GoogleOAuth.isPlausibleClientID(clientID)
+                                           || (clientID.isEmpty && GoogleOAuth.builtInClient != nil)))
                 if working { ProgressView().controlSize(.small) }
                 if let mail = signedIn?.email {
                     Label("angemeldet als \(DisplayText.safe(mail))", systemImage: "checkmark.circle")
@@ -138,6 +148,8 @@ struct GoogleSignInSheet: View {
     @State private var tokens: OAuthTokens?
     @State private var working = false
     @State private var error: String?
+    @State private var signingIn: Task<Void, Never>?
+    @State private var check: ConnectionCheck?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -147,18 +159,22 @@ struct GoogleSignInSheet: View {
                 .font(.callout).foregroundStyle(.secondary)
             Form {
                 GoogleClientFields(clientID: $clientID, clientSecret: $clientSecret, address: account.username,
-                                   signedIn: tokens, working: working) { Task { await run() } }
+                                   signedIn: tokens, working: working) { signingIn = Task { await run() } }
             }
             .formStyle(.grouped)
             if account.oauth == nil {
                 Text("Das App-Passwort bleibt im Schlüsselbund — MailKeeper benutzt es danach nicht mehr. Du kannst es bei Google widerrufen.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
+            if let check {
+                Label("Verbindung ok — abgerufen werden \(check.selected.count) von \(check.mailboxes.count) Postfächern",
+                      systemImage: "checkmark.circle").font(.callout).foregroundStyle(.green)
+            }
             if let error { Text(DisplayText.safe(error)).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
             HStack {
                 Spacer()
-                Button("Abbrechen") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Übernehmen") { save() }.keyboardShortcut(.defaultAction).disabled(tokens == nil)
+                Button("Abbrechen") { cancel(); dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Übernehmen") { save() }.keyboardShortcut(.defaultAction).disabled(check == nil)
             }
         }
         .padding(20)
@@ -166,6 +182,102 @@ struct GoogleSignInSheet: View {
         .onAppear {
             clientID = account.oauth?.clientID ?? GoogleOAuth.builtInClient?.id ?? ""
         }
+        .onDisappear { cancel() }
+    }
+
+    /// A sign-in nobody waits for any more is stopped, and a token that was fetched but never
+    /// saved is handed back to Google — else a grant would linger there (review 7.1 S4/S5).
+    private func cancel() {
+        signingIn?.cancel()
+        signingIn = nil
+        if let spare = tokens?.refreshToken {
+            tokens = nil
+            Task { await GoogleOAuth.revoke(spare) }
+        }
+    }
+
+    private func run() async {
+        working = true
+        error = nil
+        check = nil
+        defer { working = false }
+        do {
+            let client = OAuthTokens2Go.clientForSignIn(typedID: clientID, typedSecret: clientSecret, account: account)
+            guard let client else { throw OAuthError.notConfigured(account.id) }
+            let signedIn = try await GoogleSignIn.run(client: client, loginHint: account.username)
+            if let mail = signedIn.email, !GoogleOAuth.sameMailbox(mail, account.username) {
+                error = String(localized: "Angemeldet als \(DisplayText.safe(mail)) – das Konto ist \(DisplayText.safe(account.username)). Melde dich mit derselben Adresse an.")
+                if let spare = signedIn.refreshToken { await GoogleOAuth.revoke(spare) }
+                return
+            }
+            tokens = signedIn
+            // the same proof the "add" sheet asks for: does Gmail let this token in? (review 7.1 C)
+            check = try await SyncCoordinator.check(account, credential: .oauth2(accessToken: signedIn.accessToken))
+        } catch {
+            self.error = "\(error)"
+        }
+    }
+
+    private func save() {
+        guard let tokens, check != nil else { return }
+        do {
+            try model.signIn(account.id, clientID: clientID, clientSecret: clientSecret, tokens: tokens)
+            self.tokens = nil  // saved: cancel() must not revoke it
+            dismiss()
+        } catch {
+            self.error = "\(error)"
+        }
+    }
+}
+
+/// The way back from the Google sign-in to an app password (review 7.1): checked against the
+/// server first, so nobody ends up with a account that can no longer fetch anything.
+struct UsePasswordSheet: View {
+    let model: AppModel
+    let account: AccountConfig
+    @Environment(\.dismiss) private var dismiss
+    @State private var password = ""
+    @State private var check: ConnectionCheck?
+    @State private var working = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Wieder mit App-Passwort anmelden").font(.title3.weight(.semibold))
+            Text("Konto „\(DisplayText.safe(account.displayName))“ (\(DisplayText.safe(account.username)))")
+                .font(.callout).foregroundStyle(.secondary)
+            Form {
+                SecureField("App-Passwort", text: $password)
+                Text("Google-Konto › Sicherheit › 2-Schritt-Verifizierung › App-Passwörter. Die Google-Anmeldung bleibt im Schlüsselbund stehen — ein anderes Archiv könnte sie noch nutzen; widerrufen wird sie bei Google unter „Verbundene Apps“.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            .formStyle(.grouped)
+            if let check {
+                Label("Verbindung ok — abgerufen werden \(check.selected.count) von \(check.mailboxes.count) Postfächern",
+                      systemImage: "checkmark.circle").font(.callout).foregroundStyle(.green)
+            }
+            if let error { Text(DisplayText.safe(error)).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
+            HStack {
+                if working { ProgressView().controlSize(.small) }
+                Spacer()
+                Button("Abbrechen") { dismiss() }.keyboardShortcut(.cancelAction)
+                if check == nil {
+                    Button("Verbinden und prüfen") { Task { await run() } }
+                        .keyboardShortcut(.defaultAction).disabled(working || password.isEmpty)
+                } else {
+                    Button("Übernehmen") { save() }.keyboardShortcut(.defaultAction)
+                }
+            }
+        }
+        .padding(20)
+        .frame(width: 520)
+        .onChange(of: password) { check = nil }
+    }
+
+    private var withPassword: AccountConfig {
+        var c = account
+        c.oauth = nil
+        return c
     }
 
     private func run() async {
@@ -173,20 +285,15 @@ struct GoogleSignInSheet: View {
         error = nil
         defer { working = false }
         do {
-            tokens = try await GoogleSignIn.run(clientID: clientID, clientSecret: clientSecret, loginHint: account.username)
+            check = try await SyncCoordinator.check(withPassword, password: password)
         } catch {
             self.error = "\(error)"
         }
     }
 
     private func save() {
-        guard let tokens else { return }
-        if let mail = tokens.email, mail.lowercased() != account.username.lowercased() {
-            error = String(localized: "Angemeldet als \(DisplayText.safe(mail)) – das Konto ist \(DisplayText.safe(account.username)). Melde dich mit derselben Adresse an.")
-            return
-        }
         do {
-            try model.signIn(account.id, clientID: clientID, clientSecret: clientSecret, tokens: tokens)
+            try model.usePassword(account.id, password: password)
             dismiss()
         } catch {
             self.error = "\(error)"
@@ -196,10 +303,8 @@ struct GoogleSignInSheet: View {
 
 /// Runs the browser sign-in from the GUI.
 enum GoogleSignIn {
-    static func run(clientID: String, clientSecret: String, loginHint: String) async throws -> OAuthTokens {
-        try await GoogleOAuth.signIn(clientID: clientID.trimmingCharacters(in: .whitespacesAndNewlines),
-                                     clientSecret: clientSecret.isEmpty ? nil : clientSecret,
-                                     loginHint: loginHint) { url in
+    static func run(client: (id: String, secret: String?), loginHint: String) async throws -> OAuthTokens {
+        try await GoogleOAuth.signIn(clientID: client.id, clientSecret: client.secret, loginHint: loginHint) { url in
             NSWorkspace.shared.open(url)
         }
     }
@@ -227,6 +332,7 @@ struct AddAccountSheet: View {
     @State private var trusted = false
     @State private var working = false
     @State private var error: String?
+    @State private var signingIn: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -260,7 +366,9 @@ struct AddAccountSheet: View {
                 TextField("Nur diese Ordner", text: $include, prompt: Text("optional, kommagetrennt"))
                 if google {
                     GoogleClientFields(clientID: $clientID, clientSecret: $clientSecret, address: user,
-                                       signedIn: tokens, working: working) { Task { await googleSignIn() } }
+                                       signedIn: tokens, working: working) {
+                        signingIn = Task { await googleSignIn() }
+                    }
                 }
             }
             .onChange(of: password) { check = nil; trusted = false }
@@ -270,7 +378,7 @@ struct AddAccountSheet: View {
             HStack {
                 if working { ProgressView().controlSize(.small) }
                 Spacer()
-                Button("Abbrechen") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Abbrechen") { cancelSignIn(); dismiss() }.keyboardShortcut(.cancelAction)
                 if check == nil {
                     Button("Verbinden und prüfen") { Task { await runCheck() } }
                         .keyboardShortcut(.defaultAction)
@@ -285,6 +393,8 @@ struct AddAccountSheet: View {
         }
         .padding(20)
         .frame(width: 520)
+        .onAppear { if clientID.isEmpty { clientID = GoogleOAuth.builtInClient?.id ?? "" } }
+        .onDisappear { cancelSignIn() }
     }
 
     /// Gmail with Google sign-in (an app password stays possible; the other kinds have none).
@@ -327,7 +437,7 @@ struct AddAccountSheet: View {
         switch kind {
         case .gmail:
             c = .gmail(id: id, address: user)
-            if withGoogle { c.oauth = AccountConfig.OAuth(clientID: clientID.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            if withGoogle { c.oauth = AccountConfig.OAuth(clientID: OAuthTokens2Go.storedClientID(clientID)) }
         case .protonBridge: c = .protonBridge(id: id, address: user, port: portNumber)
         case .imap: c = .imap(id: id, username: user, host: host, port: portNumber, security: starttls ? .startTLS : .tls)
         }
@@ -348,7 +458,10 @@ struct AddAccountSheet: View {
         check = nil
         defer { working = false }
         do {
-            let signedIn = try await GoogleSignIn.run(clientID: clientID, clientSecret: clientSecret, loginHint: user)
+            guard let client = OAuthTokens2Go.clientForSignIn(typedID: clientID, typedSecret: clientSecret, account: nil) else {
+                throw OAuthError.notConfigured(id)
+            }
+            let signedIn = try await GoogleSignIn.run(client: client, loginHint: user)
             tokens = signedIn
             if user.isEmpty, let mail = signedIn.email { user = mail }
         } catch {
@@ -356,11 +469,21 @@ struct AddAccountSheet: View {
         }
     }
 
+    /// A sign-in nobody waits for any more is stopped; an unsaved token goes back to Google.
+    private func cancelSignIn() {
+        signingIn?.cancel()
+        signingIn = nil
+        if let spare = tokens?.refreshToken {
+            tokens = nil
+            Task { await GoogleOAuth.revoke(spare) }
+        }
+    }
+
     private func runCheck() async {
         working = true
         error = nil
         defer { working = false }
-        if google, let mail = tokens?.email, mail.lowercased() != user.lowercased() {
+        if google, let mail = tokens?.email, !GoogleOAuth.sameMailbox(mail, user) {
             error = String(localized: "Angemeldet als \(DisplayText.safe(mail)) – eingerichtet wird \(DisplayText.safe(user)). Melde dich mit derselben Adresse an.")
             return
         }
@@ -379,6 +502,7 @@ struct AddAccountSheet: View {
         do {
             if google, let tokens {
                 try model.addAccount(c, tokens: tokens, clientSecret: clientSecret)
+                self.tokens = nil  // saved: cancelSignIn() must not revoke it
             } else {
                 try model.addAccount(c, password: password)
             }

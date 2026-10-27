@@ -51,6 +51,27 @@ public enum SyncCoordinator {
         return .oauth2(accessToken: try await OAuthTokens2Go.shared.accessToken(for: account, credentials: credentials))
     }
 
+    /// Opens a connection for this account. A signed-in account that is refused once throws the
+    /// cached access token away and tries again with a fresh one: revoking the sign-in at Google
+    /// kills the token at once, and without this the account would fail for up to an hour with
+    /// "Anmeldung abgelehnt" instead of asking to sign in again (review 7.1 S2).
+    public static func connect(_ account: AccountConfig, access: IMAPAccess = .readOnly,
+                               credentials: CredentialStore = CredentialStore(),
+                               readTimeout: TimeAmount = .seconds(120)) async throws -> IMAPSession {
+        if case .startTLSPinned(nil) = account.security { throw SyncError.unconfirmedCertificate(account.id) }
+        do {
+            return try await IMAPSession.connect(IMAPEndpoint(account), username: account.username,
+                                                 credential: try await credential(for: account, credentials: credentials),
+                                                 access: access, readTimeout: readTimeout)
+        } catch let error as IMAPError {
+            guard case .authentication = error, account.oauth != nil else { throw error }
+            await OAuthTokens2Go.shared.forget(account)
+            return try await IMAPSession.connect(IMAPEndpoint(account), username: account.username,
+                                                 credential: try await credential(for: account, credentials: credentials),
+                                                 access: access, readTimeout: readTimeout)
+        }
+    }
+
     /// Runs a planned server-delete job (ADR-0006): one connection per account, opened with the
     /// narrow `.moveToTrash` access; everything else stays refused by the allowlist.
     public static func deleteOnServer(_ jobID: UUID, writer: ArchiveWriter, accounts: [AccountConfig],
@@ -59,10 +80,7 @@ public enum SyncCoordinator {
         let executor = ServerDeleteExecutor(writer: writer, store: ActionStore(layout: writer.layout), audit: audit)
         return try await executor.run(jobID, connect: { id in
             guard let account = accounts.first(where: { $0.id == id }) else { throw SyncError.unknownAccount(id) }
-            if case .startTLSPinned(nil) = account.security { throw SyncError.unconfirmedCertificate(id) }
-            return try await IMAPSession.connect(IMAPEndpoint(account), username: account.username,
-                                                 credential: try await credential(for: account, credentials: credentials),
-                                                 access: .moveToTrash)
+            return try await connect(account, access: .moveToTrash, credentials: credentials)
         }, progress: progress)
     }
 
@@ -75,11 +93,8 @@ public enum SyncCoordinator {
         let executor = RestoreExecutor(writer: writer, store: ActionStore(layout: writer.layout), audit: audit)
         return try await executor.run(jobID, accounts: accounts, connect: { id in
             guard let account = accounts.first(where: { $0.id == id }) else { throw SyncError.unknownAccount(id) }
-            if case .startTLSPinned(nil) = account.security { throw SyncError.unconfirmedCertificate(id) }
-            return try await IMAPSession.connect(IMAPEndpoint(account), username: account.username,
-                                                 credential: try await credential(for: account, credentials: credentials),
-                                                 access: .restore,
-                                                 readTimeout: .seconds(300))
+            return try await connect(account, access: .restore, credentials: credentials,
+                                     readTimeout: .seconds(300))
         }, progress: progress)
     }
 
@@ -91,10 +106,7 @@ public enum SyncCoordinator {
         let executor = RescueExecutor(writer: writer, store: ActionStore(layout: writer.layout), audit: audit)
         return try await executor.run(jobID, accounts: accounts, connect: { id in
             guard let account = accounts.first(where: { $0.id == id }) else { throw SyncError.unknownAccount(id) }
-            if case .startTLSPinned(nil) = account.security { throw SyncError.unconfirmedCertificate(id) }
-            return try await IMAPSession.connect(IMAPEndpoint(account), username: account.username,
-                                                 credential: try await credential(for: account, credentials: credentials),
-                                                 access: .rescueFromJunk)
+            return try await connect(account, access: .rescueFromJunk, credentials: credentials)
         }, progress: progress)
     }
 
@@ -106,10 +118,7 @@ public enum SyncCoordinator {
         let executor = RescueExecutor(writer: writer, store: ActionStore(layout: writer.layout), audit: audit)
         return try await executor.run(jobID, accounts: accounts, connect: { id in
             guard let account = accounts.first(where: { $0.id == id }) else { throw SyncError.unknownAccount(id) }
-            if case .startTLSPinned(nil) = account.security { throw SyncError.unconfirmedCertificate(id) }
-            return try await IMAPSession.connect(IMAPEndpoint(account), username: account.username,
-                                                 credential: try await credential(for: account, credentials: credentials),
-                                                 access: .markAsJunk)
+            return try await connect(account, access: .markAsJunk, credentials: credentials)
         }, progress: progress)
     }
 
@@ -120,10 +129,7 @@ public enum SyncCoordinator {
         let executor = RescueExecutor(writer: writer, store: ActionStore(layout: writer.layout), audit: audit)
         return try await executor.run(jobID, accounts: accounts, connect: { id in
             guard let account = accounts.first(where: { $0.id == id }) else { throw SyncError.unknownAccount(id) }
-            if case .startTLSPinned(nil) = account.security { throw SyncError.unconfirmedCertificate(id) }
-            return try await IMAPSession.connect(IMAPEndpoint(account), username: account.username,
-                                                 credential: try await credential(for: account, credentials: credentials),
-                                                 access: .moveToFolder)
+            return try await connect(account, access: .moveToFolder, credentials: credentials)
         }, progress: progress)
     }
 
@@ -151,9 +157,7 @@ public enum SyncCoordinator {
 
     public static func sync(_ account: AccountConfig, writer: ArchiveWriter, credentials: CredentialStore = CredentialStore(),
                             progress: @escaping @Sendable (SyncProgress) -> Void = { _ in }) async throws -> SyncReport {
-        if case .startTLSPinned(nil) = account.security { throw SyncError.unconfirmedCertificate(account.id) }
-        let session = try await IMAPSession.connect(IMAPEndpoint(account), username: account.username,
-                                                    credential: try await credential(for: account, credentials: credentials))
+        let session = try await connect(account, credentials: credentials)
         do {
             let report = try await SyncEngine(writer: writer, account: account.info, policy: account.policy)
                 .run(source: session, progress: progress)

@@ -42,6 +42,8 @@ usage: mkctl [--archive <dir>] <command>
                                               add any IMAPS account
       common: [--name <display name>] [--include A,B] [--exclude A,B] [--with-junk-trash] [--password-stdin]
   account list | test <id> | remove <id> [--keep-password]
+  account signin <id> [--google-client-id <id>] [--google-client-secret]   (Gmail: Anmeldung mit Google)
+  account password <id>                                                    (zurück zum Passwort)
                                               manage accounts (remove keeps the archived mail)
   sync [<id>…]                                fetch new mail from all (or the given) accounts, read-only
   ask <everyday language…>                    KI: translate into the search language (shown, then counted)
@@ -119,11 +121,11 @@ func clean(_ s: String?) -> String {
 
 /// Signs in with Google in the user's browser (7.1): prints the address as well, in case the
 /// terminal is on a machine whose browser does not open by itself.
-@MainActor func signInWithGoogle(clientID: String, clientSecret: String?, loginHint: String) async throws -> OAuthTokens {
-    guard GoogleOAuth.isPlausibleClientID(clientID) else {
+@MainActor func signInWithGoogle(client: (id: String, secret: String?), loginHint: String) async throws -> OAuthTokens {
+    guard GoogleOAuth.isPlausibleClientID(client.id) else {
         throw CLIError(description: "Das sieht nicht nach einer Google-Client-ID aus (…apps.googleusercontent.com)")
     }
-    return try await GoogleOAuth.signIn(clientID: clientID, clientSecret: clientSecret, loginHint: loginHint) { url in
+    return try await GoogleOAuth.signIn(clientID: client.id, clientSecret: client.secret, loginHint: loginHint) { url in
         FileHandle.standardError.write(Data("Im Browser anmelden:\n\(url.absoluteString)\n".utf8))
         let open = Process()
         open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
@@ -705,7 +707,7 @@ func summarize(_ p: ImportProgress, start: Date) {
         print(clean(String(p.text.prefix(2000))))
 
     case "account":
-        guard let sub = args.first else { throw CLIError(description: "account add|list|signin|test|remove") }
+        guard let sub = args.first else { throw CLIError(description: "account add|list|signin|password|test|remove") }
         args.removeFirst()
         let layout = try ArchiveLayout.open(at: root, create: sub == "add")
         let store = AccountStore(layout: layout)
@@ -715,6 +717,7 @@ func summarize(_ p: ImportProgress, start: Date) {
             guard args.count >= 2 else { throw CLIError(description: "account add gmail|proton|imap <address/user> --id <id>") }
             let kind = args.removeFirst(), user = args.removeFirst()
             let id = try requireOption("--id")
+            var clientSecretToSave: String?
             var config: AccountConfig
             switch kind {
             case "gmail": config = .gmail(id: id, address: user)
@@ -737,17 +740,25 @@ func summarize(_ p: ImportProgress, start: Date) {
             // Gmail with --google-client-id: sign in with Google instead of an app password (7.1)
             var tokens: OAuthTokens?
             var password = ""
-            if let clientID = option("--google-client-id") {
+            let wantsSecret = args.contains("--google-client-secret")
+            args.removeAll { $0 == "--google-client-secret" }
+            let typedID = option("--google-client-id")
+            if typedID != nil || (kind == "gmail" && GoogleOAuth.builtInClient != nil) {
                 guard kind == "gmail" else { throw CLIError(description: "--google-client-id gibt es nur für gmail") }
-                config.oauth = AccountConfig.OAuth(clientID: clientID)
-                let secret = args.contains("--google-client-secret") ? try readPassword(prompt: "Client-Secret: ") : nil
-                args.removeAll { $0 == "--google-client-secret" }
-                tokens = try await signInWithGoogle(clientID: clientID, clientSecret: secret, loginHint: user)
-                if let signedIn = tokens?.email, signedIn.lowercased() != user.lowercased() {
-                    throw CLIError(description: "angemeldet als \(clean(signedIn)), eingerichtet wird \(clean(user))")
+                let secret = wantsSecret ? try readPassword(prompt: "Client-Secret: ") : ""
+                guard let client = OAuthTokens2Go.clientForSignIn(typedID: typedID ?? "", typedSecret: secret, account: nil) else {
+                    throw CLIError(description: "--google-client-id fehlt")
                 }
-                if let secret { try credentials.saveClientSecret(secret, for: config) }
+                config.oauth = AccountConfig.OAuth(clientID: OAuthTokens2Go.storedClientID(client.id))
+                let signedIn = try await signInWithGoogle(client: client, loginHint: user)
+                if let address = signedIn.email, !GoogleOAuth.sameMailbox(address, user) {
+                    if let spare = signedIn.refreshToken { await GoogleOAuth.revoke(spare) }
+                    throw CLIError(description: "angemeldet als \(clean(address)), eingerichtet wird \(clean(user))")
+                }
+                tokens = signedIn
+                clientSecretToSave = secret.isEmpty ? nil : secret
             } else {
+                guard !wantsSecret else { throw CLIError(description: "--google-client-secret braucht --google-client-id") }
                 password = try readPassword(prompt: "Passwort für \(user): ")
             }
             print("Verbinde mit \(config.host):\(config.port) …")
@@ -766,6 +777,8 @@ func summarize(_ p: ImportProgress, start: Date) {
                 guard let refresh = tokens.refreshToken else {
                     throw CLIError(description: "Google hat kein Refresh-Token geschickt – bitte erneut anmelden")
                 }
+                // only now, after the connection held: a failed check leaves nothing behind
+                if let clientSecretToSave { try credentials.saveClientSecret(clientSecretToSave, for: config) }
                 try credentials.saveRefreshToken(refresh, for: config)
             } else {
                 try credentials.save(password, for: config)
@@ -785,24 +798,63 @@ func summarize(_ p: ImportProgress, start: Date) {
                 throw CLIError(description: "account signin <id> [--google-client-id <id>] [--google-client-secret]")
             }
             guard a.kind == .gmail else { throw CLIError(description: "Google-Anmeldung gibt es nur für Gmail-Konten") }
-            let clientID = option("--google-client-id") ?? a.oauth?.clientID
-            guard let clientID else { throw CLIError(description: "--google-client-id fehlt") }
-            let secret = args.contains("--google-client-secret") ? try readPassword(prompt: "Client-Secret: ") : nil
-            let tokens = try await signInWithGoogle(clientID: clientID, clientSecret: secret, loginHint: a.username)
-            if let signedIn = tokens.email, signedIn.lowercased() != a.username.lowercased() {
-                throw CLIError(description: "angemeldet als \(clean(signedIn)), das Konto ist \(clean(a.username))")
+            let wantsSecret = args.contains("--google-client-secret")
+            args.removeAll { $0 == "--google-client-secret" }
+            let secret = wantsSecret ? try readPassword(prompt: "Client-Secret: ") : ""
+            guard let client = OAuthTokens2Go.clientForSignIn(typedID: option("--google-client-id") ?? "",
+                                                              typedSecret: secret, account: a, credentials: credentials) else {
+                throw CLIError(description: "--google-client-id fehlt")
+            }
+            let tokens = try await signInWithGoogle(client: client, loginHint: a.username)
+            if let address = tokens.email, !GoogleOAuth.sameMailbox(address, a.username) {
+                if let spare = tokens.refreshToken { await GoogleOAuth.revoke(spare) }
+                throw CLIError(description: "angemeldet als \(clean(address)), das Konto ist \(clean(a.username))")
             }
             guard let refresh = tokens.refreshToken else {
                 throw CLIError(description: "Google hat kein Refresh-Token geschickt – bitte erneut anmelden")
             }
             let wasPassword = a.oauth == nil
-            a.oauth = AccountConfig.OAuth(clientID: clientID)
-            if let secret { try credentials.saveClientSecret(secret, for: a) }
+            let replaced = wasPassword ? nil : try? credentials.refreshToken(for: a)
+            a.oauth = AccountConfig.OAuth(clientID: OAuthTokens2Go.storedClientID(client.id))
+            if !secret.isEmpty { try credentials.saveClientSecret(secret, for: a) }
             try credentials.saveRefreshToken(refresh, for: a)
             try store.update(a)
             await OAuthTokens2Go.shared.forget(a)
+            if let replaced, replaced != refresh { await GoogleOAuth.revoke(replaced) }
             print("Konto „\(id)“ meldet sich jetzt mit Google an."
                   + (wasPassword ? " Das App-Passwort bleibt im Schlüsselbund – löschen mit: security delete-generic-password …" : ""))
+        case "password":
+            // the way back from Google to an app password (review 7.1 C): the Google sign-in in
+            // the keychain stays — another archive may still use it, and Google is where it is revoked
+            guard let id = args.first, var a = try store.load().first(where: { $0.id == id }) else {
+                throw CLIError(description: "account password <id>")
+            }
+            var candidate = a
+            candidate.oauth = nil
+            let password = try readPassword(prompt: "Passwort für \(clean(a.username)): ")
+            let check = try await SyncCoordinator.check(candidate, password: password)
+            print("Verbindung ok · \(check.mailboxes.count) Postfächer, abgerufen werden \(check.selected.count)")
+            try credentials.save(password, for: candidate)
+            a.oauth = nil
+            try store.update(a)
+            await OAuthTokens2Go.shared.forget(candidate)
+            print("Konto „\(id)“ meldet sich wieder mit Passwort an. Die Google-Anmeldung bleibt im Schlüsselbund – widerrufen bei Google: https://myaccount.google.com/connections")
+        case "password":
+            // the way back from Google to an app password (review 7.1 C): the Google sign-in in
+            // the keychain stays — another archive may still use it, and Google is where it is revoked
+            guard let id = args.first, var a = try store.load().first(where: { $0.id == id }) else {
+                throw CLIError(description: "account password <id>")
+            }
+            var candidate = a
+            candidate.oauth = nil
+            let password = try readPassword(prompt: "Passwort für \(clean(a.username)): ")
+            let check = try await SyncCoordinator.check(candidate, password: password)
+            print("Verbindung ok · \(check.mailboxes.count) Postfächer, abgerufen werden \(check.selected.count)")
+            try credentials.save(password, for: candidate)
+            a.oauth = nil
+            try store.update(a)
+            await OAuthTokens2Go.shared.forget(candidate)
+            print("Konto „\(id)“ meldet sich wieder mit Passwort an. Die Google-Anmeldung bleibt im Schlüsselbund – widerrufen bei Google: https://myaccount.google.com/connections")
         case "test":
             guard let id = args.first, let a = try store.load().first(where: { $0.id == id }) else { throw CLIError(description: "account test <id>") }
             let check = try await SyncCoordinator.check(a, credential: try await SyncCoordinator.credential(for: a, credentials: credentials))
@@ -814,10 +866,22 @@ func summarize(_ p: ImportProgress, start: Date) {
             guard let id = args.first, let a = try store.load().first(where: { $0.id == id }) else { throw CLIError(description: "account remove <id> [--keep-password]") }
             let shared = try store.load().contains { $0.id != id && CredentialStore.key(for: $0) == CredentialStore.key(for: a) }
             try store.remove(id)
-            if !keep && !shared { try credentials.delete(for: a) }
-            print("Konto „\(id)“ entfernt (archivierte Mails bleiben)" + (keep || shared ? ", Passwort behalten." : ", Passwort gelöscht — auch für andere Archive mit diesem Postfach."))
+            var revoked = false
+            if !keep && !shared {
+                // a Google sign-in is told to Google as well, or it would stay listed there (7.1)
+                let token = a.oauth == nil ? nil : try? credentials.refreshToken(for: a)
+                try credentials.delete(for: a)
+                if let token {
+                    await GoogleOAuth.revoke(token)
+                    revoked = true
+                }
+            }
+            print("Konto „\(id)“ entfernt (archivierte Mails bleiben)"
+                  + (keep || shared ? ", Anmeldung behalten."
+                     : revoked ? ", Google-Anmeldung widerrufen — auch für andere Archive mit diesem Postfach."
+                     : ", Passwort gelöscht — auch für andere Archive mit diesem Postfach."))
         default:
-            throw CLIError(description: "account add|list|signin|test|remove")
+            throw CLIError(description: "account add|list|signin|password|test|remove")
         }
 
     case "sync":

@@ -39,17 +39,34 @@ darf diesen Weg also nicht verbauen, ihn aber auch nicht heute schon bezahlen.
    Client-Secret liegt daneben (`oauth-client-secret:…`); bei einer Desktop-App ist es laut
    Google kein echtes Geheimnis, es gehört aber trotzdem nicht ins Archiv. Im Archiv steht nur
    die Client-ID.
-5. **Zugriffstoken werden nicht gespeichert.** `OAuthTokens2Go` hält das letzte im Speicher und
-   erneuert es, wenn weniger als fünf Minuten übrig sind — ein Abruf, der lange läuft, fängt
-   nicht mit einem Token an, das gleich abläuft. Ein Neustart kostet eine Erneuerung.
-6. **Ein Konto behält seine Kennung, wenn es umgestellt wird** („Auf Google-Anmeldung
+5. **Zugriffstoken werden nicht gespeichert.** `OAuthTokens2Go` hält das letzte im Speicher —
+   nur Token und Ablauf, nie das Refresh-Token — und erneuert es, wenn weniger als fünf Minuten
+   übrig sind; ein Abruf, der lange läuft, fängt nicht mit einem Token an, das gleich abläuft.
+   Ein Neustart kostet eine Erneuerung. Wird eine Anmeldung bei Google widerrufen, ist das
+   gehaltene Token sofort tot: eine abgelehnte Anmeldung verwirft es deshalb und versucht es
+   genau einmal mit einem frischen (`SyncCoordinator.connect`), damit der Nutzer „bitte neu
+   anmelden“ zu sehen bekommt statt bis zu einer Stunde „Anmeldung abgelehnt“.
+6. **Nicht benutzte Anmeldungen gehen an Google zurück.** Google hält bis zu 50 Refresh-Tokens
+   je Client und Nutzer; ein verworfener Anmeldeversuch (Abbrechen, fehlgeschlagene Prüfung,
+   falsches Konto) und ein ersetztes Token werden widerrufen, ebenso beim „Entfernen und
+   Google-Anmeldung widerrufen“. Ein Sonderfall bleibt stehen: wer von Google zurück auf ein
+   App-Passwort geht, behält die Anmeldung im Schlüsselbund — ein anderes Archiv könnte dasselbe
+   Postfach damit abrufen; widerrufen wird sie dann bei Google.
+7. **Der Rückkanal gehört genau einer Anmeldung.** Der Port ist für jeden Prozess auf dem Mac
+   sichtbar; angenommen wird nur eine Weiterleitung mit dem `state` dieser Anmeldung, alles
+   andere bekommt 404 und der Server wartet weiter. Kommt bis zum Zeitablauf nur Fremdes, sagt
+   MailKeeper das (`state passt nicht`) statt „nichts passiert“.
+8. **Ein Konto behält seine Kennung, wenn es umgestellt wird** („Auf Google-Anmeldung
    umstellen …“, `mkctl account signin`). Das Archiv hängt an der Kennung, und ein Wechsel der
    Anmeldeart ist kein neues Postfach. Das App-Passwort bleibt im Schlüsselbund stehen und wird
    nicht mehr benutzt; widerrufen wird es bei Google.
-7. **Die angemeldete Adresse wird geprüft.** Angefragt werden `https://mail.google.com/` sowie
+9. **Die angemeldete Adresse wird geprüft.** Angefragt werden `https://mail.google.com/` sowie
    `openid email`; die Adresse aus dem ID-Token wird mit der des Kontos verglichen. MailKeeper
    prüft die Signatur dieses Tokens nicht — sie kommt über TLS direkt von Googles Token-Endpunkt
-   und dient nur dazu, dem Nutzer zu sagen, dass im Browser ein anderes Konto aktiv war.
+   und dient nur dazu, dem Nutzer zu sagen, dass im Browser ein anderes Konto aktiv war. Gmail
+   ignoriert Punkte im lokalen Teil und behandelt `googlemail.com` wie `gmail.com`; der Vergleich
+   tut dasselbe, sonst stünde `t.j@gmail.com` vor einer Wand. Der eigentliche Nachweis ist
+   ohnehin die Verbindungsprüfung — auch beim Umstellen, nicht nur beim Anlegen.
 
 ## Consequences
 
