@@ -124,7 +124,6 @@ say "signiert mit dem Schlüssel zu $BUNDLE_KEY"
 # ---------------------------------------------------------------- 5. appcast + sums
 
 say "appcast.xml"
-LENGTH=$(stat -f%z "$DMG")
 NOTES=$(awk "/^## \[$VERSION_ARG\]/{f=1;next} /^## \[/{f=0} f" CHANGELOG.md | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
 cat > "$OUT/appcast.xml" <<XML
 <?xml version="1.0" encoding="utf-8"?>
@@ -141,12 +140,37 @@ cat > "$OUT/appcast.xml" <<XML
       <sparkle:shortVersionString>$VERSION_ARG</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
       <description><![CDATA[<pre>$NOTES</pre>]]></description>
+      <!-- sign_update already supplies length= next to the signature; writing it again
+           would make the XML invalid (duplicate attribute). -->
       <enclosure url="$FEED_BASE/v$VERSION_ARG/$APP_NAME-$VERSION_ARG.dmg"
-                 length="$LENGTH" type="application/octet-stream" $SIGNATURE />
+                 type="application/octet-stream" $SIGNATURE />
     </item>
   </channel>
 </rss>
 XML
+
+# The two checks that decide whether an installed copy will accept this update at all:
+# the feed must parse, and the signature must match the public key inside the app bundle —
+# not the key that happened to sign, which would only prove itself.
+python3 - "$OUT/appcast.xml" "$DMG" "$BUNDLE_KEY" <<'CHECK' || die "Appcast-Prüfung fehlgeschlagen"
+import base64, os, re, subprocess, sys, tempfile, xml.dom.minidom
+appcast, dmg, pub_b64 = sys.argv[1], sys.argv[2], sys.argv[3]
+xml.dom.minidom.parse(appcast)                     # raises on a duplicate attribute, too
+text = open(appcast).read()
+found = re.findall(r'sparkle:edSignature="([^"]+)"', text)
+if len(found) != 1:
+    sys.exit(f"appcast hat {len(found)} Signaturen, erwartet genau eine")
+der = bytes.fromhex("302a300506032b6570032100") + base64.b64decode(pub_b64)
+with tempfile.TemporaryDirectory() as d:
+    key = os.path.join(d, "pub.der"); open(key, "wb").write(der)
+    sig = os.path.join(d, "sig.bin"); open(sig, "wb").write(base64.b64decode(found[0]))
+    r = subprocess.run(["openssl", "pkeyutl", "-verify", "-rawin", "-pubin", "-inkey", key,
+                        "-keyform", "DER", "-sigfile", sig, "-in", dmg], capture_output=True, text=True)
+if r.returncode != 0:
+    sys.exit("die Signatur passt NICHT zum SUPublicEDKey der App — jede Installation "
+             "würde dieses Update ablehnen: " + (r.stdout + r.stderr).strip())
+print("    Appcast gültig, Signatur passt zum Schlüssel der App")
+CHECK
 
 (cd "$OUT" && shasum -a 256 *.dmg > SHA256SUMS)
 say "fertig: $OUT"
