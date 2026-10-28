@@ -181,8 +181,9 @@ struct ContentView: View {
             Button("Im Finder zeigen") { model.revealExport(report); model.exportResult = nil }
             Button("OK", role: .cancel) { model.exportResult = nil }
         } message: { report in
-            Text("\(report.exported.formatted()) Mails (\(report.bytes.formatted(.byteCount(style: .file)))) nach „\(report.destination.lastPathComponent)“."
-                 + report.problems.sorted { $0.key < $1.key }.map { "\n\($0.value.formatted()) nicht exportiert: \($0.key)" }.joined())
+            Text(String(localized: "\(report.exported.formatted()) Mails (\(report.bytes.formatted(.byteCount(style: .file)))) nach „\(report.destination.lastPathComponent)“.")
+                 + report.problems.sorted { $0.key < $1.key }
+                     .map { String(localized: "\n\($0.value.formatted()) nicht exportiert: \($0.key)") }.joined())
         }
         .alert("Aktion", isPresented: Binding(get: { model.actionError != nil }, set: { if !$0 { model.actionError = nil } })) {
             Button("OK") { model.actionError = nil }
@@ -698,10 +699,10 @@ struct StatusBar: View {
     private func syncText(_ p: SyncProgress) -> String {
         let box = p.mailbox.map { " · \(DisplayText.safe($0)) (\(p.mailboxIndex + 1)/\(p.mailboxCount))" } ?? ""
         switch p.phase {
-        case .fetching: return "Abruf \(p.account)\(box): \(p.fetched) von \(p.toFetch) neuen Mails"
-        case .flags: return "Abruf \(p.account)\(box): Markierungen abgleichen"
-        case .deletions: return "Abruf \(p.account)\(box): Löschungen prüfen"
-        default: return "Abruf \(p.account)\(box) …"
+        case .fetching: return String(localized: "Abruf \(p.account)\(box): \(p.fetched) von \(p.toFetch) neuen Mails")
+        case .flags: return String(localized: "Abruf \(p.account)\(box): Markierungen abgleichen")
+        case .deletions: return String(localized: "Abruf \(p.account)\(box): Löschungen prüfen")
+        default: return String(localized: "Abruf \(p.account)\(box) …")
         }
     }
 }

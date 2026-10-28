@@ -23,10 +23,10 @@ public enum SavedSearchError: Error, CustomStringConvertible, Equatable {
 
     public var description: String {
         switch self {
-        case .emptyName: "Die Ansicht braucht einen Namen."
-        case .emptyQuery: "Die Ansicht braucht eine Suche."
+        case .emptyName: String(localized: "Die Ansicht braucht einen Namen.")
+        case .emptyQuery: String(localized: "Die Ansicht braucht eine Suche.")
         case .invalidQuery(let m): m
-        case .unknown: "Diese Ansicht gibt es nicht mehr."
+        case .unknown: String(localized: "Diese Ansicht gibt es nicht mehr.")
         }
     }
 }

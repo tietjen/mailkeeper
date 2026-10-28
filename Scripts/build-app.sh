@@ -36,6 +36,17 @@ if [[ -f "$CATALOG" ]]; then
   COMPILED=("${(@f)$(cd "$APP/Contents/Resources" && print -l *.lproj(N:r))}")
   LANGS="$SOURCE_LANG"
   for l in $COMPILED; do [[ -n "$l" && "$l" != "$SOURCE_LANG" ]] && LANGS="$LANGS,$l"; done
+  # A compile that writes nothing exits 0, and the app would ship German-only with a valid
+  # signature and a green CI — the same trap as the missing rpath below.
+  WANT=$(python3 -c "
+import json
+cat = json.load(open('$CATALOG'))
+langs = {l for e in cat['strings'].values() for l in e.get('localizations', {})} - {cat['sourceLanguage']}
+print(','.join(sorted(langs)))")
+  for l in ${(s:,:)WANT}; do
+    [[ -s "$APP/Contents/Resources/$l.lproj/Localizable.strings" ]] \
+      || { echo "xcstringstool hat $l.lproj nicht geschrieben — die App wäre einsprachig" >&2; exit 1 }
+  done
 else
   LANGS="de"
 fi

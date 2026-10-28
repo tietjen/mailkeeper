@@ -2723,7 +2723,7 @@ final class AppModel {
                     candidates = try reader.screeningCandidates(since: since, limit: screeningLimit)
                     if checkJunk { junk = try reader.junkToCheck(limit: 50) }
                 } catch {
-                    summary.append(String(localized: "Prüfung neuer Mails: \(error)"))
+                    summary.append(String(localized: "Prüfung neuer Mails: \(String(describing: error))"))
                 }
             } catch {
                 summary.append("\(error)")

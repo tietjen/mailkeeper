@@ -56,7 +56,9 @@ struct FilterMenu: View {
     let model: AppModel
     @State private var help = false
 
-    private let filters: [(String, String)] = [
+    // The titles must be LocalizedStringKey: a plain String is rendered verbatim by Button,
+    // and the whole menu would stay German in the English app.
+    private let filters: [(LocalizedStringKey, String)] = [
         ("Mit Anhang", "has:attachment"), ("Mit PDF", "has:pdf"), ("Ungelesen", "is:unread"),
         ("Markiert", "is:flagged"), ("Gesendet", "is:sent"), ("Newsletter und Listen", "is:list"), ("Größer als 5 MB", "larger:5M"),
         ("Letzte 30 Tage", "after:30d"), ("Älter als ein Jahr", "before:1y"), ("Nur noch im Archiv", "only:archive"),

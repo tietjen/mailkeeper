@@ -105,10 +105,11 @@ public enum AccountError: Error, CustomStringConvertible, Equatable {
 
     public var description: String {
         switch self {
-        case .invalidID(let id): "Ungültige Konto-ID „\(id)“ (erlaubt: a–z, 0–9, - und _)"
-        case .duplicate(let id): "Ein Konto „\(id)“ gibt es schon"
-        case .unknown(let id): "Kein Konto „\(id)“"
-        case .keychain(let s): "Schlüsselbund-Fehler \(s): \(SecCopyErrorMessageString(s, nil) as String? ?? "")"
+        case .invalidID(let id): String(localized: "Ungültige Konto-ID „\(id)“ (erlaubt: a–z, 0–9, - und _)")
+        case .duplicate(let id): String(localized: "Ein Konto „\(id)“ gibt es schon")
+        case .unknown(let id): String(localized: "Kein Konto „\(id)“")
+        case .keychain(let s):
+            String(localized: "Schlüsselbund-Fehler \(s): \(SecCopyErrorMessageString(s, nil) as String? ?? "")")
         }
     }
 }

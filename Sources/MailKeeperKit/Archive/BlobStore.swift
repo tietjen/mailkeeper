@@ -12,11 +12,11 @@ public enum ArchiveError: Error, CustomStringConvertible, Sendable {
 
     public var description: String {
         switch self {
-        case .io(let what, let path): "I/O error (\(what)) at \(path)"
-        case .integrity(let sha, let actual): "blob \(sha) has content hash \(actual)"
-        case .locked(let path): "archive is in use by another process (\(path)) — the MailKeeper app may be importing, fetching or indexing PDFs"
-        case .notAnArchive(let path): "\(path) is not a MailKeeper archive"
-        case .unsupportedFormat(let v): "archive format \(v) is newer than this version supports"
+        case .io(let what, let path): String(localized: "I/O error (\(what)) at \(path)")
+        case .integrity(let sha, let actual): String(localized: "blob \(sha) has content hash \(actual)")
+        case .locked(let path): String(localized: "archive is in use by another process (\(path)) — the MailKeeper app may be importing, fetching or indexing PDFs")
+        case .notAnArchive(let path): String(localized: "\(path) is not a MailKeeper archive")
+        case .unsupportedFormat(let v): String(localized: "archive format \(v) is newer than this version supports")
         case .invalid(let message): message
         }
     }

@@ -90,7 +90,7 @@ public enum QueryParser {
 
     /// Parses query text. `now` and `calendar` resolve dates ("2024-03", "30d") to instants.
     public static func parse(_ text: String, now: Date = Date(), calendar: Calendar = .current) throws(QueryError) -> Query {
-        guard text.count <= maxLength else { throw QueryError("Die Suche ist zu lang (höchstens \(maxLength) Zeichen).") }
+        guard text.count <= maxLength else { throw QueryError(String(localized: "Die Suche ist zu lang (höchstens \(maxLength) Zeichen).")) }
         var tokens = tokenize(text)
         if let last = tokens.indices.last, case .term(_, _, quoted: false) = tokens[last].kind,
            tokens[last].range.upperBound == text.endIndex {
@@ -209,10 +209,10 @@ public enum QueryParser {
             groups.append(try parseAnd())
             while peek == .or {
                 pos += 1
-                guard peek != nil, peek != .or else { throw QueryError("Nach „OR“ fehlt ein Begriff.") }
+                guard peek != nil, peek != .or else { throw QueryError(String(localized: "Nach „OR“ fehlt ein Begriff.")) }
                 groups.append(try parseAnd())
             }
-            if peek == .rparen { throw QueryError("„)“ ohne passende „(“.") }
+            if peek == .rparen { throw QueryError(String(localized: "„)“ ohne passende „(“.")) }
             let nonEmpty = groups.filter { !$0.isEmpty }
             if nonEmpty.count <= 1 {
                 let items = nonEmpty.first ?? []
@@ -249,8 +249,8 @@ public enum QueryParser {
             if !sawTerm {
                 switch peek {
                 case .rparen: throw QueryError(pos == 0 ? "„)“ ohne passende „(“." : "Leere Klammer.")
-                case .or: throw QueryError("Vor „OR“ fehlt ein Begriff.")
-                default: throw QueryError("„(“ ohne passende „)“.")
+                case .or: throw QueryError(String(localized: "Vor „OR“ fehlt ein Begriff."))
+                default: throw QueryError(String(localized: "„(“ ohne passende „)“."))
                 }
             }
             return items
@@ -261,20 +261,20 @@ public enum QueryParser {
             switch tokens[pos].kind {
             case .not:
                 pos += 1
-                guard let kind = peek, kind != .or, kind != .rparen else { throw QueryError("Nach „-“ fehlt ein Begriff.") }
+                guard let kind = peek, kind != .or, kind != .rparen else { throw QueryError(String(localized: "Nach „-“ fehlt ein Begriff.")) }
                 guard let inner = try parseUnary() else { return nil }
                 return Item(node: .not(inner.node), label: "nicht " + inner.label, range: start..<inner.range.upperBound)
             case .lparen:
                 pos += 1
                 depth += 1
-                guard depth <= QueryParser.maxDepth else { throw QueryError("Zu viele verschachtelte Klammern.") }
+                guard depth <= QueryParser.maxDepth else { throw QueryError(String(localized: "Zu viele verschachtelte Klammern.")) }
                 var groups: [[Item]] = [try parseAnd()]
                 while peek == .or {
                     pos += 1
-                    guard peek != nil, peek != .or, peek != .rparen else { throw QueryError("Nach „OR“ fehlt ein Begriff.") }
+                    guard peek != nil, peek != .or, peek != .rparen else { throw QueryError(String(localized: "Nach „OR“ fehlt ein Begriff.")) }
                     groups.append(try parseAnd())
                 }
-                guard peek == .rparen else { throw QueryError("„(“ ohne passende „)“.") }
+                guard peek == .rparen else { throw QueryError(String(localized: "„(“ ohne passende „)“.")) }
                 let end = tokens[pos].range.upperBound
                 pos += 1
                 depth -= 1
@@ -285,7 +285,7 @@ public enum QueryParser {
                 let token = tokens[pos]
                 pos += 1
                 terms += 1
-                guard terms <= QueryParser.maxTerms else { throw QueryError("Zu viele Suchbegriffe (höchstens \(QueryParser.maxTerms)).") }
+                guard terms <= QueryParser.maxTerms else { throw QueryError(String(localized: "Zu viele Suchbegriffe (höchstens \(QueryParser.maxTerms)).")) }
                 guard let p = try predicate(field, value, quoted: quoted, livePrefix: token.livePrefix) else { return nil }
                 return Item(node: p.0, label: p.1, range: token.range)
             case .or, .rparen:
@@ -299,7 +299,7 @@ public enum QueryParser {
             let value = raw.trimmingCharacters(in: .whitespaces)
             let name = field.map { "„\($0.rawValue):“" } ?? ""
             func required() throws(QueryError) -> String {
-                guard !value.isEmpty else { throw QueryError("\(name) braucht einen Wert.") }
+                guard !value.isEmpty else { throw QueryError(String(localized: "\(name) braucht einen Wert.")) }
                 return value
             }
             func text(_ f: QueryPredicate.TextField, _ title: String?) throws(QueryError) -> (QueryNode, String)? {
@@ -309,7 +309,7 @@ public enum QueryParser {
                 while v.hasSuffix("*") { v.removeLast() }
                 guard v.contains(where: { $0.isLetter || $0.isNumber }) else {
                     if f == .any { return nil }  // punctuation alone: nothing to search for
-                    throw QueryError("\(name) braucht ein Wort.")
+                    throw QueryError(String(localized: "\(name) braucht ein Wort."))
                 }
                 let shown = quoted ? "„\(value)“" : value
                 return (.predicate(.text(f, v, prefix: prefix)), title.map { "\($0): \(shown)" } ?? shown)
@@ -328,7 +328,7 @@ public enum QueryParser {
                 // domain (TJ: delete the prefix of a sender chip to widen it to the domain).
                 if !quoted, v.hasPrefix("@") {
                     let domain = String(v.dropFirst())
-                    guard !domain.isEmpty else { throw QueryError("\(name) braucht eine Adresse oder @domain.") }
+                    guard !domain.isEmpty else { throw QueryError(String(localized: "\(name) braucht eine Adresse oder @domain.")) }
                     return (.predicate(.domain(domain)), "Domain: \(domain)")
                 }
                 return (.predicate(.sender(v)), "Absender: \(v)")
@@ -338,17 +338,17 @@ public enum QueryParser {
                 case "pdf": return (.predicate(.has(.pdf)), "mit PDF")
                 case "image", "images", "bild", "bilder": return (.predicate(.has(.image)), "mit Bild")
                 case "calendar", "kalender", "ics", "invite", "einladung": return (.predicate(.has(.calendar)), "mit Kalendereintrag")
-                default: throw QueryError("„has:\(value)“ kenne ich nicht — attachment, pdf, image oder calendar.")
+                default: throw QueryError(String(localized: "„has:\(value)“ kenne ich nicht — attachment, pdf, image oder calendar."))
                 }
             case .larger, .smaller:
                 guard let bytes = QueryParser.size(try required()) else {
-                    throw QueryError("\(name) erwartet eine Größe wie 500K, 5M oder 1G.")
+                    throw QueryError(String(localized: "\(name) erwartet eine Größe wie 500K, 5M oder 1G."))
                 }
                 return field == .larger ? (.predicate(.larger(bytes)), "größer als \(value)")
                                         : (.predicate(.smaller(bytes)), "kleiner als \(value)")
             case .after, .before, .until, .date:
                 guard let d = QueryParser.date(try required(), now: now, calendar: calendar) else {
-                    throw QueryError("\(name) erwartet ein Datum wie 2024, 2024-03, 2024-03-17, 17.3.2024 oder 30d.")
+                    throw QueryError(String(localized: "\(name) erwartet ein Datum wie 2024, 2024-03, 2024-03-17, 17.3.2024 oder 30d."))
                 }
                 switch (field, d) {
                 case (.after, .period(let start, _)), (.after, .point(let start)):
@@ -360,7 +360,7 @@ public enum QueryParser {
                 case (.date, .period(let start, let end)):
                     return (.and([.predicate(.dateFrom(start)), .predicate(.dateBefore(end))]), "Datum: \(value)")
                 default:
-                    throw QueryError("„date:“ braucht einen Zeitraum (2024, 2024-03, 17.3.2024) — für „vor 30 Tagen“ before:30d.")
+                    throw QueryError(String(localized: "„date:“ braucht einen Zeitraum (2024, 2024-03, 17.3.2024) — für „vor 30 Tagen“ before:30d."))
                 }
             case .account:
                 let v = try required().lowercased()
@@ -369,7 +369,7 @@ public enum QueryParser {
                 var v = try required()
                 let prefix = !quoted && v.hasSuffix("*")
                 while prefix, v.hasSuffix("*") { v.removeLast() }  // quoted: a literal "*" in the name
-                guard !v.isEmpty else { throw QueryError("\(name) braucht einen Ordnernamen.") }
+                guard !v.isEmpty else { throw QueryError(String(localized: "\(name) braucht einen Ordnernamen.")) }
                 return (.predicate(.folder(v, prefix: prefix)), "Ordner: \(value)")
             case .label:
                 return (.predicate(.label(try required().lowercased())), "Label: \(value)")
@@ -380,7 +380,7 @@ public enum QueryParser {
             case .domain:
                 var v = try required().lowercased()
                 if !quoted, v.hasPrefix("@") { v.removeFirst() }  // "@amazon.de"; a quoted value is taken as is
-                guard !v.isEmpty else { throw QueryError("\(name) braucht eine Domain wie amazon.de.") }
+                guard !v.isEmpty else { throw QueryError(String(localized: "\(name) braucht eine Domain wie amazon.de.")) }
                 return (.predicate(.domain(v)), "Domain: \(v)")
             case .is:
                 switch try required().lowercased() {
@@ -395,20 +395,20 @@ public enum QueryParser {
                 case "suspicious", "verdächtig", "verdaechtig", "verdacht": return (.predicate(.isSuspicious), "verdächtig")
                 case "fehlalarm", "false-positive", "kein-spam-laut-ki": return (.predicate(.isFalsePositive), "laut KI kein Spam")
                 case "war-im-spam", "was-junk", "jemals-im-spam": return (.predicate(.wasInJunk), "war im Spam-Ordner")
-                default: throw QueryError("„is:\(value)“ kenne ich nicht — unread, read, flagged, answered, list, sent, junk, phishing, verdächtig, fehlalarm oder war-im-spam.")
+                default: throw QueryError(String(localized: "„is:\(value)“ kenne ich nicht — unread, read, flagged, answered, list, sent, junk, phishing, verdächtig, fehlalarm oder war-im-spam."))
                 }
             case .category:
                 let word = try required().lowercased()
                 if ["offen", "unbekannt", "open", "none", "keine"].contains(word) { return (.predicate(.category(nil)), "Kategorie: offen") }
                 guard let category = MailCategory.parse(word) else {
-                    throw QueryError("\(name) kennt „\(value)“ nicht — \(MailCategory.allCases.map(\.queryWord).joined(separator: ", ")) oder offen.")
+                    throw QueryError(String(localized: "\(name) kennt „\(value)“ nicht — \(MailCategory.allCases.map(\.queryWord).joined(separator: ", ")) oder offen."))
                 }
                 return (.predicate(.category(category)), category.label)
             case .on:
-                guard ["server"].contains(try required().lowercased()) else { throw QueryError("Gemeint ist „on:server“.") }
+                guard ["server"].contains(try required().lowercased()) else { throw QueryError(String(localized: "Gemeint ist „on:server“.")) }
                 return (.predicate(.onServer), "auf dem Server")
             case .only:
-                guard ["archive", "archiv"].contains(try required().lowercased()) else { throw QueryError("Gemeint ist „only:archive“.") }
+                guard ["archive", "archiv"].contains(try required().lowercased()) else { throw QueryError(String(localized: "Gemeint ist „only:archive“.")) }
                 return (.predicate(.archiveOnly), "nur im Archiv")
             case .msgid:
                 var v = try required()

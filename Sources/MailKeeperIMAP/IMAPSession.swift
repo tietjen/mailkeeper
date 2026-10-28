@@ -45,15 +45,15 @@ public enum IMAPError: Error, CustomStringConvertible, Equatable {
 
     public var description: String {
         switch self {
-        case .connection(let s): "Verbindung fehlgeschlagen: \(s)"
-        case .pinMismatch(let e, let a): "Zertifikat der Bridge hat sich geändert (erwartet \(e.prefix(16))…, erhalten \(a.prefix(16))…)"
-        case .authentication(let s): "Anmeldung abgelehnt: \(s)"
-        case .unsupportedAuthentication(let s): "Anmeldung nicht möglich: \(s)"
-        case .command(let c, let s): "\(c) abgelehnt: \(s)"
-        case .readOnlyViolation(let c): "\(c) ist im Nur-Lese-Modus nicht erlaubt"
-        case .closed: "Verbindung geschlossen oder Zeitüberschreitung"
-        case .protocolError(let s): "Protokollfehler: \(s)"
-        case .refusedBeforeData: "Server hat vor dem Senden abgelehnt oder die Verbindung beendet (zu groß, kein Platz, keine Rechte?)"
+        case .connection(let s): String(localized: "Verbindung fehlgeschlagen: \(s)")
+        case .pinMismatch(let e, let a): String(localized: "Zertifikat der Bridge hat sich geändert (erwartet \(e.prefix(16))…, erhalten \(a.prefix(16))…)")
+        case .authentication(let s): String(localized: "Anmeldung abgelehnt: \(s)")
+        case .unsupportedAuthentication(let s): String(localized: "Anmeldung nicht möglich: \(s)")
+        case .command(let c, let s): String(localized: "\(c) abgelehnt: \(s)")
+        case .readOnlyViolation(let c): String(localized: "\(c) ist im Nur-Lese-Modus nicht erlaubt")
+        case .closed: String(localized: "Verbindung geschlossen oder Zeitüberschreitung")
+        case .protocolError(let s): String(localized: "Protokollfehler: \(s)")
+        case .refusedBeforeData: String(localized: "Server hat vor dem Senden abgelehnt oder die Verbindung beendet (zu groß, kein Platz, keine Rechte?)")
         }
     }
 }

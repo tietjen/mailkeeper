@@ -88,15 +88,15 @@ public enum OAuthError: Error, CustomStringConvertible, Equatable {
 
     public var description: String {
         switch self {
-        case .denied(let s): "Google hat die Anmeldung abgelehnt: \(s)"
-        case .noCode: "Google hat keinen Anmelde-Code zurückgegeben"
-        case .stateMismatch: "Die Antwort im Browser gehört nicht zu dieser Anmeldung (state passt nicht)"
-        case .server(let s): "Google antwortete: \(s)"
-        case .listener(let s): "Rückkanal auf 127.0.0.1 nicht möglich: \(s)"
-        case .timedOut: "Die Anmeldung im Browser wurde nicht abgeschlossen"
-        case .cancelled: "Anmeldung abgebrochen"
-        case .noRefreshToken(let id): "Für Konto „\(id)“ ist keine Google-Anmeldung im Schlüsselbund – bitte neu anmelden"
-        case .notConfigured(let id): "Für Konto „\(id)“ fehlt die Google-Client-ID"
+        case .denied(let s): String(localized: "Google hat die Anmeldung abgelehnt: \(s)")
+        case .noCode: String(localized: "Google hat keinen Anmelde-Code zurückgegeben")
+        case .stateMismatch: String(localized: "Die Antwort im Browser gehört nicht zu dieser Anmeldung (state passt nicht)")
+        case .server(let s): String(localized: "Google antwortete: \(s)")
+        case .listener(let s): String(localized: "Rückkanal auf 127.0.0.1 nicht möglich: \(s)")
+        case .timedOut: String(localized: "Die Anmeldung im Browser wurde nicht abgeschlossen")
+        case .cancelled: String(localized: "Anmeldung abgebrochen")
+        case .noRefreshToken(let id): String(localized: "Für Konto „\(id)“ ist keine Google-Anmeldung im Schlüsselbund – bitte neu anmelden")
+        case .notConfigured(let id): String(localized: "Für Konto „\(id)“ fehlt die Google-Client-ID")
         }
     }
 }

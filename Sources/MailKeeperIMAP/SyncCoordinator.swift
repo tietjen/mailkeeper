@@ -21,9 +21,9 @@ public enum SyncError: Error, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .noPassword(let id): "Für Konto „\(id)“ ist kein Passwort im Schlüsselbund"
-        case .unconfirmedCertificate(let id): "Das Bridge-Zertifikat von „\(id)“ ist noch nicht bestätigt"
-        case .unknownAccount(let id): "Konto „\(id)“ ist hier nicht eingerichtet"
+        case .noPassword(let id): String(localized: "Für Konto „\(id)“ ist kein Passwort im Schlüsselbund")
+        case .unconfirmedCertificate(let id): String(localized: "Das Bridge-Zertifikat von „\(id)“ ist noch nicht bestätigt")
+        case .unknownAccount(let id): String(localized: "Konto „\(id)“ ist hier nicht eingerichtet")
         }
     }
 }

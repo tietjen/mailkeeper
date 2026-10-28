@@ -46,29 +46,55 @@ else
   print -P "%F{blue}==>%f $CATALOG aktualisiert"
 fi
 
-# What is still missing, so it is not discovered by seeing German in the English app.
-python3 - "$CATALOG" <<'PY'
-import collections, json, sys
+# Two checks the app itself cannot make: is anything still untranslated, and does every
+# translation take its arguments in the same order and of the same type as the German?
+# A swapped %lld and %@ does not look wrong — it reads the integer as a pointer and crashes.
+python3 - "$CATALOG" "$CHECK" <<'CATALOGCHECK'
+import collections, json, re, sys
 cat = json.load(open(sys.argv[1], encoding="utf-8"))
+strict = sys.argv[2] == "1"
 strings = cat.get("strings", {})
-languages = {lang for e in strings.values() for lang in e.get("localizations", {})} | {"en"}
-languages.discard(cat.get("sourceLanguage", "de"))
-missing, stale = collections.Counter(), 0
-translatable = 0
+source = cat.get("sourceLanguage", "de")
+languages = {lang for e in strings.values() for lang in e.get("localizations", {})} - {source}
+
+SPEC = re.compile(r"%(?:(\d+)\$)?(lld|ld|d|@|f|%)")
+def sequence(text):
+    """The argument types in the order the format consumes them."""
+    out, auto = {}, 0
+    for position, kind in SPEC.findall(text):
+        if kind == "%":
+            continue
+        if position:
+            out[int(position)] = kind
+        else:
+            auto += 1
+            out[auto] = kind
+    return [out[i] for i in sorted(out)]
+
+missing, mismatched, translatable = collections.Counter(), [], 0
 for key, entry in strings.items():
     if entry.get("shouldTranslate") is False:
         continue
     translatable += 1
-    if entry.get("extractionState") == "stale":
-        stale += 1
     for lang in languages:
         unit = entry.get("localizations", {}).get(lang, {}).get("stringUnit", {})
         if unit.get("state") != "translated":
             missing[lang] += 1
-print(f"    {translatable} Texte, Quellsprache {cat.get('sourceLanguage', '?')}")
+            continue
+        if sequence(key) != sequence(unit.get("value", "")):
+            mismatched.append((lang, key, unit["value"]))
+
+print(f"    {translatable} Texte, Quellsprache {source}")
 for lang in sorted(languages):
     n = missing[lang]
     print(f"    {lang}: {n} fehlen" if n else f"    {lang}: vollständig")
-if stale:
-    print(f"    {stale} nicht mehr im Code (stale) — können raus")
-PY
+for lang, key, value in mismatched:
+    print(f"    x {lang}: Platzhalter in anderer Reihenfolge oder Art")
+    print(f"        {key!r}")
+    print(f"        {value!r}")
+
+if mismatched:
+    sys.exit("Platzhalter passen nicht zusammen - ein vertauschtes %lld/%@ stuerzt zur Laufzeit ab.")
+if strict and any(missing.values()):
+    sys.exit("Es fehlen Uebersetzungen.")
+CATALOGCHECK

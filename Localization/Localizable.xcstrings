@@ -4,6 +4,22 @@
     "": {
       "shouldTranslate": false
     },
+    "\n%@ nicht exportiert: %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "\n%1$@ nicht exportiert: %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\n%@ not exported: %@"
+          }
+        }
+      }
+    },
     " (die 2 000 größten)": {
       "localizations": {
         "en": {
@@ -92,6 +108,22 @@
         }
       }
     },
+    "%@ Mails (%@) nach „%@“.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$@ Mails (%2$@) nach „%3$@“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ mails (%@) to “%@”."
+          }
+        }
+      }
+    },
     "%@ Mails ausgewählt": {
       "localizations": {
         "en": {
@@ -164,6 +196,22 @@
         }
       }
     },
+    "%@ abgelehnt: %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$@ abgelehnt: %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ refused: %@"
+          }
+        }
+      }
+    },
     "%@ antwortet mit %lld – die Abmeldung ist nicht bestätigt.": {
       "localizations": {
         "de": {
@@ -180,6 +228,76 @@
         }
       }
     },
+    "%@ braucht ein Wort.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ needs a word."
+          }
+        }
+      }
+    },
+    "%@ braucht eine Adresse oder @domain.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ needs an address or @domain."
+          }
+        }
+      }
+    },
+    "%@ braucht eine Domain wie amazon.de.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ needs a domain such as amazon.com."
+          }
+        }
+      }
+    },
+    "%@ braucht einen Ordnernamen.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ needs a folder name."
+          }
+        }
+      }
+    },
+    "%@ braucht einen Wert.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ needs a value."
+          }
+        }
+      }
+    },
+    "%@ erwartet ein Datum wie 2024, 2024-03, 2024-03-17, 17.3.2024 oder 30d.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ expects a date such as 2024, 2024-03, 2024-03-17, 17.3.2024 or 30d."
+          }
+        }
+      }
+    },
+    "%@ erwartet eine Größe wie 500K, 5M oder 1G.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ expects a size such as 500K, 5M or 1G."
+          }
+        }
+      }
+    },
     "%@ führt in ein lokales Netz – MailKeeper ruft das nicht auf.": {
       "localizations": {
         "en": {
@@ -190,12 +308,48 @@
         }
       }
     },
+    "%@ is not a MailKeeper archive": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not a MailKeeper archive"
+          }
+        }
+      }
+    },
+    "%@ ist im Nur-Lese-Modus nicht erlaubt": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not allowed in read-only mode"
+          }
+        }
+      }
+    },
     "%@ ist nicht erreichbar (der Name löst sich nicht auf).": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ cannot be reached (the name does not resolve)."
+          }
+        }
+      }
+    },
+    "%@ kennt „%@“ nicht — %@ oder offen.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$@ kennt „%2$@“ nicht — %3$@ oder offen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ does not know “%@” — %@ or offen."
           }
         }
       }
@@ -963,7 +1117,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "set to “%@” %lld×"
+            "value": "set to “%2$@” %1$lld×"
           }
         }
       }
@@ -1344,6 +1498,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "Unsubscribe started on the website"
+          }
+        }
+      }
+    },
+    "Abruf %@%@ …": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Abruf %1$@%2$@ …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetching %@%@ …"
+          }
+        }
+      }
+    },
+    "Abruf %@%@: %lld von %lld neuen Mails": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Abruf %1$@%2$@: %3$lld von %4$lld neuen Mails"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetching %@%@: %lld of %lld new mails"
+          }
+        }
+      }
+    },
+    "Abruf %@%@: Löschungen prüfen": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Abruf %1$@%2$@: Löschungen prüfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetching %@%@: checking deletions"
+          }
+        }
+      }
+    },
+    "Abruf %@%@: Markierungen abgleichen": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Abruf %1$@%2$@: Markierungen abgleichen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetching %@%@: reconciling flags"
           }
         }
       }
@@ -1755,7 +1973,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unsubscribed from the newsletter %@ %@ on %@. Further newsletters from here are unwanted."
+            "value": "%2$@ from the newsletter on %1$@ %3$@. Further newsletters from here are unwanted."
           }
         }
       }
@@ -1920,6 +2138,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sign-in"
+          }
+        }
+      }
+    },
+    "Anmeldung abgebrochen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in cancelled"
+          }
+        }
+      }
+    },
+    "Anmeldung abgelehnt: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in refused: %@"
+          }
+        }
+      }
+    },
+    "Anmeldung nicht möglich: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in not possible: %@"
           }
         }
       }
@@ -2998,6 +3246,16 @@
         }
       }
     },
+    "Das Bridge-Zertifikat von „%@“ ist noch nicht bestätigt": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The bridge certificate of “%@” has not been confirmed yet"
+          }
+        }
+      }
+    },
     "Das gewählte Archiv ist nicht erreichbar. Ist das Laufwerk angeschlossen?": {
       "localizations": {
         "en": {
@@ -3370,6 +3628,46 @@
         }
       }
     },
+    "Die Anmeldung im Browser wurde nicht abgeschlossen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The sign-in in the browser was not completed"
+          }
+        }
+      }
+    },
+    "Die Ansicht braucht eine Suche.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The view needs a search."
+          }
+        }
+      }
+    },
+    "Die Ansicht braucht einen Namen.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The view needs a name."
+          }
+        }
+      }
+    },
+    "Die Antwort im Browser gehört nicht zu dieser Anmeldung (state passt nicht)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The answer in the browser does not belong to this sign-in (the state does not match)"
+          }
+        }
+      }
+    },
     "Die Art selbst festlegen – keine Regel und kein Modell ändert sie danach; MailKeeper lernt daraus": {
       "localizations": {
         "en": {
@@ -3636,6 +3934,16 @@
         }
       }
     },
+    "Die Suche ist zu lang (höchstens %lld Zeichen).": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The search is too long (at most %lld characters)."
+          }
+        }
+      }
+    },
     "Die Suche lässt hier nichts übrig. Alle Begriffe müssen zutreffen.": {
       "localizations": {
         "en": {
@@ -3662,6 +3970,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "This address is not on the local network: mail content would leave your network."
+          }
+        }
+      }
+    },
+    "Diese Ansicht gibt es nicht mehr.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This view no longer exists."
           }
         }
       }
@@ -3882,6 +4200,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "A click on a column header sorts the results by that column"
+          }
+        }
+      }
+    },
+    "Ein Konto „%@“ gibt es schon": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An account “%@” already exists"
           }
         }
       }
@@ -4432,6 +4760,36 @@
         }
       }
     },
+    "Für Konto „%@“ fehlt die Google-Client-ID": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Google client ID is missing for the account “%@”"
+          }
+        }
+      }
+    },
+    "Für Konto „%@“ ist kein Passwort im Schlüsselbund": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There is no password in the keychain for the account “%@”"
+          }
+        }
+      }
+    },
+    "Für Konto „%@“ ist keine Google-Anmeldung im Schlüsselbund – bitte neu anmelden": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There is no Google sign-in in the keychain for the account “%@” – please sign in again"
+          }
+        }
+      }
+    },
     "Für diese Gruppe künftig: Art festlegen, nach Tagen vom Server löschen oder in den Spam-Ordner": {
       "localizations": {
         "en": {
@@ -4492,6 +4850,26 @@
         }
       }
     },
+    "Gemeint ist „on:server“.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You mean “on:server”."
+          }
+        }
+      }
+    },
+    "Gemeint ist „only:archive“.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You mean “only:archive”."
+          }
+        }
+      }
+    },
     "Gerade läuft „%@“ – Abrufen geht danach (oder mit × anhalten).": {
       "localizations": {
         "en": {
@@ -4518,6 +4896,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "“%@” is running. The archive can be switched once it has finished – or stop it with the × at the bottom of the status bar; what is done stays done."
+          }
+        }
+      }
+    },
+    "Gesendet": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent"
           }
         }
       }
@@ -4629,6 +5017,36 @@
         }
       }
     },
+    "Google antwortete: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google answered: %@"
+          }
+        }
+      }
+    },
+    "Google hat die Anmeldung abgelehnt: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google refused the sign-in: %@"
+          }
+        }
+      }
+    },
+    "Google hat keinen Anmelde-Code zurückgegeben": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google returned no sign-in code"
+          }
+        }
+      }
+    },
     "Google-Anmeldung": {
       "localizations": {
         "en": {
@@ -4675,6 +5093,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Size"
+          }
+        }
+      }
+    },
+    "Größer als 5 MB": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Larger than 5 MB"
           }
         }
       }
@@ -4765,6 +5193,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Add"
+          }
+        }
+      }
+    },
+    "I/O error (%@) at %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "I/O error (%1$@) at %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I/O error (%@) at %@"
           }
         }
       }
@@ -5165,6 +5609,16 @@
         }
       }
     },
+    "Kein Konto „%@“": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No account “%@”"
+          }
+        }
+      }
+    },
     "Kein Modell verfügbar: %@": {
       "localizations": {
         "en": {
@@ -5471,6 +5925,16 @@
         }
       }
     },
+    "Konto „%@“ ist hier nicht eingerichtet": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The account “%@” is not set up here"
+          }
+        }
+      }
+    },
     "Konto/Sicherheit": {
       "localizations": {
         "en": {
@@ -5627,6 +6091,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Last 14 days"
+          }
+        }
+      }
+    },
+    "Letzte 30 Tage": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last 30 days"
           }
         }
       }
@@ -6123,6 +6597,16 @@
         }
       }
     },
+    "Markiert": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flagged"
+          }
+        }
+      }
+    },
     "Massenversand (Precedence: %@)": {
       "localizations": {
         "en": {
@@ -6209,6 +6693,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Classify with AI"
+          }
+        }
+      }
+    },
+    "Mit PDF": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With PDF"
           }
         }
       }
@@ -6339,6 +6833,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Stop after the current batch; the rest can be resumed"
+          }
+        }
+      }
+    },
+    "Nach „-“ fehlt ein Begriff.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A term is missing after “-”."
+          }
+        }
+      }
+    },
+    "Nach „OR“ fehlt ein Begriff.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A term is missing after “OR”."
           }
         }
       }
@@ -6573,6 +7087,16 @@
         }
       }
     },
+    "Newsletter und Listen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Newsletters and lists"
+          }
+        }
+      }
+    },
     "Nicht angemeldet": {
       "localizations": {
         "en": {
@@ -6799,6 +7323,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Only in the archive (nothing to do)"
+          }
+        }
+      }
+    },
+    "Nur noch im Archiv": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only in the archive"
           }
         }
       }
@@ -7147,6 +7681,16 @@
         }
       }
     },
+    "Protokollfehler: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protocol error: %@"
+          }
+        }
+      }
+    },
     "Proton Mail Bridge": {
       "localizations": {
         "en": {
@@ -7203,6 +7747,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Your server's check without a clear result (%@)."
+          }
+        }
+      }
+    },
+    "Prüfung neuer Mails: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking new mail: %@"
           }
         }
       }
@@ -7287,6 +7841,16 @@
         }
       }
     },
+    "Rückkanal auf 127.0.0.1 nicht möglich: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No return channel on 127.0.0.1: %@"
+          }
+        }
+      }
+    },
     "STARTTLS statt TLS": {
       "localizations": {
         "en": {
@@ -7313,6 +7877,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Delete key"
+          }
+        }
+      }
+    },
+    "Schlüsselbund-Fehler %d: %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Schlüsselbund-Fehler %1$d: %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keychain error %d: %@"
           }
         }
       }
@@ -7403,6 +7983,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Server"
+          }
+        }
+      }
+    },
+    "Server hat vor dem Senden abgelehnt oder die Verbindung beendet (zu groß, kein Platz, keine Rechte?)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server refused before the upload or closed the connection (too large, no space, no permission?)"
           }
         }
       }
@@ -7777,6 +8367,16 @@
         }
       }
     },
+    "Ungültige Konto-ID „%@“ (erlaubt: a–z, 0–9, - und _)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid account id “%@” (allowed: a–z, 0–9, - and _)"
+          }
+        }
+      }
+    },
     "Unterbrochener Auftrag: %@ (%lld offen) – fortsetzen …": {
       "localizations": {
         "de": {
@@ -7819,6 +8419,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Connect and check"
+          }
+        }
+      }
+    },
+    "Verbindung fehlgeschlagen: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection failed: %@"
+          }
+        }
+      }
+    },
+    "Verbindung geschlossen oder Zeitüberschreitung": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection closed or timed out"
           }
         }
       }
@@ -8023,6 +8643,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Unsubscribe from “%@”?"
+          }
+        }
+      }
+    },
+    "Vor „OR“ fehlt ein Begriff.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A term is missing before “OR”."
           }
         }
       }
@@ -8367,6 +8997,22 @@
         }
       }
     },
+    "Zertifikat der Bridge hat sich geändert (erwartet %@…, erhalten %@…)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Zertifikat der Bridge hat sich geändert (erwartet %1$@…, erhalten %2$@…)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The bridge's certificate has changed (expected %@…, received %@…)"
+          }
+        }
+      }
+    },
     "Ziel": {
       "localizations": {
         "en": {
@@ -8403,6 +9049,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "About this sender"
+          }
+        }
+      }
+    },
+    "Zu viele Suchbegriffe (höchstens %lld).": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many search terms (at most %lld)."
+          }
+        }
+      }
+    },
+    "Zu viele verschachtelte Klammern.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many nested brackets."
           }
         }
       }
@@ -8607,6 +9273,26 @@
         }
       }
     },
+    "archive format %lld is newer than this version supports": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "archive format %lld is newer than this version supports"
+          }
+        }
+      }
+    },
+    "archive is in use by another process (%@) — the MailKeeper app may be importing, fetching or indexing PDFs": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "archive is in use by another process (%@) — the MailKeeper app may be importing, fetching or indexing PDFs"
+          }
+        }
+      }
+    },
     "auf dem Server gelöscht": {
       "localizations": {
         "en": {
@@ -8699,6 +9385,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "example.com"
+          }
+        }
+      }
+    },
+    "blob %@ has content hash %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "blob %1$@ has content hash %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "blob %@ has content hash %@"
           }
         }
       }
@@ -9621,6 +10323,16 @@
         }
       }
     },
+    "Älter als ein Jahr": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Older than a year"
+          }
+        }
+      }
+    },
     "Älteste": {
       "localizations": {
         "en": {
@@ -9781,12 +10493,62 @@
         }
       }
     },
+    "„(“ ohne passende „)“.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“(” without a matching “)”."
+          }
+        }
+      }
+    },
+    "„)“ ohne passende „(“.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“)” without a matching “(”."
+          }
+        }
+      }
+    },
     "„Auf dem Server“ trifft in diesem Archiv nie zu: Es enthält nur importierte Mails (Maildir, mbox, .eml), und für die kennt MailKeeper keinen Server-Ort. Den gibt es erst für Mails, die ein Konto abgerufen hat (Einstellungen › Konten).": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "“On the server” never applies in this archive: it holds only imported mail (Maildir, mbox, .eml), and MailKeeper knows no server place for those. That exists only for mail a configured account has fetched (Settings › Accounts)."
+          }
+        }
+      }
+    },
+    "„date:“ braucht einen Zeitraum (2024, 2024-03, 17.3.2024) — für „vor 30 Tagen“ before:30d.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“date:” needs a period (2024, 2024-03, 17.3.2024) — for “30 days ago” use before:30d."
+          }
+        }
+      }
+    },
+    "„has:%@“ kenne ich nicht — attachment, pdf, image oder calendar.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I do not know “has:%@” — attachment, pdf, image or calendar."
+          }
+        }
+      }
+    },
+    "„is:%@“ kenne ich nicht — unread, read, flagged, answered, list, sent, junk, phishing, verdächtig, fehlalarm oder war-im-spam.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I do not know “is:%@” — unread, read, flagged, answered, list, sent, junk, phishing, verdächtig, fehlalarm or war-im-spam."
           }
         }
       }
