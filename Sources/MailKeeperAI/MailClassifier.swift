@@ -60,7 +60,7 @@ public struct MailClassifier: Sendable {
 
     static let schema = AISchema.object(name: "classification", properties: [
         .init("category", .choice(name: "category", values: MailCategory.allCases.map(\.rawValue))),
-        .init("reason", .string(), description: "Begründung, höchstens zehn Wörter, Deutsch"),
+        .init("reason", .string(), description: "Begründung, höchstens zehn Wörter, \(OutputLanguage.current)"),
         .init("phishing", .choice(name: "phishing", values: PhishingLevel.allCases.map(\.rawValue))),
         .init("phishing_reason", .string(), description: "Bei verdacht/ja: die konkreten Anzeichen, höchstens 20 Wörter", optional: true),
     ])

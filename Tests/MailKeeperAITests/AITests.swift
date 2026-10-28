@@ -381,3 +381,18 @@ final class HugeStubProtocol: URLProtocol, @unchecked Sendable {
     }
     override func stopLoading() {}
 }
+
+@Suite("Antwortsprache (8.4)")
+struct OutputLanguageTests {
+    @Test("Die Antwort folgt der Sprache der App, nicht der des Prompts")
+    func languageFollowsTheInterface() {
+        #expect(OutputLanguage.name(for: "de") == "Deutsch")
+        #expect(OutputLanguage.name(for: "en") == "English")
+        #expect(OutputLanguage.name(for: "en-GB") == "English")
+        #expect(OutputLanguage.name(for: "de-AT") == "Deutsch")
+        // anything the app is not translated into falls back with the bundle, which offers
+        // only de and en — an unknown code must still produce a language, never an empty one
+        #expect(!OutputLanguage.name(for: "fr").isEmpty)
+        #expect(!OutputLanguage.current.isEmpty)
+    }
+}

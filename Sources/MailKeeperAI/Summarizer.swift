@@ -155,7 +155,7 @@ public struct MailSummarizer: Sendable {
     }()
 
     static let schema = AISchema.object(name: "summary", properties: [
-        .init("summary", .string(), description: "Zwei bis fünf Sätze, Deutsch"),
+        .init("summary", .string(), description: "Zwei bis fünf Sätze, \(OutputLanguage.current)"),
         .init("points", .array(of: .string(), max: 6), description: "Wichtige Fakten: Termine, Fristen, Beträge, Nummern, Entscheidungen – je höchstens 15 Wörter; leer, wenn keine"),
         .init("todo", .array(of: .string(), max: 3), description: "Was der Nutzer tun soll, mit Frist, wenn genannt; leer, wenn nichts oder bei Betrugsverdacht"),
         .init("scam", .choice(name: "scam", values: PhishingLevel.allCases.map(\.rawValue))),
@@ -165,13 +165,13 @@ public struct MailSummarizer: Sendable {
     static func instructions(_ fence: Fence, conversation: Bool) -> String {
         let what = conversation
             ? """
-              Du fasst eine E-Mail-Konversation auf Deutsch zusammen. Die Nachrichten stehen älteste zuerst; \
+              Du fasst eine E-Mail-Konversation auf \(OutputLanguage.current) zusammen. Die Nachrichten stehen älteste zuerst; \
               Antworten sind ohne die zitierte Vorgängermail wiedergegeben.
               summary: der Verlauf in zwei bis fünf Sätzen – Anlass, wer was wollte, was entschieden wurde, der \
               aktuelle Stand und was offen ist.
               """
             : """
-              Du fasst eine E-Mail auf Deutsch zusammen.
+              Du fasst eine E-Mail auf \(OutputLanguage.current) zusammen.
               summary: zwei bis vier Sätze – worum es geht, wer was will, was der Stand ist.
               """
         return """

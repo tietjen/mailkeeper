@@ -77,7 +77,8 @@ Im Leser unter **„Inhalt“**:
   Nachrichten, älteste zuerst, Zitate herausgerechnet.
 
 Heraus kommen zwei bis fünf Sätze, bis zu sechs Fakten und bis zu drei Aufgaben, dazu die
-Fußzeile mit Modell, Dauer und wie viele Nachrichten gelesen wurden.
+Fußzeile mit Modell, Dauer und wie viele Nachrichten gelesen wurden — **in der Sprache, in der
+MailKeeper gerade läuft**. Dasselbe gilt für die Begründung an der Einordnung.
 
 **Ist die Mail ein Betrugsversuch, bleiben die Aufgaben leer** — und oben steht eine Warnung.
 Was eine Betrugsmail von dir verlangt, ist keine Aufgabe. Das gilt auch, wenn MailKeeper selbst

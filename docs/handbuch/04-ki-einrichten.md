@@ -29,6 +29,10 @@ Zeichen am Endpunkt, kompakte 5 000 für das Mac-Modell). Beim Einordnen kommen 
 die MailKeeper selbst weiß: deine Notizen, passende Beispiele, das Absenderprofil und das
 Ergebnis der Echtheitsprüfung. **Der Inhalt von Anhängen geht nie mit.**
 
+**In welcher Sprache geantwortet wird:** in der, in der die App läuft. Die Anweisungen an das
+Modell bleiben deutsch — darin sind sie geschrieben und gemessen —, verlangt wird aber eine
+Antwort in der Sprache der Oberfläche.
+
 **Was protokolliert wird:** `~/Library/Logs/MailKeeper/ai.jsonl` hält fest, *dass* eine Anfrage
 lief — Aufgabe, Weg, Modell, Sekunden, Tokens, Ergebnis. **Nie der Prompt und nie die Antwort.**
 
