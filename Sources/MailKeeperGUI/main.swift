@@ -30,6 +30,10 @@ struct MailKeeperApp: App {
             }
         }
         .commands {
+            // "Nach Updates suchen …" belongs next to "Über MailKeeper" in the app menu.
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesButton()
+            }
             CommandGroup(after: .newItem) {
                 Button("Archiv öffnen …") { model.openArchive() }
                     .keyboardShortcut("o", modifiers: [.command, .shift])

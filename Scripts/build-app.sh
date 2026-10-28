@@ -1,6 +1,6 @@
 #!/bin/zsh
-# Build MailKeeper.app: release build, bundle, Developer ID signature with hardened runtime
-# and App Sandbox (ADR-0003). Sparkle is added in Phase 8.
+# Build MailKeeper.app: release build, bundle, Sparkle, Developer ID signature with hardened
+# runtime and App Sandbox (ADR-0003, ADR-0013).
 # usage: Scripts/build-app.sh [--no-sign | --dev]   → build/MailKeeper.app
 #   --dev: "MailKeeper Dev" (bundle id …MailKeeper.dev), Developer ID, NO sandbox — honours
 #          MAILKEEPER_ARCHIVE (open --env MAILKEEPER_ARCHIVE=/path build/MailKeeper\ Dev.app)
@@ -59,6 +59,30 @@ cat > "$SVC_ENT" <<ENTITLEMENTS
 </plist>
 ENTITLEMENTS
 
+# Sparkle (ADR-0013): the framework is copied in, and the executable gets the rpath SwiftPM
+# does not set. Spike S4 verified the whole update run in the sandbox.
+SPARKLE_FW=".build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+[[ -d "$SPARKLE_FW" ]] || { echo "Sparkle fehlt — swift package resolve" >&2; exit 1; }
+mkdir -p "$APP/Contents/Frameworks"
+cp -R "$SPARKLE_FW" "$APP/Contents/Frameworks/"
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/MacOS/MailKeeper" 2>/dev/null || true
+
+# The public key of the update signature. Its private half lives in the login keychain
+# (account "MailKeeper") and in the vault; see ADR-0013. Changing it makes every installed
+# copy refuse every future update.
+SU_PUBLIC_KEY="H1LoPh3aWMFX2d7rT+RHlB5H5ZSSeShjTnvw6kuyge0="
+SU_FEED="https://github.com/tietjen/mailkeeper/releases/latest/download/appcast.xml"
+# A dev build must never pull a release over itself: no feed, no automatic checks.
+if [[ $DEV == 1 ]]; then
+  SPARKLE_KEYS="  <key>SUEnableAutomaticChecks</key><false/>"
+else
+  SPARKLE_KEYS="  <key>SUFeedURL</key><string>$SU_FEED</string>
+  <key>SUPublicEDKey</key><string>$SU_PUBLIC_KEY</string>
+  <key>SUEnableAutomaticChecks</key><true/>
+  <!-- sandboxed updates go through Sparkle's installer launcher service (spike S4) -->
+  <key>SUEnableInstallerLauncherService</key><true/>"
+fi
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -76,8 +100,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleLocalizations</key><array><string>de</string><string>en</string></array>
   <key>LSMinimumSystemVersion</key><string>26.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
-  <key>NSHumanReadableCopyright</key><string>© 2026 Jan Tietjen — MIT License</string>
+  <key>NSHumanReadableCopyright</key><string>© 2026 Jan Tietjen. Alle Rechte vorbehalten.</string>
   <key>NSHighResolutionCapable</key><true/>
+$SPARKLE_KEYS
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsLocalNetworking</key><true/>
@@ -107,20 +132,34 @@ cat > "$ENT" <<ENTITLEMENTS
   <key>com.apple.security.network.server</key><true/>
   <key>com.apple.security.files.user-selected.read-write</key><true/>
   <key>com.apple.security.files.bookmarks.app-scope</key><true/>
+$([[ $DEV == 1 ]] || echo "  <!-- Sparkle's installer services in the sandbox (spike S4) -->
+  <key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+  <array><string>$BUNDLE_ID-spks</string><string>$BUNDLE_ID-spki</string></array>")
 </dict>
 </plist>
 ENTITLEMENTS
 
-# Nested code first (the service), then the app — no --deep.
+# Inner code first, then outwards — never --deep: it would leave Sparkle's binaries signed by
+# the Sparkle team, and library validation would then refuse them.
 if [[ $SIGN == 1 ]]; then
   TS=--timestamp
   [[ $DEV == 1 ]] && TS=--timestamp=none
-  codesign --force --options runtime $TS --entitlements "$SVC_ENT" --sign "$IDENTITY" "$XPC"
-  codesign --force --options runtime $TS --entitlements "$ENT" --sign "$IDENTITY" "$APP"
+  SIGN_AS=("$IDENTITY")
 else
-  codesign --force --options runtime --entitlements "$SVC_ENT" --sign - "$XPC"
-  codesign --force --options runtime --entitlements "$ENT" --sign - "$APP"
+  TS=""
+  SIGN_AS=(-)
 fi
+sign() { codesign --force --options runtime ${TS:+$TS} "${@:2}" --sign "${SIGN_AS[@]}" "$1" }
+
+SP="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
+sign "$SP/XPCServices/Downloader.xpc" --preserve-metadata=entitlements
+sign "$SP/XPCServices/Installer.xpc"
+sign "$SP/Updater.app"
+sign "$SP/Autoupdate"
+sign "$APP/Contents/Frameworks/Sparkle.framework"
+sign "$XPC" --entitlements "$SVC_ENT"
+sign "$APP" --entitlements "$ENT"
+
 codesign --verify --strict --verbose=1 "$XPC"
 codesign --verify --strict --verbose=1 "$APP"
 echo "==> $APP ($VERSION, build $BUILD)"

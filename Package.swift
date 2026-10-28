@@ -22,6 +22,9 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-nio-imap.git", exact: "0.4.0"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.80.0"),
         .package(url: "https://github.com/apple/swift-nio-ssl.git", from: "2.30.0"),
+        // Phase 8: self-updates outside the App Store (ADR-0013). Only the GUI depends on it;
+        // Kit, IMAP, AI and mkctl stay free of it. Sandboxed operation verified in spike S4.
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.0"),
     ],
     targets: [
         .target(name: "MailKeeperKit"),
@@ -35,7 +38,10 @@ let package = Package(
         // ADR-0004: language models (OpenAI-compatible endpoint, Apple on-device). Kit stays model-free.
         .target(name: "MailKeeperAI", dependencies: ["MailKeeperKit"]),
         .executableTarget(name: "mkctl", dependencies: ["MailKeeperKit", "MailKeeperIMAP", "MailKeeperAI"]),
-        .executableTarget(name: "MailKeeperGUI", dependencies: ["MailKeeperKit", "MailKeeperIMAP", "MailKeeperAI"]),
+        .executableTarget(name: "MailKeeperGUI", dependencies: [
+            "MailKeeperKit", "MailKeeperIMAP", "MailKeeperAI",
+            .product(name: "Sparkle", package: "Sparkle"),
+        ]),
         // PDFKit lives here and is linked only into the service, never into the app.
         .target(name: "MailKeeperPDF", dependencies: ["MailKeeperKit"]),
         .executableTarget(name: "MailKeeperPDFService", dependencies: ["MailKeeperKit", "MailKeeperPDF"]),
