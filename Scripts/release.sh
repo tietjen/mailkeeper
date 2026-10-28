@@ -57,7 +57,7 @@ swift test 2>&1 | tail -3
 # ---------------------------------------------------------------- 2. build
 
 say "Build $VERSION_ARG"
-Scripts/build-app.sh >/dev/null
+Scripts/build-app.sh >/dev/null 2>"$TMPDIR/mk-build.log" || { cat "$TMPDIR/mk-build.log" >&2; die "Build fehlgeschlagen" }
 APP="build/$APP_NAME.app"
 [[ -d "$APP" ]] || die "kein $APP"
 BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Contents/Info.plist")
@@ -99,18 +99,21 @@ say "Sparkle-Signatur"
 SIGN_UPDATE=$(find .build/artifacts/sparkle -name sign_update -type f | head -1)
 [[ -n "$SIGN_UPDATE" ]] || die "sign_update fehlt — swift package resolve"
 # macOS 26 refuses sign_update access to the keychain entry (-25320), so the key goes through
-# a temporary file with 0600 that is removed whatever happens.
-KEYFILE=$(mktemp); chmod 600 "$KEYFILE"
-trap 'rm -f "$KEYFILE"' EXIT INT TERM
+# a file in a 0700 directory that is removed whatever happens. generate_keys -x refuses to
+# overwrite, so the file must not exist yet — hence a directory, not mktemp.
+KEYDIR=$(mktemp -d); chmod 700 "$KEYDIR"
+KEYFILE="$KEYDIR/ed"
+trap 'rm -rf "$KEYDIR"' EXIT INT TERM
 if [[ -n "${SPARKLE_ED_PRIVATE_KEY:-}" ]]; then
-  print -rn -- "$SPARKLE_ED_PRIVATE_KEY" > "$KEYFILE"
+  (umask 077; print -rn -- "$SPARKLE_ED_PRIVATE_KEY" > "$KEYFILE")
 else
   GENERATE_KEYS=$(find .build/artifacts/sparkle -name generate_keys -type f | head -1)
   "$GENERATE_KEYS" --account "$APP_NAME" -x "$KEYFILE" >/dev/null 2>&1 \
     || die "kein Sparkle-Schlüssel: weder \$SPARKLE_ED_PRIVATE_KEY noch Schlüsselbund-Konto $APP_NAME"
+  chmod 600 "$KEYFILE"
 fi
 SIGNATURE=$("$SIGN_UPDATE" --ed-key-file "$KEYFILE" "$DMG")
-rm -f "$KEYFILE"; trap - EXIT INT TERM
+rm -rf "$KEYDIR"; trap - EXIT INT TERM
 [[ "$SIGNATURE" == *edSignature* ]] || die "sign_update lieferte keine Signatur"
 
 # The public key in the bundle must be the one that just signed — otherwise every installed
