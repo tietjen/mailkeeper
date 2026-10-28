@@ -24,6 +24,22 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/MailKeeperGUI "$APP/Contents/MacOS/MailKeeper"
 iconutil -c icns Resources/AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns"
 
+# The string catalogue goes into the MAIN bundle: SwiftUI and String(localized:) look there,
+# not in a SwiftPM resource bundle. One catalogue serves the GUI and the error texts out of
+# Kit, IMAP and AI (LaunchKeeper lesson).
+CATALOG="Localization/Localizable.xcstrings"
+if [[ -f "$CATALOG" ]]; then
+  xcrun xcstringstool compile "$CATALOG" --output-directory "$APP/Contents/Resources"
+  # German is the source language: its texts are the keys themselves, so it gets no .lproj —
+  # but it must still be listed, or macOS would offer a German system only English.
+  SOURCE_LANG=$(python3 -c "import json;print(json.load(open('$CATALOG'))['sourceLanguage'])")
+  COMPILED=("${(@f)$(cd "$APP/Contents/Resources" && print -l *.lproj(N:r))}")
+  LANGS="$SOURCE_LANG"
+  for l in $COMPILED; do [[ -n "$l" && "$l" != "$SOURCE_LANG" ]] && LANGS="$LANGS,$l"; done
+else
+  LANGS="de"
+fi
+
 # ADR-0009: PDF text service — sandboxed, no network, no files; sandboxed in --dev too.
 SVC_ID="de.paranoidsecurity.MailKeeper.PDFText"
 XPC="$APP/Contents/XPCServices/$SVC_ID.xpc"
@@ -103,7 +119,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$BUILD</string>
   <key>CFBundleDevelopmentRegion</key><string>de</string>
-  <key>CFBundleLocalizations</key><array><string>de</string><string>en</string></array>
+  <key>CFBundleLocalizations</key><array>$(print -l ${(s:,:)LANGS} | sed 's|.*|<string>&</string>|')</array>
   <key>LSMinimumSystemVersion</key><string>26.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSHumanReadableCopyright</key><string>© 2026 Jan Tietjen. Alle Rechte vorbehalten.</string>

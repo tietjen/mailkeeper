@@ -48,6 +48,9 @@ let package = Package(
         .testTarget(name: "MailKeeperKitTests", dependencies: ["MailKeeperKit"]),
         .testTarget(name: "MailKeeperIMAPTests", dependencies: ["MailKeeperIMAP", "MailKeeperKit"]),
         .testTarget(name: "MailKeeperPDFTests", dependencies: ["MailKeeperPDF", "MailKeeperKit"]),
-        .testTarget(name: "MailKeeperAITests", dependencies: ["MailKeeperAI", "MailKeeperKit"]),
+        // The gold mails are read through #filePath, not through Bundle.module — declaring
+        // them excluded keeps SwiftPM from warning about "unhandled files" on every build.
+        .testTarget(name: "MailKeeperAITests", dependencies: ["MailKeeperAI", "MailKeeperKit"],
+                    exclude: ["Gold"]),
     ]
 )

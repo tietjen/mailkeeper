@@ -40,6 +40,11 @@ jobs:
       - name: App bauen (ohne Signatur)
         run: Scripts/build-app.sh --no-sign
 
+      # The catalogue must match the sources: a text added without running localize.sh would
+      # silently stay German in the English app.
+      - name: Übersetzungskatalog aktuell
+        run: Scripts/localize.sh --check
+
       - name: Dokumentation — interne Links
         run: |
           python3 - <<'PY'
