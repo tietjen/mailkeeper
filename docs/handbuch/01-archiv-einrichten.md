@@ -6,6 +6,10 @@ eines auf einer externen Platte.
 
 ## Das erste Archiv
 
+Beim allerersten Start führt dich ein kurzer **Rundgang** durch das Fenster. Du kannst ihn
+überspringen; über **Hilfe › Einführung zeigen** kommt er zurück. Im selben Menü steht die
+Hilfe im Programm (**⌘?**) — die Kurzfassung dieses Handbuchs, durchsuchbar.
+
 Beim ersten Start legt MailKeeper ein **Standard-Archiv** in seinem eigenen Container an
 (`~/Library/Containers/de.paranoidsecurity.MailKeeper/Data/Library/Application Support/MailKeeper/Archive`).
 Das genügt zum Ausprobieren — wer auch mit `mkctl` arbeiten oder das Archiv gezielt sichern

@@ -52,5 +52,8 @@ let package = Package(
         // them excluded keeps SwiftPM from warning about "unhandled files" on every build.
         .testTarget(name: "MailKeeperAITests", dependencies: ["MailKeeperAI", "MailKeeperKit"],
                     exclude: ["Gold"]),
+        // Only the parts of the GUI that are plain logic — the tour's state machine. SwiftPM
+        // can link an executable target into a test bundle; views are not tested here.
+        .testTarget(name: "MailKeeperGUITests", dependencies: ["MailKeeperGUI"]),
     ]
 )

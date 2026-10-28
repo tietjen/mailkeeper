@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Bindable var model: AppModel
+    let tour: IntroTour
 
     var body: some View {
         VStack(spacing: 0) {
@@ -10,6 +11,7 @@ struct ContentView: View {
                 Sidebar(model: model)
                     .frame(minWidth: 190)  // hard floor: narrower, the list shows only the counts
                     .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 400)
+                    .introStep(.sidebar, tour, edge: .trailing)
             } content: {
                 Group {
                     if model.viewMode == .messages {
@@ -98,20 +100,24 @@ struct ContentView: View {
                             QueryBar(model: model)
                         }
                     }
+                    .introStep(.list, tour, edge: .trailing)
             } detail: {
-                if model.viewMode != .messages {
-                    if let detail = model.groupDetail {
-                        GroupDetailView(model: model, detail: detail)
+                Group {
+                    if model.viewMode != .messages {
+                        if let detail = model.groupDetail {
+                            GroupDetailView(model: model, detail: detail)
+                        } else {
+                            CleanupOverviewView(model: model)
+                        }
+                    } else if model.actionSelection.count > 1 {
+                        SelectionSummaryView(model: model)
+                    } else if let id = model.selectedMessageID {
+                        ReaderView(model: model, messageID: id)
                     } else {
-                        CleanupOverviewView(model: model)
+                        ContentUnavailableView("Keine Nachricht ausgewählt", systemImage: "envelope")
                     }
-                } else if model.actionSelection.count > 1 {
-                    SelectionSummaryView(model: model)
-                } else if let id = model.selectedMessageID {
-                    ReaderView(model: model, messageID: id)
-                } else {
-                    ContentUnavailableView("Keine Nachricht ausgewählt", systemImage: "envelope")
                 }
+                .introStep(.reader, tour, edge: .leading)
             }
             StatusBar(model: model)  // below, not an inset: the AppKit table ignores insets (last row was hidden)
         }
@@ -160,6 +166,7 @@ struct ContentView: View {
                 .help(model.accountConfigs.isEmpty ? "Erst ein Konto anlegen: Einstellungen › Konten"
                       : model.actionRunning ? "Erst wenn die laufende Aktion fertig ist (oder mit × anhalten)"
                       : "Neue Mails von allen Konten abrufen (nur lesend)")
+                .introStep(.toolbar, tour, edge: .bottom)
             }
             ToolbarItem {
                 Menu {
@@ -172,6 +179,8 @@ struct ContentView: View {
                 .help("Mails aus Maildir, mbox oder .eml-Dateien ins Archiv übernehmen")
             }
         }
+        .onAppear { tour.startIfWanted() }
+        .sheet(item: tour.sheet) { IntroCard(tour: tour, card: $0) }
         .sheet(item: $model.pendingPlan) { PlanSheet(model: model, plan: $0) }
         .sheet(item: $model.placing) { PlacementSheet(model: model, request: $0) }
         .sheet(item: $model.actionResult) { ResultSheet(model: model, job: $0) }

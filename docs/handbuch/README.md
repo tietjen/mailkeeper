@@ -15,6 +15,10 @@ In der Reihenfolge, in der man es braucht. Die ersten drei Kapitel reichen, um l
 | 9 | [Sicherheit und Datenschutz](09-sicherheit-und-datenschutz.md) | Was wohin geht, Sandbox, und die Grenzen |
 | 10 | [Die Kommandozeile `mkctl`](10-kommandozeile.md) | Skripte, große Importe, nächtliche Läufe |
 
+**In der App:** **⌘?** öffnet die Hilfe im Programm — dieselben Themen in Kurzform und
+durchsuchbar, mit einem Link hierher. Den Rundgang vom ersten Start holst du über
+**Hilfe › Einführung zeigen** zurück.
+
 **Zum Nachschlagen:** [Funktionsreferenz](../funktionen.md) — jede Funktion mit ihren Grenzen.
 
 **Zum Verstehen:** [Wie MailKeeper gebaut ist](../architektur.md) — und dahinter die

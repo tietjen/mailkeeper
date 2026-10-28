@@ -6,13 +6,18 @@ import SwiftUI
 
 struct MailKeeperApp: App {
     @State private var model = AppModel()
+    @State private var tour = IntroTour()
 
     var body: some Scene {
         Window("MailKeeper", id: "main") {
-            ContentView(model: model)
+            ContentView(model: model, tour: tour)
                 .frame(minWidth: 900, minHeight: 520)
                 .task { await ContentRules.shared.compile() }
         }
+        Window("MailKeeper-Hilfe", id: "help") {
+            HelpWindow()
+        }
+        .defaultSize(width: 860, height: 560)
         Settings {
             TabView {
                 AccountsSettings(model: model)
@@ -84,6 +89,8 @@ struct MailKeeperApp: App {
                 Button("Neue Mails abrufen") { model.syncAll() }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
             }
+            // The stock help item would open a help book that does not exist.
+            CommandGroup(replacing: .help) { HelpMenuItems(tour: tour) }
         }
     }
 }

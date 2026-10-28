@@ -1038,6 +1038,22 @@
         }
       }
     },
+    "%lld von %lld": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$lld von %2$lld"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld of %lld"
+          }
+        }
+      }
+    },
     "%lld von %lld Nachrichten": {
       "localizations": {
         "de": {
@@ -1288,6 +1304,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Unsubscribed from %@."
+          }
+        }
+      }
+    },
+    "Abgerufen wird nur lesend. Eine Abrufverbindung kann auf dem Server nichts verändern — das ist nicht Absicht, sondern erzwungen.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetching is read-only. A fetch connection cannot change anything on the server — that is not good intentions, it is enforced."
           }
         }
       }
@@ -1572,6 +1598,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Fetch"
+          }
+        }
+      }
+    },
+    "Abrufen und Suchen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetching and searching"
           }
         }
       }
@@ -1882,6 +1918,16 @@
         }
       }
     },
+    "Alles Weitere steht in der Hilfe (⌘?) und im Handbuch. Diesen Rundgang findest du im Hilfemenü unter „Einführung zeigen“ wieder.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything else is in the help (⌘?) and in the handbook. You can start this tour again from the Help menu under “Show Introduction”."
+          }
+        }
+      }
+    },
     "Alles ansehen und bearbeiten: Einstellungen › Gedächtnis": {
       "localizations": {
         "en": {
@@ -1898,6 +1944,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Save everything here as a JSON file"
+          }
+        }
+      }
+    },
+    "Alles lässt sich einschränken: von: an: betreff: hat:pdf ist:ungelesen art:rechnung ab:30d — deutsch und englisch gleichwertig. Die vollständige Liste steht unter „Suchsprache …“ im Filter-Menü.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything can be narrowed down: from: to: subject: has:pdf is:unread category:invoice since:30d — German and English work alike. The full list is under “Search Language…” in the filter menu."
           }
         }
       }
@@ -1948,6 +2004,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Enter as a relationship (a firm rule)"
+          }
+        }
+      }
+    },
+    "Als Nächstes: ein Postfach": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next: a mailbox"
           }
         }
       }
@@ -2732,6 +2798,16 @@
         }
       }
     },
+    "Ausführlich steht das alles im Handbuch — mit Beispielen und den Gründen dahinter.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All of this is in the handbook in full — with examples and the reasons behind it."
+          }
+        }
+      }
+    },
     "Ausgang unbekannt (Mail ohne Message-ID) – bitte %@ nachsehen": {
       "localizations": {
         "en": {
@@ -2874,6 +2950,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "With spam, unsubscribing only confirms that your address exists – better to delete the mail."
+          }
+        }
+      }
+    },
+    "Beim Start zeigen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show at startup"
           }
         }
       }
@@ -3236,12 +3322,32 @@
         }
       }
     },
+    "Das Archiv ist nicht verschlüsselt: Die Mails liegen als gewöhnliche .eml-Dateien da, damit sie ohne MailKeeper lesbar bleiben. Die Verschlüsselung kommt von FileVault — liegt das Archiv auf einem unverschlüsselten Laufwerk, sagt die Statusleiste das.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The archive is not encrypted: the mail sits there as ordinary .eml files, so that it stays readable without MailKeeper. Encryption comes from FileVault — if the archive is on an unencrypted drive, the status bar says so."
+          }
+        }
+      }
+    },
     "Das Archiv wird für diese Version vorbereitet (Konversationen, Suche) …": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "The archive is being prepared for this version (conversations, search)…"
+          }
+        }
+      }
+    },
+    "Das Beziehungsregister merkt sich, von welchen Domains Bank, Schule oder Händler dir wirklich schreiben. Eine Mail, die den Namen trägt und von woanders kommt, ist der klassische Angriff.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The relationship register remembers which domains your bank, your school or a merchant really write from. Mail that carries the name but comes from somewhere else is the classic attack."
           }
         }
       }
@@ -3256,12 +3362,32 @@
         }
       }
     },
+    "Das Fenster": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The window"
+          }
+        }
+      }
+    },
     "Das gewählte Archiv ist nicht erreichbar. Ist das Laufwerk angeschlossen?": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "The chosen archive cannot be reached. Is the drive connected?"
+          }
+        }
+      }
+    },
+    "Das war's": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That's it"
           }
         }
       }
@@ -3362,6 +3488,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Your decision"
+          }
+        }
+      }
+    },
+    "Deine Entscheidung schlägt alles und überlebt jeden Neuaufbau. „Warum?“ am Leser zeigt, was das Modell gesehen hat — und lässt dich jeden Eintrag dort vergessen.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your decision beats everything and survives every rebuild. “Why?” in the reader shows what the model saw — and lets you make it forget any entry there."
           }
         }
       }
@@ -3542,6 +3678,16 @@
         }
       }
     },
+    "Der Leser": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The reader"
+          }
+        }
+      }
+    },
     "Der Verlauf in wenigen Sätzen: wer was wollte, was entschieden ist, was offen ist (⌥⇧⌘S)": {
       "localizations": {
         "en": {
@@ -3678,12 +3824,32 @@
         }
       }
     },
+    "Die Bedeutungssuche und „Ähnliche Mails“ brauchen einen Endpunkt — das Mac-Modell kann keine Einbettungen.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search by meaning and “Similar mail” need an endpoint — the model on the Mac cannot produce embeddings."
+          }
+        }
+      }
+    },
     "Die Datei ließ sich nicht lesen.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "The file could not be read."
+          }
+        }
+      }
+    },
+    "Die KI": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The AI"
           }
         }
       }
@@ -3758,6 +3924,16 @@
         }
       }
     },
+    "Die Liste": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The list"
+          }
+        }
+      }
+    },
     "Die Mail aus dem Archiv wieder auf den Server laden": {
       "localizations": {
         "en": {
@@ -3824,6 +4000,16 @@
         }
       }
     },
+    "Die Mails der gewählten Ansicht. Über „Ansicht“ in der Symbolleiste wird daraus eine Gruppierung nach Absender, Domain oder Liste — so räumt man ein volles Postfach auf, statt Mail für Mail.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The mail of the selected view. “View” in the toolbar turns it into a grouping by sender, domain or list — that is how a full mailbox gets cleared out, instead of one mail at a time."
+          }
+        }
+      }
+    },
     "Die Mails wandern auf dem Server aus dem Spam-Ordner dorthin zurück, wo sie vorher lagen – sonst in den Posteingang –, das Archiv merkt sich den neuen Ort und deine Entscheidung „Kein Spam“. Vorher prüft MailKeeper jede einzelne: noch dieselbe Mail im Spam-Ordner. Der Spam-Filter deines Servers lernt dabei meist mit (z. B. rspamd bei mailcow): Eine Mail, die den Spam-Ordner verlässt, gilt ihm als erwünscht – deshalb nur echte Mails zurückholen.": {
       "localizations": {
         "en": {
@@ -3884,6 +4070,16 @@
         }
       }
     },
+    "Die Protokolle enthalten nur Metadaten — keine Inhalte.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The logs hold metadata only — no content."
+          }
+        }
+      }
+    },
     "Die Proton Mail Bridge muss auf diesem Mac laufen. Benutze das Passwort, das die Bridge anzeigt — nicht dein Proton-Passwort.": {
       "localizations": {
         "en": {
@@ -3920,6 +4116,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "The check now says something other than it did a moment ago – please look at this unsubscribe again."
+          }
+        }
+      }
+    },
+    "Die Schonfrist (Standard 30 Tage) schützt neue Mail vor anderen Programmen, die dasselbe Postfach lesen.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The grace period (30 days by default) protects new mail from other programs that read the same mailbox."
+          }
+        }
+      }
+    },
+    "Die Seitenleiste": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The sidebar"
           }
         }
       }
@@ -4144,6 +4360,16 @@
         }
       }
     },
+    "Drei Stufen, von billig nach teuer: Regeln über die Kopfzeilen (dabei wird keine Mail gelesen), dann ähnliche Mails, dann ein Modell.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Three stages, cheapest first: rules over the headers (no mail is read for this), then similar mail, then a model."
+          }
+        }
+      }
+    },
     "Du hast %lld Mails an diese Adresse geschrieben.": {
       "localizations": {
         "en": {
@@ -4224,12 +4450,32 @@
         }
       }
     },
+    "Ein Tippfehler in einem Feldwert bricht die Suche ab, statt mehr zu finden. Auf einer Treffermenge wird manchmal gelöscht — sie darf durch einen Vertipper nie größer werden.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A typo in a field value stops the search instead of finding more. A result set sometimes gets deleted from — a typo must never make it bigger."
+          }
+        }
+      }
+    },
     "Ein Wort, das du benutzt, z. B. „Firma = das Proton-Konto“": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "A word you use, for example “work = the Proton account”"
+          }
+        }
+      }
+    },
+    "Ein volles Postfach räumt man nach Absendern auf: Ansicht › Absender, Domains oder Listen. Ein hoher Anteil ungelesener Mails ist das deutlichste Zeichen.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A full mailbox gets cleared out by sender: View › Sender, Domains or Lists. A high share of unread mail is the clearest sign."
           }
         }
       }
@@ -4264,12 +4510,32 @@
         }
       }
     },
+    "Eine Suche, die du öfter brauchst, legst du über „Sichern …“ als Ansicht in der Seitenleiste ab.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A search you need more than once goes into the sidebar as a view via “Save…”."
+          }
+        }
+      }
+    },
     "Eine mbox-Datei": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "One mbox file"
+          }
+        }
+      }
+    },
+    "Einführung zeigen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Introduction"
           }
         }
       }
@@ -4310,6 +4576,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Correct the Assessment…"
+          }
+        }
+      }
+    },
+    "Einstellungen › Konten › +. Es gibt IMAP, Gmail und die Proton Mail Bridge; vorhandene Archive liest du über Ablage › Importieren ein.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings › Accounts › +. There is IMAP, Gmail and the Proton Mail Bridge; existing archives come in via File › Import."
           }
         }
       }
@@ -4500,6 +4776,16 @@
         }
       }
     },
+    "Entscheidend ist, wem geglaubt wird: Die Prüfergebnisse in einer Mail zählen nur, wenn dein eigener Server sie geschrieben hat. Jeder kann „dmarc=pass“ hineinschreiben — auch der Angreifer.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What matters is whom you believe: the check results in a mail count only if your own server wrote them. Anyone can put “dmarc=pass” in there — the attacker too."
+          }
+        }
+      }
+    },
     "Erledigt": {
       "localizations": {
         "en": {
@@ -4616,6 +4902,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "First contact at your public address %@: unsolicited. A name or a company in the mail proves nothing about authenticity – and nothing about spam either."
+          }
+        }
+      }
+    },
+    "Es gibt keinen Cloud-Anbieter. Entweder ein Endpunkt, den du selbst betreibst (LiteLLM, Ollama, LM Studio), oder das Modell auf diesem Mac — oder gar keins.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There is no cloud provider. Either an endpoint you run yourself (LiteLLM, Ollama, LM Studio), or the model on this Mac — or none at all."
           }
         }
       }
@@ -5007,6 +5303,16 @@
         }
       }
     },
+    "Gmail geht mit App-Passwort oder mit Anmeldung über Google. Passwörter und Anmeldungen liegen im Schlüsselbund, nie im Archiv.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gmail works with an app password or by signing in with Google. Passwords and sign-ins live in the keychain, never in the archive."
+          }
+        }
+      }
+    },
     "Google": {
       "localizations": {
         "en": {
@@ -5137,6 +5443,26 @@
         }
       }
     },
+    "Handbuch öffnen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the handbook"
+          }
+        }
+      }
+    },
+    "Handbuch öffnen …": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the Handbook…"
+          }
+        }
+      }
+    },
     "Herkunft": {
       "localizations": {
         "en": {
@@ -5153,6 +5479,27 @@
           "stringUnit": {
             "state": "translated",
             "value": "Save here"
+          }
+        }
+      }
+    },
+    "Hier stehen alle Nachrichten, deine gespeicherten Ansichten und — sobald ein Konto eingerichtet ist — seine Ordner. „Spam-Prüfung“ und „Verdächtig“ sammeln, was einen zweiten Blick verdient.": {
+      "extractionState": "stale",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Here are all messages, your saved views and — once an account is set up — its folders. “Spam check” and “Suspicious” collect what deserves a second look."
+          }
+        }
+      }
+    },
+    "Hier stehen alle Nachrichten, der Papierkorb, „Verdächtig“ — und, sobald du eines eingerichtet hast, jedes Konto mit seinen Ordnern. Gespeicherte Suchen landen als eigene Ansicht darüber.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Here are all messages, the trash, “Suspicious” — and, once you have set one up, every account with its folders. Saved searches appear as views of their own above them."
           }
         }
       }
@@ -5383,6 +5730,26 @@
         }
       }
     },
+    "In der Hilfe suchen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search the help"
+          }
+        }
+      }
+    },
+    "In der Mitte die Liste. Über das Auswahlfeld „Ansicht“ in der Symbolleiste wird daraus eine Gruppierung nach Absender, Domain oder Liste — der Einstieg ins Aufräumen.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In the middle the list. The “View” control in the toolbar turns it into a grouping by sender, domain or list — the way into clearing out."
+          }
+        }
+      }
+    },
     "In der Nachrichtenliste öffnen": {
       "localizations": {
         "en": {
@@ -5459,6 +5826,16 @@
         }
       }
     },
+    "In einer Anfrage stehen Betreff, Absender, einige Kopfzeilen, die Namen der Anhänge, die Link-Befunde und ein Auszug des Textes. Der Inhalt von Anhängen geht nie mit.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A request carries the subject, the sender, a few headers, the attachment names, the link findings and an excerpt of the text. The content of attachments never goes along."
+          }
+        }
+      }
+    },
     "In „%@“ liegt kein MailKeeper-Archiv. Ein neues legst du mit „Neues Archiv anlegen …“ an.": {
       "localizations": {
         "en": {
@@ -5485,6 +5862,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Content"
+          }
+        }
+      }
+    },
+    "Ins Suchfeld tippen genügt: gesucht wird in Betreff, Absender, Empfänger, Text, Anhangsnamen und im Text von PDF-Anhängen.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Typing into the search field is enough: the search covers subject, sender, recipient, body, attachment names and the text of PDF attachments."
           }
         }
       }
@@ -5549,6 +5936,36 @@
         }
       }
     },
+    "Jede Mail bekommt eine von neun Arten. Sie ist nur ein Etikett — es folgt keine Aktion daraus.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every mail gets one of nine kinds. It is only a label — no action follows from it."
+          }
+        }
+      }
+    },
+    "Jede Server-Verbindung bekommt nur, was sie für ihre Aufgabe braucht. MailKeeper legt nie Ordner auf dem Server an.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every server connection gets only what it needs for its job. MailKeeper never creates folders on the server."
+          }
+        }
+      }
+    },
+    "Jede dieser Aktionen zeigt vorher den Plan: wie viele Mails, wie groß, was übersprungen wird und warum. Erst dein Klick startet etwas, und anhalten kannst du jederzeit.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each of these actions shows the plan first: how many mails, how large, what is skipped and why. Nothing starts until you click, and you can stop at any time."
+          }
+        }
+      }
+    },
     "Jetzt abmelden": {
       "localizations": {
         "en": {
@@ -5605,6 +6022,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Category"
+          }
+        }
+      }
+    },
+    "Kein Kapitel gewählt": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No chapter selected"
           }
         }
       }
@@ -6145,6 +6572,26 @@
         }
       }
     },
+    "Links die Seitenleiste: alle Nachrichten, deine gespeicherten Ansichten, der Papierkorb, die Spam-Prüfung und das Verdächtige — darunter je Konto seine Ordner.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On the left the sidebar: all messages, your saved views, the trash, the spam check and the suspicious — below that, each account with its folders."
+          }
+        }
+      }
+    },
+    "Links werden gelesen, nie abgerufen: Linktext gegen Ziel, nackte IP, Punycode, Kurz-URL. Ein Befund allein ist nie ein Urteil — Newsletter leiten ganz legitim über Zähl-Domains.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Links are read, never followed: link text against target, bare IP, punycode, short URL. A single finding is never a verdict — newsletters quite legitimately redirect through counting domains."
+          }
+        }
+      }
+    },
     "Linktext zeigt eine andere Adresse als das Ziel": {
       "localizations": {
         "en": {
@@ -6315,6 +6762,36 @@
         }
       }
     },
+    "MailKeeper holt Mail aus deinen Postfächern in ein Archiv auf diesem Mac: durchsuchbar, aufräumbar, und lesbar auch ohne MailKeeper.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MailKeeper brings mail from your mailboxes into an archive on this Mac: searchable, easy to clean up, and readable even without MailKeeper."
+          }
+        }
+      }
+    },
+    "MailKeeper holt deine Mail in ein Archiv auf diesem Mac — durchsuchbar, aufräumbar, und lesbar auch ohne diese App. Ein kurzer Rundgang zeigt dir, wo was liegt.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MailKeeper brings your mail into an archive on this Mac — searchable, easy to clean up, and readable even without this app. A short tour shows you where everything is."
+          }
+        }
+      }
+    },
+    "MailKeeper hält drei Dinge auseinander: die Art (Spam ist eine davon), die Phishing-Stufe und dein Urteil. Ein Werbe-Newsletter ist Spam, aber kein Phishing; eine gefälschte Rechnung ist beides.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MailKeeper keeps three things apart: the kind (spam is one of them), the phishing level and your own verdict. A promotional newsletter is spam but not phishing; a forged invoice is both."
+          }
+        }
+      }
+    },
     "MailKeeper ist gerade beschäftigt (Abruf oder Import) – bitte gleich noch einmal.": {
       "localizations": {
         "en": {
@@ -6371,6 +6848,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "MailKeeper opens the unsubscribe page %@ in the browser; you finish the unsubscribe there."
+          }
+        }
+      }
+    },
+    "MailKeeper-Hilfe": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MailKeeper Help"
           }
         }
       }
@@ -6703,6 +7190,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "With PDF"
+          }
+        }
+      }
+    },
+    "Mit ⌘[ und ⌘] gehst du zurück und vor wie im Browser.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘[ and ⌘] move back and forward as in a browser."
           }
         }
       }
@@ -7413,6 +7910,16 @@
         }
       }
     },
+    "Ohne Postfach bleibt es leer. Unter Einstellungen › Konten richtest du eines ein: IMAP, Gmail oder die Proton Mail Bridge. Ein vorhandenes Archiv liest Ablage › Importieren ein.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Without a mailbox it stays empty. Settings › Accounts is where you set one up: IMAP, Gmail or the Proton Mail Bridge. An existing archive comes in via File › Import."
+          }
+        }
+      }
+    },
     "Ohne Touch ID oder Passwort kann nicht endgültig gelöscht werden.": {
       "localizations": {
         "en": {
@@ -7591,6 +8098,16 @@
         }
       }
     },
+    "Passwörter, Google-Anmeldungen und API-Schlüssel liegen im Schlüsselbund, nie im Archiv.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passwords, Google sign-ins and API keys live in the keychain, never in the archive."
+          }
+        }
+      }
+    },
     "Persönlich": {
       "localizations": {
         "en": {
@@ -7661,6 +8178,16 @@
         }
       }
     },
+    "Postfächer verbinden": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting mailboxes"
+          }
+        }
+      }
+    },
     "Postfächer „Spam“ und „Papierkorb“ werden nicht abgerufen.": {
       "localizations": {
         "en": {
@@ -7687,6 +8214,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Protocol error: %@"
+          }
+        }
+      }
+    },
+    "Protokolliert wird, dass eine Anfrage lief — nie der Prompt und nie die Antwort.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What gets logged is that a request ran — never the prompt and never the answer."
           }
         }
       }
@@ -7767,6 +8304,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "Invoice/Receipt"
+          }
+        }
+      }
+    },
+    "Rechts der Leser: Kopfzeilen, „Ort“ (wo die Mail liegt), „Art“, „Prüfung“, „Echtheit“, „Ablage“, Anhänge und der Text.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On the right the reader: headers, “Place” (where the mail is), “Kind”, “Check”, “Authenticity”, “Filed under”, attachments and the text."
+          }
+        }
+      }
+    },
+    "Rechts die geöffnete Mail. Zwei Zeilen lohnen den Blick: „Ort“ sagt, wo die Mail liegt, „Echtheit“, was der empfangende Mailserver über den Absender festgestellt hat.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On the right the open mail. Two lines are worth a look: “Place” says where the mail is, “Authenticity” what the receiving mail server established about the sender."
+          }
+        }
+      }
+    },
+    "Rechts oben Abrufen und Importieren, in der Mitte die Ansicht, daneben das Suchfeld. Abgerufen wird nur lesend — auf dem Server ändert MailKeeper nichts, solange du es nicht verlangst.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Top right Fetch and Import, in the middle the view, next to it the search field. Fetching is read-only — MailKeeper changes nothing on the server unless you ask it to."
           }
         }
       }
@@ -8007,6 +8574,26 @@
         }
       }
     },
+    "Sicherheit": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Security"
+          }
+        }
+      }
+    },
+    "Sicherheit und Datenschutz …": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Security and Privacy…"
+          }
+        }
+      }
+    },
     "Sichern": {
       "localizations": {
         "en": {
@@ -8073,6 +8660,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Check spam"
+          }
+        }
+      }
+    },
+    "Spam und Phishing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spam and phishing"
+          }
+        }
+      }
+    },
+    "Spam- und Papierkorb-Ordner bleiben außen vor. Den Spam-Ordner kannst du je Konto dazunehmen („Spam prüfen“); das ist die Voraussetzung dafür, dass MailKeeper dort nach fälschlich aussortierten Mails sucht.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spam and trash folders are left out. You can include the spam folder per account (“Check spam”); that is what lets MailKeeper look there for mail that was sorted out by mistake."
           }
         }
       }
@@ -8257,6 +8864,16 @@
         }
       }
     },
+    "Suchen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search"
+          }
+        }
+      }
+    },
     "Suchen, z. B. from:amazon has:pdf": {
       "localizations": {
         "en": {
@@ -8307,12 +8924,32 @@
         }
       }
     },
+    "Tastenkürzel": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keyboard shortcuts"
+          }
+        }
+      }
+    },
     "Teste …": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Testing…"
+          }
+        }
+      }
+    },
+    "Text aus PDF-Anhängen gewinnt ein eigener Prozess ohne Netz und ohne Dateizugriff.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text is lifted out of PDF attachments by a process of its own, with no network and no file access."
           }
         }
       }
@@ -8333,6 +8970,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Umlauts and ß do not matter (mueller finds Müller) – except in the exact fields sender: domain: konto: ordner: label: listid:, where only upper and lower case are ignored. A typo in a field value stops the search – so that it can never make a result list larger."
+          }
+        }
+      }
+    },
+    "Umlaute und ß sind egal — „mueller“ findet „Müller“, „Grüße“ findet „Grusse“.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umlauts and ß do not matter — “mueller” finds “Müller”, “Grüße” finds “Grusse”."
           }
         }
       }
@@ -8373,6 +9020,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Invalid account id “%@” (allowed: a–z, 0–9, - and _)"
+          }
+        }
+      }
+    },
+    "Unten die Statusleiste: was gerade läuft, wie groß das Archiv ist, und der Link auf einen unterbrochenen Auftrag.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "At the bottom the status bar: what is running, how large the archive is, and the link to an interrupted job."
           }
         }
       }
@@ -8557,6 +9214,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "Discard"
+          }
+        }
+      }
+    },
+    "Vier Arten vergeben die eingebauten Regeln nie: Persönlich, Arbeit, Konto/Sicherheit und Spam. Eine Regel, die eine Phishing-Mail „Konto/Sicherheit“ nennt, würde ihr Glaubwürdigkeit verleihen. Eine Regel, die du selbst schreibst, darf jede Art setzen — für die stehst du gerade.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Four kinds are never assigned by the built-in rules: Personal, Work, Account/Security and Spam. A rule that calls a phishing mail “Account/Security” would lend it credibility. A rule you write yourself may set any kind — that one is on you."
+          }
+        }
+      }
+    },
+    "Vier Arten vergibt nie eine Regel: Persönlich, Arbeit, Konto/Sicherheit und Spam. Eine Regel, die eine Phishing-Mail „Konto/Sicherheit“ nennt, würde ihr Glaubwürdigkeit verleihen.": {
+      "extractionState": "stale",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Four kinds are never assigned by a rule: Personal, Work, Account/Security and Spam. A rule that calls a phishing mail “Account/Security” would lend it credibility."
+          }
+        }
+      }
+    },
+    "Vier Wege: auf dem Server löschen (das Archiv behält alles), aus dem Archiv löschen (30 Tage Papierkorb), endgültig löschen (verlangt Touch ID oder dein Passwort) und abmelden.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Four ways: delete on the server (the archive keeps everything), delete from the archive (30 days in the trash), delete for good (asks for Touch ID or your password) and unsubscribe."
+          }
+        }
+      }
+    },
+    "Vier Wege: auf dem Server löschen (das Archiv behält alles), aus dem Archiv löschen (30 Tage Papierkorb), endgültig löschen (verlangt Touch ID) und abmelden.": {
+      "extractionState": "stale",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Four ways: delete on the server (the archive keeps everything), delete from the archive (30 days in the trash), delete for good (requires Touch ID) and unsubscribe."
           }
         }
       }
@@ -8777,6 +9476,16 @@
         }
       }
     },
+    "Was aus der Mail stammt, steht im Prompt eingezäunt; Aufforderungen darin werden entfernt und zählen als Warnzeichen. Ein Modell löst nie eine Aktion aus.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whatever comes out of the mail sits fenced off inside the prompt; instructions in it are stripped out and count as a warning sign. A model never triggers an action."
+          }
+        }
+      }
+    },
     "Was die KI aus dem Gedächtnis gesehen hat": {
       "localizations": {
         "en": {
@@ -8803,6 +9512,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Web content or a link file: MailKeeper shows the source and runs nothing."
+          }
+        }
+      }
+    },
+    "Weiter": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next"
           }
         }
       }
@@ -8863,6 +9582,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Restore"
+          }
+        }
+      }
+    },
+    "Willkommen bei MailKeeper": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Welcome to MailKeeper"
           }
         }
       }
@@ -9313,6 +10042,16 @@
         }
       }
     },
+    "aufräumen löschen server archiv papierkorb schonfrist zurückspielen export ablage regeln gruppen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "clean up delete server archive trash grace period put back export filed under rules groups bulk"
+          }
+        }
+      }
+    },
     "aus diesem Ordner verschiebt MailKeeper nichts (Papierkorb, Gesendet, Entwürfe)": {
       "localizations": {
         "en": {
@@ -9531,6 +10270,16 @@
         }
       }
     },
+    "einordnen art kategorie regeln ähnliche mails modell warum gedächtnis neun arten": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "classify kind category rules similar mail model why memory nine kinds labels"
+          }
+        }
+      }
+    },
     "erst seit weniger als %lld Tagen auf dem Server (Schonfrist)": {
       "localizations": {
         "en": {
@@ -9567,6 +10316,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "if your client has one"
+          }
+        }
+      }
+    },
+    "fenster seitenleiste liste leser statusleiste ansicht gruppieren verlauf spalten": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "window sidebar list reader status bar view grouping history columns layout"
           }
         }
       }
@@ -9773,6 +10532,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "none on a server any more"
+          }
+        }
+      }
+    },
+    "ki ai modell endpunkt ollama lm studio litellm apple intelligence datenschutz prompt zaun embeddings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ai model endpoint ollama lm studio litellm apple intelligence privacy prompt fencing embeddings summary"
           }
         }
       }
@@ -10067,6 +10836,16 @@
         }
       }
     },
+    "postfach konto imap gmail proton bridge import passwort schlüsselbund spam ordner abrufen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mailbox account imap gmail proton bridge import password keychain spam folder fetch sign in oauth"
+          }
+        }
+      }
+    },
     "seitdem %lld neu": {
       "localizations": {
         "en": {
@@ -10087,12 +10866,52 @@
         }
       }
     },
+    "sicherheit datenschutz verschlüsselung filevault schlüsselbund sandbox protokoll pdf": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "security privacy encryption filevault keychain sandbox log pdf touch id permissions"
+          }
+        }
+      }
+    },
+    "spam phishing dmarc dkim server echtheit beziehung doppelgänger link abmelden kein spam": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "spam phishing dmarc dkim spf server authenticity relationship look-alike link unsubscribe not spam"
+          }
+        }
+      }
+    },
     "sparkasse-koelnbonn.de, s-koelnbonn.de": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "examplebank.com, example-bank.com"
+          }
+        }
+      }
+    },
+    "suchen suche suchsprache feld umlaut ß ansicht sichern filter pdf volltext": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "search query search language field umlaut saved view filter pdf full text operators"
+          }
+        }
+      }
+    },
+    "tastenkürzel shortcuts tasten befehle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "keyboard shortcuts keys commands hotkeys"
           }
         }
       }
@@ -10383,6 +11202,16 @@
         }
       }
     },
+    "Überblick": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overview"
+          }
+        }
+      }
+    },
     "Übernehmen": {
       "localizations": {
         "en": {
@@ -10399,6 +11228,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Apply…"
+          }
+        }
+      }
+    },
+    "Überspringen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip"
           }
         }
       }
@@ -10429,6 +11268,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "similar mail"
+          }
+        }
+      }
+    },
+    "überblick archiv leitsätze plan ausführen prüfen ki entscheidung eml": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "overview archive principles plan execute verify ai decision eml guarantees"
           }
         }
       }
@@ -10513,12 +11362,32 @@
         }
       }
     },
+    "„Ablage ändern“ ist etwas anderes als Löschen: Es bestimmt, wo das Archiv eine Mail führt — unabhängig davon, wo sie auf dem Server liegt.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“Change where it is filed” is something other than deleting: it decides where the archive keeps a mail — regardless of where it sits on the server."
+          }
+        }
+      }
+    },
     "„Auf dem Server“ trifft in diesem Archiv nie zu: Es enthält nur importierte Mails (Maildir, mbox, .eml), und für die kennt MailKeeper keinen Server-Ort. Den gibt es erst für Mails, die ein Konto abgerufen hat (Einstellungen › Konten).": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "“On the server” never applies in this archive: it holds only imported mail (Maildir, mbox, .eml), and MailKeeper knows no server place for those. That exists only for mail a configured account has fetched (Settings › Accounts)."
+          }
+        }
+      }
+    },
+    "„Kein Spam“ holt eine echte Mail auf dem Server dorthin zurück, wo sie lag. Das ist wichtiger, als es aussieht: Spamfilter lernen aus dem Spam-Ordner.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“Not Spam” puts a genuine mail back on the server where it was. That matters more than it looks: spam filters learn from the spam folder."
           }
         }
       }
@@ -10559,6 +11428,116 @@
           "stringUnit": {
             "state": "translated",
             "value": "•"
+          }
+        }
+      }
+    },
+    "• Archiv zuerst, Server danach — auf dem Server wird erst gelöscht, wenn die Mail geprüft im Archiv liegt.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "• Archive first, server second — nothing is deleted on the server until the mail sits verified in the archive."
+          }
+        }
+      }
+    },
+    "• Das Archiv ist ohne die App lesbar: rohe .eml-Dateien und ein Index, der sich neu bauen lässt.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "• The archive is readable without the app: raw .eml files and an index that can be rebuilt."
+          }
+        }
+      }
+    },
+    "• Die KI schlägt vor, du entscheidest — kein Modell löscht, verschiebt oder gibt etwas frei.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "• The AI suggests, you decide — no model deletes, moves or releases anything."
+          }
+        }
+      }
+    },
+    "• Mailinhalte sind Daten, keine Anweisungen.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "• Mail content is data, not instructions."
+          }
+        }
+      }
+    },
+    "• Plan, Ausführen, Prüfen — nichts Veränderndes passiert ohne vorherige Ansage.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "• Plan, execute, verify — nothing that changes anything happens without saying so first."
+          }
+        }
+      }
+    },
+    "• ⌘? diese Hilfe": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "• ⌘? this help"
+          }
+        }
+      }
+    },
+    "• ⌘R aktualisieren · ⇧⌘R neue Mails abrufen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "• ⌘R refresh · ⇧⌘R fetch new mail"
+          }
+        }
+      }
+    },
+    "• ⌘[ zurück · ⌘] vorwärts · ⇧⌘O Archiv öffnen · ⌘, Einstellungen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "• ⌘[ back · ⌘] forward · ⇧⌘O open archive · ⌘, settings"
+          }
+        }
+      }
+    },
+    "• ⌘⌫ aus dem Archiv löschen · ⇧⌘E Auswahl exportieren": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "• ⌘⌫ delete from the archive · ⇧⌘E export the selection"
+          }
+        }
+      }
+    },
+    "• ⌥⌘F Suchtext in Suchsprache übersetzen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "• ⌥⌘F translate the search text into the search language"
+          }
+        }
+      }
+    },
+    "• ⌥⌘S Mail zusammenfassen · ⌥⇧⌘S Konversation zusammenfassen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "• ⌥⌘S summarize the mail · ⌥⇧⌘S summarize the conversation"
           }
         }
       }

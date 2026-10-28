@@ -69,6 +69,19 @@ if [[ $PUBLISH == 1 ]] && ! release_is_allowed; then
       SPDX-License-Identifier-Zeile und TERMS.md. Beides fehlt noch."
 fi
 
+# Hilfe und Hilfemenü verlinken das Handbuch. Nichts geht raus, solange der Link ins Leere
+# zeigt: ein 404 aus der App heraus ist das billigste gebrochene Versprechen.
+handbook_is_public() {
+  local url=${$(grep -o 'https://[^"]*docs/handbuch' Sources/MailKeeperGUI/Help.swift)[1]}
+  [[ -n "$url" ]] || return 1
+  [[ "$url" != *paranoidsecurity.de* ]] || return 1   # internes Gitea ist nicht öffentlich
+  [[ "$(curl -sL -o /dev/null -w '%{http_code}' --max-time 20 "$url")" == 200 ]]
+}
+if [[ $PUBLISH == 1 ]] && ! handbook_is_public; then
+  die "Veröffentlichen gesperrt: der Handbuch-Link in Sources/MailKeeperGUI/Help.swift ist
+      nicht öffentlich erreichbar. Erst den Spiegel anlegen (oder die URL korrigieren)."
+fi
+
 say "Tests"
 swift test 2>&1 | tail -3
 

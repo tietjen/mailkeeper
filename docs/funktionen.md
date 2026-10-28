@@ -24,6 +24,8 @@ Nachschlagen — zum Lernen ist das [Handbuch](handbuch/) da.
 | **Statusleiste** | unten | Fortschritt, unterbrochene Aufträge, Archivgröße, Pfad, Warnung bei unverschlüsseltem Laufwerk |
 | **Archive wechseln** | Ablage, oder Klick auf den Fenstertitel | gesperrt, solange Abruf, Import oder Aktion läuft |
 | **Nach Updates suchen …** | Menü *MailKeeper* | nur in einer ausgelieferten Fassung (die Entwicklerversion hat keinen Update-Katalog); automatisch nur, wenn du es erlaubt hast |
+| **Hilfe** | ⌘? , Menü *Hilfe* | eigenes Fenster, **10** Kapitel, Suche über die Kapiteltexte; die ausführliche Fassung ist das Handbuch (Link im Fenster und im Menü) |
+| **Einführung** | beim ersten Start, danach *Hilfe › Einführung zeigen* | **7** Karten am Fenster; ein Schritt, dessen Ziel nicht sichtbar ist (eingeklappte Seitenleiste), erscheint nach einer Sekunde als Blatt |
 
 ## Suchsprache
 
@@ -209,6 +211,7 @@ Das Zeitlimit für KI-Anfragen (120 s) steht nur in `ai.json`, nicht in der Ober
 | ⌥⌘F | Suchtext in Suchsprache übersetzen |
 | ⌥⌘S / ⌥⇧⌘S | Mail / Konversation zusammenfassen |
 | ⌘[ / ⌘] | Verlauf zurück / vor |
+| ⌘? | Hilfe |
 | ⌘L | Mails labeln (Einstellungen › Messung) |
 | 1–9 · P · 0 · ← · esc | im Label-Blatt: Art · Phishing · weiß nicht · zurück · fertig |
 

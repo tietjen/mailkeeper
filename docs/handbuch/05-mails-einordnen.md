@@ -53,10 +53,16 @@ Drei Stufen, von billig nach teuer:
 Regeln setzen **Newsletter**, **Benachrichtigung** sowie **Rechnung/Bestellung/Reise** bei
 eindeutigen Anzeichen.
 
-Vier Arten entscheidet **nie** eine Regel: **Persönlich**, **Arbeit**, **Konto/Sicherheit** und
-**Spam**. Der Grund ist derselbe für alle vier, am deutlichsten bei Konto/Sicherheit: Eine Regel,
-die eine Phishing-Mail „Konto/Sicherheit“ nennt, würde ihr Glaubwürdigkeit verleihen — genau
-das, was der Angreifer will. Diese Arten bleiben offen, bis ein Modell oder du sie vergibt.
+Vier Arten entscheiden die **eingebauten** Regeln **nie**: **Persönlich**, **Arbeit**,
+**Konto/Sicherheit** und **Spam**. Der Grund ist derselbe für alle vier, am deutlichsten bei
+Konto/Sicherheit: Eine Regel, die eine Phishing-Mail „Konto/Sicherheit“ nennt, würde ihr
+Glaubwürdigkeit verleihen — genau das, was der Angreifer will. Diese Arten bleiben offen, bis
+ein Modell oder du sie vergibt.
+
+> **Eigene Regeln** (Einstellungen › Regeln) dürfen dagegen **jede** Art setzen, auch diese
+> vier. Das ist Absicht — es ist deine Regel über dein Postfach —, aber der Gedanke oben gilt
+> trotzdem: Eine Regel wie `von:bank → Konto/Sicherheit` adelt irgendwann die falsche Mail.
+> Schreib sie auf die volle Domain, nicht auf ein Wort darin.
 
 Ändern sich die Regeln, werden ihre Ergebnisse neu berechnet. **Eine Modellantwort überschreiben
 sie dabei nie.**

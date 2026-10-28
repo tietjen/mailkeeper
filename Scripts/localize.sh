@@ -24,7 +24,9 @@ print -P "%F{blue}==>%f Texte einsammeln"
 swift build >/dev/null
 
 # Products and library targets, never the test bundles: a test's texts are not shipped.
-FILES=("${(@f)$(find "$BUILD" -name '*.stringsdata' -not -path '*Tests*' | sort)}")
+# `-testable-` is the second, identical copy a target gets when a test bundle links it; the
+# keys are the same, but counting them twice makes the numbers below lie.
+FILES=("${(@f)$(find "$BUILD" -name '*.stringsdata' -not -path '*Tests*' -not -path '*-testable-*' | sort)}")
 [[ -n "${FILES[1]:-}" ]] || { echo "keine .stringsdata unter $BUILD — hat SwiftPM das Layout geändert?" >&2; exit 1 }
 print "    ${#FILES} Quelldateien"
 
