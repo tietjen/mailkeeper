@@ -1,0 +1,16 @@
+Copyright © 2026 Jan Tietjen. All rights reserved.
+
+The source code of MailKeeper is published so that anyone can read it, check it
+and judge for themselves what the program does with their mail. Being able to
+verify that is the point of a mail archive.
+
+Publishing it is not a licence. No rights beyond those granted by applicable
+law are given here — in particular no right to use, copy, modify, distribute or
+sell this software or works derived from it.
+
+A licence will follow together with the first public release. It is intended to
+keep the source readable and verifiable. Until it is published, please ask
+before you build on this: jan.tietjen@paranoidsecurity.de
+
+Third-party components keep their own licences; see Package.resolved and the
+licences of the packages named there.

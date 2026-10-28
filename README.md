@@ -43,3 +43,11 @@ The sandboxed app uses its container by default; choose another archive folder v
 | `Sources/MailKeeperGUI` | SwiftUI app; message list as NSTableView; locked-down HTML reader |
 | `Spikes/` | Phase 0 experiments (independent packages, not built with the app) |
 | `docs/adr/` | architecture decisions · `docs/spikes/` measurements |
+
+## Licence
+
+The source is public so that anyone can check what MailKeeper does with their
+mail — it is **not** (yet) open source: all rights are reserved, and no licence
+to use, copy, modify or distribute is granted so far. A licence follows with the
+first public release and is meant to keep the source readable and verifiable.
+See [LICENSE](LICENSE).
