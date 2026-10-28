@@ -88,25 +88,28 @@ cp -R "$APP" "$OUT/"
 # Notarisation first for the app, then the DMG built from the stapled app. The other way
 # round leaves the copy inside the DMG without a ticket: a drag install that first runs
 # offline is refused by Gatekeeper.
+# notarize <submit> [staple]
+# A ZIP can be submitted but never stapled — the ticket belongs to the app inside it, so the
+# caller says what to staple. Getting this wrong only shows up in a real run against Apple.
 notarize() {
-  local what="$1"
+  local submit="$1" staple="${2:-$1}"
   if [[ -n "${APPLE_ID:-}" && -n "$APPLE_PW" && -n "${APPLE_TEAM_ID:-}" ]]; then
     NOTARY=(--apple-id "$APPLE_ID" --password "$APPLE_PW" --team-id "$APPLE_TEAM_ID")
   else
     NOTARY=(--keychain-profile "$APP_NAME")
   fi
-  local log="$OUT/notarization-${what:t:r}.txt"
-  xcrun notarytool submit "$what" "${NOTARY[@]}" --wait | tee "$log"
-  grep -q "status: Accepted" "$log" || die "Notarisierung von ${what:t} nicht angenommen"
-  xcrun stapler staple "$what"
+  local log="$OUT/notarization-${submit:t:r}.txt"
+  xcrun notarytool submit "$submit" "${NOTARY[@]}" --wait | tee "$log"
+  grep -q "status: Accepted" "$log" || die "Notarisierung von ${submit:t} nicht angenommen"
+  xcrun stapler staple "$staple"
+  xcrun stapler validate "$staple" >/dev/null || die "${staple:t} hat kein geheftetes Ticket"
 }
 
 if [[ $NOTARIZE == 1 ]]; then
   say "Notarisierung der App (dauert ein paar Minuten)"
   ZIP="$OUT/$APP_NAME.zip"
   /usr/bin/ditto -c -k --keepParent "$OUT/$APP_NAME.app" "$ZIP"
-  notarize "$ZIP"                      # the ticket is issued for the app inside
-  xcrun stapler staple "$OUT/$APP_NAME.app"
+  notarize "$ZIP" "$OUT/$APP_NAME.app"   # submit the zip, staple the app inside it
   rm -f "$ZIP"
 else
   say "ohne Notarisierung (--no-notarize) — nicht veröffentlichen"
