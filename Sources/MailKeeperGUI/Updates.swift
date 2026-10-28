@@ -6,7 +6,11 @@ import SwiftUI
 /// `Info.plist` and installs only what that key signed.
 ///
 /// A dev build carries no feed (`SUFeedURL` is left out in `build-app.sh`), so it never pulls a
-/// release over itself. The menu entry then says so instead of doing nothing.
+/// release over itself; the menu entry is then absent.
+///
+/// Whether Sparkle looks by itself is the user's decision: `SUEnableAutomaticChecks` is left
+/// out of the Info.plist on purpose, so Sparkle asks on the second start instead of quietly
+/// contacting github.com from the first.
 @MainActor
 final class Updates {
     static let shared = Updates()
@@ -20,8 +24,8 @@ final class Updates {
             controller = nil
             return
         }
-        // startingUpdater: Sparkle does its scheduled check by itself; the first run asks the
-        // user whether that is wanted (Sparkle's own permission prompt).
+        // startingUpdater: Sparkle schedules its own checks once the user has allowed them
+        // (its permission prompt, which appears because SUEnableAutomaticChecks is unset).
         controller = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
     }
 
@@ -40,24 +44,39 @@ final class Updates {
 
     /// False while a check is running — the menu entry greys out.
     var canCheck: Bool { controller?.updater.canCheckForUpdates ?? false }
+
+    /// KVO on Sparkle's own property, so the menu entry follows a running check.
+    func observeCanCheck(_ changed: @escaping @MainActor (Bool) -> Void) -> NSKeyValueObservation? {
+        controller?.updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { updater, _ in
+            let value = updater.canCheckForUpdates
+            Task { @MainActor in changed(value) }
+        }
+    }
 }
 
 /// The menu entry. Disabled while a check runs; absent from a build without a feed.
 struct CheckForUpdatesButton: View {
-    @State private var canCheck = Updates.shared.canCheck
+    @State private var model = CheckForUpdatesModel()
 
     var body: some View {
         if Updates.shared.isAvailable {
             Button("Nach Updates suchen …") { Updates.shared.checkNow() }
-                .disabled(!canCheck)
-                .task {
-                    // `canCheckForUpdates` is KVO-observable; polling once a second is enough
-                    // for a menu item and saves a KVO bridge.
-                    while !Task.isCancelled {
-                        canCheck = Updates.shared.canCheck
-                        try? await Task.sleep(for: .seconds(1))
-                    }
-                }
+                .disabled(!model.canCheck)
+        }
+    }
+}
+
+/// Sparkle publishes `canCheckForUpdates` through KVO. A `.task` on a menu command is not
+/// reliably run by SwiftUI, so the state is observed rather than polled.
+@MainActor
+@Observable
+final class CheckForUpdatesModel {
+    private(set) var canCheck = Updates.shared.canCheck
+    @ObservationIgnored private var observation: NSKeyValueObservation?
+
+    init() {
+        observation = Updates.shared.observeCanCheck { [weak self] value in
+            self?.canCheck = value
         }
     }
 }

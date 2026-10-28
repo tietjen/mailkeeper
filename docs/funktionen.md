@@ -23,6 +23,7 @@ Nachschlagen — zum Lernen ist das [Handbuch](handbuch/) da.
 | **Verlauf** | ⌘[ / ⌘] , Menü *Verlauf* | **50** Stationen; das Menü zeigt die letzten 15 |
 | **Statusleiste** | unten | Fortschritt, unterbrochene Aufträge, Archivgröße, Pfad, Warnung bei unverschlüsseltem Laufwerk |
 | **Archive wechseln** | Ablage, oder Klick auf den Fenstertitel | gesperrt, solange Abruf, Import oder Aktion läuft |
+| **Nach Updates suchen …** | Menü *MailKeeper* | nur in einer ausgelieferten Fassung (die Entwicklerversion hat keinen Update-Katalog); automatisch nur, wenn du es erlaubt hast |
 
 ## Suchsprache
 

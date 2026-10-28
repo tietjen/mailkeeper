@@ -66,6 +66,9 @@ SPARKLE_FW=".build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86
 mkdir -p "$APP/Contents/Frameworks"
 cp -R "$SPARKLE_FW" "$APP/Contents/Frameworks/"
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/MacOS/MailKeeper" 2>/dev/null || true
+# Without the rpath the app dies at launch in dyld, and codesign --verify would not notice.
+otool -l "$APP/Contents/MacOS/MailKeeper" | grep -q "@executable_path/../Frameworks" \
+  || { echo "rpath auf ../Frameworks fehlt — die App würde beim Start abstürzen" >&2; exit 1 }
 
 # The public key of the update signature. Its private half lives in the login keychain
 # (account "MailKeeper") and in the vault; see ADR-0013. Changing it makes every installed
@@ -76,9 +79,12 @@ SU_FEED="https://github.com/tietjen/mailkeeper/releases/latest/download/appcast.
 if [[ $DEV == 1 ]]; then
   SPARKLE_KEYS="  <key>SUEnableAutomaticChecks</key><false/>"
 else
+  # SUEnableAutomaticChecks is deliberately NOT set: setting it — to true or false — makes
+  # Sparkle skip its own permission dialogue and start checking github.com unasked. For an
+  # app whose promise is that nothing leaves the Mac, that question belongs to the user.
+  # Without the key, Sparkle asks on the second start and remembers the answer.
   SPARKLE_KEYS="  <key>SUFeedURL</key><string>$SU_FEED</string>
   <key>SUPublicEDKey</key><string>$SU_PUBLIC_KEY</string>
-  <key>SUEnableAutomaticChecks</key><true/>
   <!-- sandboxed updates go through Sparkle's installer launcher service (spike S4) -->
   <key>SUEnableInstallerLauncherService</key><true/>"
 fi
@@ -152,6 +158,8 @@ fi
 sign() { codesign --force --options runtime ${TS:+$TS} "${@:2}" --sign "${SIGN_AS[@]}" "$1" }
 
 SP="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
+# --preserve-metadata=entitlements is what Sparkle's docs ask for. In 2.10.1 the service
+# ships without entitlements, so it changes nothing today — it is here for the day it does.
 sign "$SP/XPCServices/Downloader.xpc" --preserve-metadata=entitlements
 sign "$SP/XPCServices/Installer.xpc"
 sign "$SP/Updater.app"

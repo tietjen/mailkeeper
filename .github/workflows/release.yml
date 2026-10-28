@@ -2,7 +2,8 @@ name: Release
 
 # Two ways in:
 #   · push a tag v<x.y.z>  → builds, signs, notarises and publishes the release
-#   · "Run workflow"       → the same, but publishes nothing (a probe, like LaunchKeeper's)
+#   · "Run workflow"       → the same build, but never a release (a probe). On a tag ref too:
+#                            publishing is tied to the event, not to the ref.
 #
 # Secrets (none of them in the repo):
 #   APPLE_ID · APPLE_APP_PASSWORD · APPLE_TEAM_ID      notarisation
@@ -15,21 +16,44 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
   gate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       ready: ${{ steps.check.outputs.ready }}
+      publishable: ${{ steps.licence.outputs.publishable }}
     steps:
+      - uses: actions/checkout@v4
+
+      # ADR-0013 §5: licence AND terms, asked positively — before the 30-minute build, not
+      # after it.
+      - id: licence
+        run: |
+          if [ -f LICENSE ] && [ -f TERMS.md ] && grep -q "^SPDX-License-Identifier:" LICENSE; then
+            echo "publishable=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "publishable=no" >> "$GITHUB_OUTPUT"
+            echo "::notice::Lizenzsperre aktiv (ADR-0013): es wird nichts veröffentlicht und kein Paket abgelegt."
+          fi
+
       - id: check
         env:
           HAVE: ${{ secrets.APPLE_ID != '' && secrets.APPLE_APP_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' && secrets.MACOS_CERTIFICATE_P12 != '' && secrets.MACOS_CERTIFICATE_PASSWORD != '' && secrets.SPARKLE_ED_PRIVATE_KEY != '' }}
         run: |
           if [ "$HAVE" = "true" ]; then
             echo "ready=yes" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            # A tag push means a release was wanted. Missing secrets must be red, not a
+            # green run that quietly produced nothing.
+            echo "::error::Tag gepusht, aber es fehlen Secrets (APPLE_ID, APPLE_APP_PASSWORD, APPLE_TEAM_ID, MACOS_CERTIFICATE_P12, MACOS_CERTIFICATE_PASSWORD, SPARKLE_ED_PRIVATE_KEY)."
+            exit 1
           else
             echo "ready=no" >> "$GITHUB_OUTPUT"
-            echo "::warning::Release übersprungen — es fehlen Secrets (APPLE_ID, APPLE_APP_PASSWORD, APPLE_TEAM_ID, MACOS_CERTIFICATE_P12, MACOS_CERTIFICATE_PASSWORD, SPARKLE_ED_PRIVATE_KEY)."
+            echo "::warning::Probelauf übersprungen — es fehlen Secrets."
           fi
 
   build:
@@ -37,6 +61,8 @@ jobs:
     if: needs.gate.outputs.ready == 'yes'
     runs-on: macos-26
     timeout-minutes: 60
+    permissions:
+      contents: write          # only the publish step needs it
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }          # release.sh counts commits for CFBundleVersion
@@ -46,11 +72,13 @@ jobs:
 
       - name: Version bestimmen
         id: v
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           VERSION=$(cat VERSION)
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            TAG="${{ github.ref_name }}"
-            [ "v$VERSION" = "$TAG" ] || { echo "::error::VERSION ist $VERSION, der Tag $TAG"; exit 1; }
+          if [ "$REF_TYPE" = "tag" ]; then
+            [ "v$VERSION" = "$REF_NAME" ] || { echo "::error::VERSION ist $VERSION, der Tag $REF_NAME"; exit 1; }
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -85,34 +113,43 @@ jobs:
         if: always()
         run: security delete-keychain "$RUNNER_TEMP/build.keychain" || true
 
-      # A manual run proves the whole chain without publishing anything: the artefact can be
-      # downloaded and looked at.
+      # Artefacts of a public repository can be downloaded by any signed-in GitHub user, so
+      # while the licence lock holds, a probe must not leave a usable package behind: only
+      # the appcast and the checksums, which prove the run without being the program.
+      # (No .app either — upload-artifact drops symlinks and would mangle its signature.)
+      - name: Probe ablegen (ohne Programm)
+        if: github.event_name == 'workflow_dispatch' && needs.gate.outputs.publishable != 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mailkeeper-probe-belege
+          path: |
+            build/release/${{ steps.v.outputs.version }}/appcast.xml
+            build/release/${{ steps.v.outputs.version }}/SHA256SUMS
+          retention-days: 7
+
       - name: Probe ablegen
-        if: github.ref_type != 'tag'
+        if: github.event_name == 'workflow_dispatch' && needs.gate.outputs.publishable == 'yes'
         uses: actions/upload-artifact@v4
         with:
           name: mailkeeper-probe
-          path: build/release/${{ steps.v.outputs.version }}/
+          path: |
+            build/release/${{ steps.v.outputs.version }}/MailKeeper-${{ steps.v.outputs.version }}.dmg
+            build/release/${{ steps.v.outputs.version }}/appcast.xml
+            build/release/${{ steps.v.outputs.version }}/SHA256SUMS
           retention-days: 7
 
-      # ADR-0013: no public binaries while the licence is unsettled. release.sh refuses
-      # --publish by itself; this is the second lock, so a tag cannot slip past it either.
-      - name: Lizenz prüfen
-        if: github.ref_type == 'tag'
-        run: |
-          if grep -q "A licence will follow" LICENSE; then
-            echo "::error::Veröffentlichen gesperrt: die Lizenz steht noch nicht (ADR-0013)."
-            exit 1
-          fi
-
+      # Publishing happens only on a pushed tag — a manual run on a tag ref must not turn
+      # into a release — and only when the licence lock is open (ADR-0013). release.sh has
+      # the same lock; this is the one that stops it before the upload.
       - name: Release veröffentlichen
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push' && github.ref_type == 'tag' && needs.gate.outputs.publishable == 'yes'
         env:
           GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           VERSION="${{ steps.v.outputs.version }}"
           NOTES=$(awk "/^## \[$VERSION\]/{f=1;next} /^## \[/{f=0} f" CHANGELOG.md)
-          gh release create "${{ github.ref_name }}" --title "MailKeeper $VERSION" \
+          gh release create "$REF_NAME" --verify-tag --title "MailKeeper $VERSION" \
              --notes "$NOTES" \
              "build/release/$VERSION/MailKeeper-$VERSION.dmg" \
              "build/release/$VERSION/appcast.xml" \

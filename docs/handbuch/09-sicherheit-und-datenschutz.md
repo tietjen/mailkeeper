@@ -13,6 +13,7 @@ vollständig — auch dort, wo die Antwort unbequem ist.
 | Einbettungen | zu deinem Endpunkt |
 | Google-Anmeldung | zu Google — die Anmeldung läuft in deinem Browser; danach bei jedem Abruf eine Token-Erneuerung, beim Entfernen des Kontos der Widerruf |
 | Abmelden vom Newsletter | zum Abmeldeziel, auf deinen Klick |
+| Updates suchen | zu GitHub, wo der Update-Katalog liegt — **erst wenn du zugestimmt hast**: MailKeeper fragt beim zweiten Start, ob es selbst nachsehen darf, und „Nach Updates suchen …“ im Menü fragt jedes Mal du selbst |
 | Telemetrie, Absturzberichte, Nutzungsstatistik | **gibt es nicht** |
 
 **Es gibt keinen Cloud-KI-Anbieter.** Keine Voreinstellung auf OpenAI, Anthropic oder Google,
@@ -62,6 +63,7 @@ Die ausgelieferte App läuft in Apples App-Sandbox und hat genau diese Rechte:
 | `network.server` | der Rückweg der Google-Anmeldung |
 | `files.user-selected.read-write` | das Archiv, Importe, Export |
 | `files.bookmarks.app-scope` | merkt sich das gewählte Archiv, damit es beim nächsten Start ohne neuen Dialog aufgeht |
+| `temporary-exception.mach-lookup.global-name` | zwei Namen (`…-spks`, `…-spki`) für die Dienste, mit denen Sparkle ein Update einspielt |
 
 Das Server-Recht ist der einzige Zuwachs der letzten Phase und hat einen schmalen Zweck: Der
 Browser muss nach der Google-Anmeldung zurückkommen können (so sieht es der Standard für native
@@ -117,6 +119,17 @@ selbst, nicht per Konvention:
 
 **MailKeeper legt nie Ordner auf dem Server an.** Fehlt das Ziel, scheitert die Aktion für diese
 Mail — statt sich einen Ort auszudenken.
+
+## Updates
+
+MailKeeper bringt seinen eigenen Updater mit (Sparkle), weil es nicht aus dem App Store kommt.
+Jedes Update ist mit einem Schlüssel signiert, dessen öffentliche Hälfte in der App steckt —
+was nicht damit signiert ist, wird nicht installiert, egal woher es kommt.
+
+Gefragt wird nur, wenn du es erlaubst: Beim zweiten Start fragt Sparkle, ob es von selbst
+nachsehen darf. Sagst du nein, passiert nichts, bis du im Menü **Nach Updates suchen …**
+wählst. Übertragen wird dabei die Anfrage an GitHub, also deine IP-Adresse, die Version und
+dein macOS — keine Daten aus dem Archiv.
 
 ## Was du selbst tun kannst
 
