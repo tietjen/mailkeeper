@@ -1,0 +1,62 @@
+name: CI
+
+# Gitea is the origin; this runs on the public GitHub mirror, because macOS runners only
+# exist there (the homelab's Gitea runners are Linux).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode auswählen
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app
+          swift --version
+
+      - name: Abhängigkeiten holen
+        run: swift package resolve
+
+      - name: Bauen
+        run: swift build --build-tests
+
+      # Live tests need real accounts and credentials; they stay out of CI by their own
+      # MAILKEEPER_INTEGRATION gate and are not enabled here.
+      - name: Tests
+        run: swift test
+
+      # A build that is not signed still proves the bundle is put together correctly —
+      # the signing itself needs the Developer ID and happens in release.yml.
+      - name: App bauen (ohne Signatur)
+        run: Scripts/build-app.sh --no-sign
+
+      - name: Dokumentation — interne Links
+        run: |
+          python3 - <<'PY'
+          import os, re, sys
+          bad = []
+          for dirpath, _, files in os.walk("docs"):
+              for fn in files:
+                  if not fn.endswith(".md"):
+                      continue
+                  p = os.path.join(dirpath, fn)
+                  for m in re.finditer(r"\]\(([^)#]+?)(#[^)]*)?\)", open(p).read()):
+                      target = m.group(1)
+                      if target.startswith(("http://", "https://", "mailto:")):
+                          continue
+                      if not os.path.exists(os.path.normpath(os.path.join(dirpath, target))):
+                          bad.append(f"{p} -> {target}")
+          if bad:
+              sys.exit("tote Links:\n" + "\n".join(bad))
+          print("alle internen Links zeigen auf vorhandene Dateien")
+          PY

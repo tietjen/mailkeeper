@@ -1,0 +1,119 @@
+name: Release
+
+# Two ways in:
+#   · push a tag v<x.y.z>  → builds, signs, notarises and publishes the release
+#   · "Run workflow"       → the same, but publishes nothing (a probe, like LaunchKeeper's)
+#
+# Secrets (none of them in the repo):
+#   APPLE_ID · APPLE_APP_PASSWORD · APPLE_TEAM_ID      notarisation
+#   MACOS_CERTIFICATE_P12 · MACOS_CERTIFICATE_PASSWORD  Developer ID, base64 of the .p12
+#   SPARKLE_ED_PRIVATE_KEY                              signs the update
+# Without them the gate job stops with a clear message instead of producing something
+# half-signed.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        env:
+          HAVE: ${{ secrets.APPLE_ID != '' && secrets.APPLE_APP_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' && secrets.MACOS_CERTIFICATE_P12 != '' && secrets.MACOS_CERTIFICATE_PASSWORD != '' && secrets.SPARKLE_ED_PRIVATE_KEY != '' }}
+        run: |
+          if [ "$HAVE" = "true" ]; then
+            echo "ready=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=no" >> "$GITHUB_OUTPUT"
+            echo "::warning::Release übersprungen — es fehlen Secrets (APPLE_ID, APPLE_APP_PASSWORD, APPLE_TEAM_ID, MACOS_CERTIFICATE_P12, MACOS_CERTIFICATE_PASSWORD, SPARKLE_ED_PRIVATE_KEY)."
+          fi
+
+  build:
+    needs: gate
+    if: needs.gate.outputs.ready == 'yes'
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }          # release.sh counts commits for CFBundleVersion
+
+      - name: Xcode auswählen
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Version bestimmen
+        id: v
+        run: |
+          VERSION=$(cat VERSION)
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+            [ "v$VERSION" = "$TAG" ] || { echo "::error::VERSION ist $VERSION, der Tag $TAG"; exit 1; }
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # A keychain of its own, deleted again at the end — the runner is shared.
+      - name: Signierschlüssel einrichten
+        env:
+          P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN=$RUNNER_TEMP/build.keychain
+          PASSWORD=$(uuidgen)
+          security create-keychain -p "$PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$PASSWORD" "$KEYCHAIN"
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" \
+                          -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+      - name: Bauen, notarisieren, signieren
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: Scripts/release.sh "${{ steps.v.outputs.version }}"
+
+      - name: Schlüsselbund entfernen
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/build.keychain" || true
+
+      # A manual run proves the whole chain without publishing anything: the artefact can be
+      # downloaded and looked at.
+      - name: Probe ablegen
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mailkeeper-probe
+          path: build/release/${{ steps.v.outputs.version }}/
+          retention-days: 7
+
+      # ADR-0013: no public binaries while the licence is unsettled. release.sh refuses
+      # --publish by itself; this is the second lock, so a tag cannot slip past it either.
+      - name: Lizenz prüfen
+        if: github.ref_type == 'tag'
+        run: |
+          if grep -q "A licence will follow" LICENSE; then
+            echo "::error::Veröffentlichen gesperrt: die Lizenz steht noch nicht (ADR-0013)."
+            exit 1
+          fi
+
+      - name: Release veröffentlichen
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.v.outputs.version }}"
+          NOTES=$(awk "/^## \[$VERSION\]/{f=1;next} /^## \[/{f=0} f" CHANGELOG.md)
+          gh release create "${{ github.ref_name }}" --title "MailKeeper $VERSION" \
+             --notes "$NOTES" \
+             "build/release/$VERSION/MailKeeper-$VERSION.dmg" \
+             "build/release/$VERSION/appcast.xml" \
+             "build/release/$VERSION/SHA256SUMS"
