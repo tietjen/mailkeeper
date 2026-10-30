@@ -45,11 +45,14 @@ final class Updates {
     /// False while a check is running — the menu entry greys out.
     var canCheck: Bool { controller?.updater.canCheckForUpdates ?? false }
 
-    /// KVO on Sparkle's own property, so the menu entry follows a running check.
+    /// KVO on Sparkle's own property, so the menu entry follows a running check. The value comes
+    /// out of the change, not from the updater: that property is main-actor isolated while this
+    /// callback is not. `.new` fills `newValue` on the `.initial` notification as well, so the
+    /// entry starts out enabled instead of greyed; `canCheck` stands in were it ever missing.
     func observeCanCheck(_ changed: @escaping @MainActor (Bool) -> Void) -> NSKeyValueObservation? {
-        controller?.updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { updater, _ in
-            let value = updater.canCheckForUpdates
-            Task { @MainActor in changed(value) }
+        controller?.updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { _, change in
+            let value = change.newValue
+            Task { @MainActor in changed(value ?? Updates.shared.canCheck) }
         }
     }
 }
