@@ -1,6 +1,7 @@
 # ADR-0013: Vertrieb und Lizenz — quelloffen lesbar, Verwertung bleibt beim Autor
 
-- Status: teils entschieden (TJ, 2026-10-28); das Erlösmodell ist offen
+- Status: entschieden — PolyForm Noncommercial 1.0.0 (TJ, 2026-11-02, siehe
+  [Nachtrag](#nachtrag-2026-11-02-polyform-noncommercial)); vorher teils entschieden (2026-10-28)
 - Deciders: TJ
 
 ## Context
@@ -67,3 +68,47 @@ nicht — die Prüfung ergab:
   Historie ist ohnehin öffentlich.
 - **Mac App Store:** schlösse Sparkle aus, kostet 15–30 % und erlaubt die nötigen
   Sandbox-Ausnahmen nicht.
+
+## Nachtrag 2026-11-02: PolyForm Noncommercial
+
+**Entscheidung (TJ):** MailKeeper steht unter der **PolyForm Noncommercial License 1.0.0**
+(`LICENSE`, SPDX `PolyForm-Noncommercial-1.0.0`, Text unverändert und gegen die SPDX-Fassung
+geprüft). Privat und für andere nichtkommerzielle Zwecke ist es frei, auch Ändern und
+Weitergeben; gewerbliche Nutzung braucht eine eigene Lizenz. Damit ist die Lizenzsperre aus §5
+technisch offen; veröffentlicht wird weiterhin erst mit einem Tag.
+
+- **Warum diese:** Sie passt zum ersten Release als kostenlose Vorabversion. Wer privat
+  nutzt, braucht keinen Schlüssel, und das Gewerbliche bleibt beim Autor. Eine Lizenz gilt je
+  Version: Spätere Versionen können anders lizenziert werden, ohne dass jemand, der eine
+  frühere Version hat, Rechte verliert.
+- **Korrektur zu §4:** FSL-1.1 gehört nicht zu „alle zahlen“. Sie erlaubt jede Nutzung außer
+  einem Konkurrenzprodukt, Endnutzer zahlten damit nicht. „Alle zahlen, mit Testphase“ ginge
+  mit BUSL 1.1 ohne Additional Use Grant (dann ist nur Nicht-Produktivnutzung frei) oder mit
+  eigenen Kaufbedingungen.
+- **`TERMS.md`** (deutsch maßgeblich, englische Übersetzung) erklärt, was nichtkommerziell
+  heißt, und regelt, was eine Lizenz nicht regelt: Haftung bei unentgeltlicher Überlassung nach
+  deutschem Recht (Vorsatz, grobe Fahrlässigkeit, arglistig verschwiegene Mängel; zwingende
+  Haftung unberührt), keine Pflicht zu Updates oder Unterstützung, Datenschutz mit Verweis auf
+  Handbuch-Kapitel 9. Den Namen als Kennzeichen umfasst die Lizenz nicht; geänderte Fassungen
+  werden gebeten, anders zu heißen. Eine Pflicht daraus zu machen, nähme zurück, was die Lizenz
+  gibt (Review).
+- **Änderungen der Bedingungen** gelten nur für die Version, der sie beiliegen, und werden in
+  den Versionshinweisen angekündigt. Eine stille Sparkle-Installation macht neue Bedingungen
+  nicht wirksam (§ 305 Abs. 2 BGB), deshalb behält die ältere Version ihre.
+- **Update-Signatur:** Sparkle 2.10.1 nimmt ein Update an, wenn der EdDSA-Schlüssel **oder** die
+  Developer-ID-Signatur zur installierten App passt (`SUUpdateValidator.m`, „any one of“).
+  Handbuch Kapitel 9 und `TERMS.md` sagen das jetzt so.
+- **Fremdlizenzen in der App:** Apache 2.0 (SwiftNIO und Verwandte), MIT (Sparkle) und die
+  OpenSSL-/SSLeay-/ISC-Lizenzen des BoringSSL in swift-nio-ssl verlangen ihren Text in jeder
+  weitergegebenen Kopie, und das DMG ist eine. `build-app.sh` legt `LICENSE.txt`, `TERMS.md` und
+  `ThirdPartyNotices.txt` nach `Contents/Resources`. Die Notices entstehen beim Bau aus
+  `Package.resolved` und den Checkouts. Der Bau bricht ab, wenn eine Lizenzdatei fehlt, wenn
+  `Package.resolved` nicht lesbar ist und wenn die Zahl der Abschnitte nicht zur Zahl der Pakete
+  passt. Zwei Texte nennen die Pakete nur als URL, sie liegen deshalb im Repo:
+  `packaging/licenses/BoringSSL.txt` (Upstream, Commit `817ab07e…`, der Bau prüft den Commit in
+  swift-nio-ssl) und `packaging/licenses/SwiftNIO-embedded.txt` (llhttp, cpp_magic, sha1 der
+  WIDE Project, fastbase64, stringencoders). Für letztere prüft der Bau die SHA-256 der beiden
+  `NOTICE.txt`, gegen die sie zusammengestellt sind.
+- **Offen:** Preis und Bezugsweg der gewerblichen Lizenz (bis dahin auf Anfrage); Lizenz und
+  Bedingungen in der App zeigen (Hilfe-Menü bzw. „Über MailKeeper“); juristische Durchsicht von
+  `TERMS.md` vor dem ersten Verkauf.

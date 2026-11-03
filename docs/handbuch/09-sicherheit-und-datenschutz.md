@@ -123,13 +123,16 @@ Mail — statt sich einen Ort auszudenken.
 ## Updates
 
 MailKeeper bringt seinen eigenen Updater mit (Sparkle), weil es nicht aus dem App Store kommt.
-Jedes Update ist mit einem Schlüssel signiert, dessen öffentliche Hälfte in der App steckt —
-was nicht damit signiert ist, wird nicht installiert, egal woher es kommt.
+Jedes Update ist zweifach signiert: mit dem Update-Schlüssel, dessen öffentliche Hälfte in der
+App steckt, und mit der Apple-Entwicklersignatur (Developer ID) von MailKeeper. Sparkle
+installiert ein Update nur, wenn **mindestens eine** der beiden zur installierten App passt —
+egal woher es kommt. Dass eine genügt, ist Absicht von Sparkle: So lässt sich einer der beiden
+Schlüssel austauschen, ohne die Kette zu unterbrechen.
 
 Gefragt wird nur, wenn du es erlaubst: Beim zweiten Start fragt Sparkle, ob es von selbst
 nachsehen darf. Sagst du nein, passiert nichts, bis du im Menü **Nach Updates suchen …**
-wählst. Übertragen wird dabei die Anfrage an GitHub, also deine IP-Adresse, die Version und
-dein macOS — keine Daten aus dem Archiv.
+wählst. Übertragen wird dabei die Anfrage an GitHub: deine IP-Adresse, die Version von MailKeeper
+und von Sparkle und deine Spracheinstellung — keine Daten aus dem Archiv, kein Systemprofil.
 
 ## Was du selbst tun kannst
 

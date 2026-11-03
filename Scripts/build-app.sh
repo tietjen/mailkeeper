@@ -97,6 +97,57 @@ install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/Mac
 otool -l "$APP/Contents/MacOS/MailKeeper" | grep -q "@executable_path/../Frameworks" \
   || { echo "rpath auf ../Frameworks fehlt — die App würde beim Start abstürzen" >&2; exit 1 }
 
+# Licences (ADR-0013): our own terms, and those of every component compiled in or bundled.
+# Apache 2.0 (SwiftNIO & co.), MIT (Sparkle) and the OpenSSL licence (BoringSSL inside
+# swift-nio-ssl) each want their text in every copy that is passed on — the DMG is one.
+cp LICENSE "$APP/Contents/Resources/LICENSE.txt"
+cp TERMS.md "$APP/Contents/Resources/TERMS.md"
+# Two components carry code under other licences than their own and name it only by URL:
+# swift-nio-ssl vendors BoringSSL without its LICENSE (packaging/licenses/BoringSSL.txt is the
+# upstream file of exactly this commit), and the NOTICE.txt of swift-nio and swift-nio-imap
+# point to MIT/BSD texts (packaging/licenses/SwiftNIO-embedded.txt, collected for exactly these
+# NOTICE files). A new version may bring other terms: then collect them again.
+BORINGSSL_COMMIT="817ab07ebb53da35afea409ab9328f578492832d"
+NOTICE_SHA256=(
+  swift-nio d25ed2452b3476c342082d11e4e8bf5459174d2836124f842b499850bcebc50e
+  swift-nio-imap 6f29dd1a27852835fdd71498cae17ce808ea5cf607e14d022943c718ad6db8d4
+)
+[[ -f .build/checkouts/swift-nio-ssl/Package.swift ]] \
+  || { echo "swift-nio-ssl fehlt in .build/checkouts — swift package resolve" >&2; exit 1 }
+grep -q "BoringSSL Commit: $BORINGSSL_COMMIT" .build/checkouts/swift-nio-ssl/Package.swift \
+  || { echo "swift-nio-ssl bringt ein anderes BoringSSL mit — packaging/licenses/BoringSSL.txt erneuern" >&2; exit 1 }
+for dir sum in $NOTICE_SHA256; do
+  [[ "$(shasum -a 256 < .build/checkouts/$dir/NOTICE.txt 2>/dev/null)" == "$sum  -" ]] \
+    || { echo "$dir/NOTICE.txt hat sich geändert — packaging/licenses/SwiftNIO-embedded.txt prüfen" >&2; exit 1 }
+done
+# Captured first: a failing generator inside `< <(…)` would go unnoticed by set -e and leave a
+# notices file with nothing but its header line.
+PINS=$(python3 -c "
+import json, os
+for p in json.load(open('Package.resolved'))['pins']:
+    s = p['state']
+    print(os.path.basename(p['location']).removesuffix('.git'), p['location'], s.get('version') or s['revision'], sep='\t')") \
+  || { echo "Package.resolved nicht lesbar — keine Fremdlizenzen" >&2; exit 1 }
+[[ -n "$PINS" ]] || { echo "Package.resolved ohne Pakete — keine Fremdlizenzen" >&2; exit 1 }
+NOTICES="$APP/Contents/Resources/ThirdPartyNotices.txt"
+{
+  print "MailKeeper contains the following third-party software.\n"
+  while IFS=$'\t' read -r dir url ver; do
+    d=".build/checkouts/$dir"
+    [[ -d "$d" ]] || { echo "$d fehlt — swift package resolve" >&2; exit 1 }
+    lic=($d/(LICENSE|LICENSE.txt|LICENSE.md)(N))
+    (( $#lic )) || { echo "keine Lizenzdatei in $d — die App ginge ohne sie hinaus" >&2; exit 1 }
+    print "==== $dir $ver ($url)\n"
+    cat "$lic[1]"
+    [[ -f "$d/NOTICE.txt" ]] && { print "\n---- NOTICE\n"; cat "$d/NOTICE.txt" }
+    [[ $dir == swift-nio-ssl ]] && { print "\n---- BoringSSL $BORINGSSL_COMMIT\n"; cat packaging/licenses/BoringSSL.txt }
+    [[ $dir == swift-nio ]] && { print; cat packaging/licenses/SwiftNIO-embedded.txt }
+    print
+  done <<< "$PINS"
+} > "$NOTICES"
+[[ $(grep -c '^==== ' "$NOTICES") == ${#${(f)PINS}} ]] \
+  || { echo "ThirdPartyNotices.txt ist unvollständig" >&2; exit 1 }
+
 # The public key of the update signature. Its private half lives in the login keychain
 # (account "MailKeeper") and in the vault; see ADR-0013. Changing it makes every installed
 # copy refuse every future update.
@@ -133,7 +184,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleLocalizations</key><array>$(print -l ${(s:,:)LANGS} | sed 's|.*|<string>&</string>|')</array>
   <key>LSMinimumSystemVersion</key><string>26.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
-  <key>NSHumanReadableCopyright</key><string>© 2026 Jan Tietjen. Alle Rechte vorbehalten.</string>
+  <key>NSHumanReadableCopyright</key><string>© 2026 Jan Tietjen · PolyForm Noncommercial 1.0.0</string>
   <key>NSHighResolutionCapable</key><true/>
 $SPARKLE_KEYS
   <key>NSAppTransportSecurity</key>

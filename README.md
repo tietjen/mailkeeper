@@ -47,7 +47,12 @@ The sandboxed app uses its container by default; choose another archive folder v
 ## Licence
 
 The source is public so that anyone can check what MailKeeper does with their
-mail — it is **not** (yet) open source: all rights are reserved, and no licence
-to use, copy, modify or distribute is granted so far. A licence follows with the
-first public release and is meant to keep the source readable and verifiable.
-See [LICENSE](LICENSE).
+mail. It is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE):
+free for private and other noncommercial use — including changing it and passing
+it on — while commercial use needs a separate licence. That makes it
+source-available, not open source.
+
+[TERMS.md](TERMS.md) (German, with an English translation) explains what counts as
+noncommercial and covers the app downloads and updates: privacy, liability, support.
+The app carries the licences of its third-party components in
+`Contents/Resources/ThirdPartyNotices.txt`.
