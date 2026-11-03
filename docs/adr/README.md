@@ -14,7 +14,7 @@
 | [0010](0010-spam-phishing-signals.md) | Spam and phishing: separate signals, the user decides | accepted |
 | [0011](0011-archive-placement.md) | The archive's own placement of a mail (Ablage) | accepted |
 | [0012](0012-gmail-oauth.md) | Gmail sign-in with Google (OAuth, PKCE, loopback) | accepted |
-| [0013](0013-distribution-und-lizenz.md) | Vertrieb und Lizenz: quelloffen lesbar, Verwertung beim Autor | teils entschieden |
+| [0013](0013-distribution-und-lizenz.md) | Vertrieb und Lizenz: quelloffen lesbar, Verwertung beim Autor | accepted (PolyForm NC) |
 
 Evidence for 0001–0004 and 0007: [spike results](../spikes/README.md).
 

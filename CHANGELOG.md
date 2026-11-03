@@ -5,7 +5,12 @@ dahinter stehen in [docs/adr/](docs/adr/).
 
 ## [0.1.0] — unveröffentlicht
 
-Erste Fassung. Noch kein öffentliches Release: die Lizenz steht noch nicht (ADR-0013).
+Erste Fassung, als Vorabversion.
+
+- **Lizenz:** PolyForm Noncommercial 1.0.0 — privat und für andere nichtkommerzielle Zwecke
+  frei, gewerblich mit eigener Lizenz. Was das heißt und was für Downloads und Updates gilt,
+  steht in [TERMS.md](https://github.com/tietjen/mailkeeper/blob/main/TERMS.md); die Lizenzen der eingebauten Fremdkomponenten liegen in der
+  App (ADR-0013).
 
 - **Archiv:** Mails als `.eml` plus Journal, SQLite-Index jederzeit neu baubar; Import aus
   Maildir, mbox und `.eml`-Ordnern.
