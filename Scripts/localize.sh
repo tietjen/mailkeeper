@@ -21,7 +21,9 @@ CATALOG="Localization/Localizable.xcstrings"
 BUILD=".build/out/Intermediates.noindex/MailKeeper.build/Debug"
 
 print -P "%F{blue}==>%f Texte einsammeln"
-swift build >/dev/null
+# Only Swift Build leaves .stringsdata behind. It is the default from Xcode 27 on; the native
+# build system that older toolchains default to (the CI runners' Xcode 26) writes none.
+swift build --build-system swiftbuild >/dev/null
 
 # Products and library targets, never the test bundles: a test's texts are not shipped.
 # `-testable-` is the second, identical copy a target gets when a test bundle links it; the
