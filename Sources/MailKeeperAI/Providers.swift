@@ -286,7 +286,14 @@ public struct OnDeviceProvider: ChatProvider {
         let system = request.system, user = request.user, schema = request.schema
         let text: String = try await withHardTimeout(timeout) {
             let session = LanguageModelSession(model: SystemLanguageModel(useCase: .general), instructions: system)
+            // The macOS 27 SDK renamed `sampling:` to `samplingMode:` (back-deployed to 26, the old
+            // label deprecated); the CI runners have no Xcode 27 and their macOS 26 SDK knows only
+            // `sampling:`. Swift 6.4 comes with the 27 SDK, so the compiler version tells them apart.
+            #if compiler(>=6.4)
             let options = GenerationOptions(samplingMode: .greedy, maximumResponseTokens: request.maxTokens)
+            #else
+            let options = GenerationOptions(sampling: .greedy, maximumResponseTokens: request.maxTokens)
+            #endif
             do {
                 if let schema {
                     let generation = try GenerationSchema(root: schema.dynamic(), dependencies: [])
