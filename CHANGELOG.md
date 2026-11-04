@@ -3,7 +3,7 @@
 Diese Datei hält fest, was sich für Benutzerinnen und Benutzer ändert. Die Entscheidungen
 dahinter stehen in [docs/adr/](docs/adr/).
 
-## [0.1.0] — unveröffentlicht
+## [0.1.0] — 2026-11-04
 
 Erste Fassung, als Vorabversion.
 
