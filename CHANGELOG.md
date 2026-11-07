@@ -3,7 +3,9 @@
 Diese Datei hält fest, was sich für Benutzerinnen und Benutzer ändert. Die Entscheidungen
 dahinter stehen in [docs/adr/](docs/adr/).
 
-## [Unveröffentlicht]
+## [0.2.0] — 2026-11-07
+
+Erster Start und Einrichtung.
 
 - **Erster Start:** MailKeeper legt kein Archiv mehr von sich aus an. Eine **Einrichtung** in drei
   Schritten erklärt, wie Server und Archiv zusammenhängen, legt das Archiv an (Standard-Ort,
