@@ -24,8 +24,10 @@ Nachschlagen — zum Lernen ist das [Handbuch](handbuch/) da.
 | **Statusleiste** | unten | Fortschritt, unterbrochene Aufträge, Archivgröße, Pfad, Warnung bei unverschlüsseltem Laufwerk |
 | **Archive wechseln** | Ablage, oder Klick auf den Fenstertitel | gesperrt, solange Abruf, Import oder Aktion läuft |
 | **Nach Updates suchen …** | Menü *MailKeeper* | nur in einer ausgelieferten Fassung (die Entwicklerversion hat keinen Update-Katalog); automatisch nur, wenn du es erlaubt hast |
-| **Hilfe** | ⌘? , Menü *Hilfe* | eigenes Fenster, **10** Kapitel, Suche über die Kapiteltexte; die ausführliche Fassung ist das Handbuch (Link im Fenster und im Menü) |
-| **Einführung** | beim ersten Start, danach *Hilfe › Einführung zeigen* | **7** Karten am Fenster; ein Schritt, dessen Ziel nicht sichtbar ist (eingeklappte Seitenleiste), erscheint nach einer Sekunde als Blatt |
+| **Hilfe** | ⌘? , Menü *Hilfe* | eigenes Fenster, **11** Kapitel, Suche über die Kapiteltexte; die ausführliche Fassung ist das Handbuch (Link im Fenster und im Menü) |
+| **Erster Start** | — | legt **kein** Archiv an; nacheinander Einrichtung und Rundgang. Ohne Archiv zeigt das Fenster „Noch kein Archiv“, ein leeres Archiv „Konto hinzufügen …“ bzw. „Jetzt abrufen“ |
+| **Einrichtung** | beim ersten Start, danach *Hilfe › Einrichtung …* | **3** Seiten: Server und Archiv, Archiv anlegen oder öffnen, Konten verbinden (+ erster Abruf). Öffnet sich von selbst nur, wenn auch der Rundgang noch nie lief — ein Update zeigt sie nicht |
+| **Rundgang** | nach der Einrichtung, danach *Hilfe › Rundgang zeigen* | **5** Karten am Fenster; eine Karte schließt nur über ihre Knöpfe, nicht durch einen Klick daneben oder einen Wechsel in ein anderes Programm. Ein Schritt, dessen Ziel nicht sichtbar ist (eingeklappte Seitenleiste), erscheint als Blatt |
 
 ## Suchsprache
 

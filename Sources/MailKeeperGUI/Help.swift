@@ -47,9 +47,22 @@ enum HelpBook {
             ],
             keywords: String(localized: "überblick archiv leitsätze plan ausführen prüfen ki entscheidung eml")),
         HelpChapter(
+            id: "server-archiv", title: String(localized: "Server und Archiv"), symbol: "arrow.left.arrow.right",
+            paragraphs: [
+                String(localized: "Ein Archiv ist ein Ordner auf diesem Mac. Darin liegen die Mails, der Suchindex und die Konten. Du kannst mehrere Archive haben, jedes mit eigenen Konten; der Fenstertitel zeigt, in welchem du bist, ein Klick darauf wechselt."),
+                String(localized: "Ein Konto ist ein Postfach auf einem Mailserver. Ein Archiv nimmt beliebig viele auf. In der Seitenleiste steht jedes mit seinen Ordnern; „Alle Ordner“ zeigt nur dieses Konto, „Alle Nachrichten“ alle zusammen. Abrufen holt von allen Konten des Archivs."),
+                String(localized: "Abrufen kopiert vom Server ins Archiv, nie umgekehrt: Neue Mails kommen dazu, Gelesen- und Markiert-Zeichen und Gmail-Labels werden übernommen."),
+                String(localized: "Auf dem Server gelöscht: Die Mail bleibt im Archiv. „Ort“ sagt dann „Nur im Archiv – auf dem Server gelöscht“."),
+                String(localized: "Auf dem Server verschoben: Die Mail kommt im neuen Ordner dazu und bleibt im alten stehen – gespeichert ist sie nur einmal. Wo sie jetzt auf dem Server liegt, sagt „Ort“; mit „Ablage ändern …“ führst du sie im Archiv nur noch dort, wo du willst. Ein umbenannter Ordner wirkt genauso."),
+                String(localized: "Im Archiv gelöscht: Auf dem Server ändert sich nichts. Was noch auf einem Server liegt, lässt sich nicht aus dem Archiv löschen – es käme beim nächsten Abruf wieder; der Plan bietet an, es zuerst dort zu löschen. Der Papierkorb des Archivs hält 30 Tage, und endgültig Gelöschtes holt kein Abruf zurück."),
+                String(localized: "Den Server ändert MailKeeper nur auf deinen Befehl: Auf dem Server löschen, Zurückspielen, Ablage auch auf dem Server, „Kein Spam“ und „Ist Spam“ – immer erst nach einem Plan, den du bestätigst."),
+                String(localized: "Ein Konto zu entfernen löscht keine Mails: Was abgerufen ist, bleibt im Archiv; es wird nur nicht mehr abgerufen."),
+            ],
+            keywords: String(localized: "server archiv konto konten abrufen löschen verschieben ordner umbenennen nur im archiv ort entfernen mehrere archive wechseln einrichtung")),
+        HelpChapter(
             id: "fenster", title: String(localized: "Das Fenster"), symbol: "sidebar.left",
             paragraphs: [
-                String(localized: "Links die Seitenleiste: alle Nachrichten, deine gespeicherten Ansichten, der Papierkorb, die Spam-Prüfung und das Verdächtige — darunter je Konto seine Ordner."),
+                String(localized: "Links die Seitenleiste: alle Nachrichten, deine gespeicherten Ansichten, der Papierkorb, die Spam-Prüfung und das Verdächtige — darunter je Konto „Alle Ordner“ und seine einzelnen Ordner."),
                 String(localized: "In der Mitte die Liste. Über das Auswahlfeld „Ansicht“ in der Symbolleiste wird daraus eine Gruppierung nach Absender, Domain oder Liste — der Einstieg ins Aufräumen."),
                 String(localized: "Rechts der Leser: Kopfzeilen, „Ort“ (wo die Mail liegt), „Art“, „Prüfung“, „Echtheit“, „Ablage“, Anhänge und der Text."),
                 String(localized: "Unten die Statusleiste: was gerade läuft, wie groß das Archiv ist, und der Link auf einen unterbrochenen Auftrag."),
@@ -60,6 +73,7 @@ enum HelpBook {
             id: "postfaecher", title: String(localized: "Postfächer verbinden"), symbol: "tray.and.arrow.down",
             paragraphs: [
                 String(localized: "Einstellungen › Konten › +. Es gibt IMAP, Gmail und die Proton Mail Bridge; vorhandene Archive liest du über Ablage › Importieren ein."),
+                String(localized: "Ein Archiv nimmt beliebig viele Konten auf. Die Konten gehören zum Archiv, das gerade offen ist – ein anderes Archiv hat seine eigenen. Hilfe › Einrichtung … führt Schritt für Schritt durch Archiv und Konten."),
                 String(localized: "Abgerufen wird nur lesend. Eine Abrufverbindung kann auf dem Server nichts verändern — das ist nicht Absicht, sondern erzwungen."),
                 String(localized: "Spam- und Papierkorb-Ordner bleiben außen vor. Den Spam-Ordner kannst du je Konto dazunehmen („Spam prüfen“); das ist die Voraussetzung dafür, dass MailKeeper dort nach fälschlich aussortierten Mails sucht."),
                 String(localized: "Gmail geht mit App-Passwort oder mit Anmeldung über Google. Passwörter und Anmeldungen liegen im Schlüsselbund, nie im Archiv."),
@@ -163,6 +177,7 @@ struct HelpWindow: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         Text(chapter.title).font(.title2.weight(.semibold))
+                        if chapter.id == "server-archiv" { ServerArchiveDiagram().padding(.vertical, 4) }
                         ForEach(Array(chapter.paragraphs.enumerated()), id: \.offset) { _, paragraph in
                             Text(paragraph).fixedSize(horizontal: false, vertical: true)
                         }
@@ -201,6 +216,7 @@ final class HelpFocus {
 /// The Help menu. A view, not bare `Commands`, so it can reach `openWindow`.
 struct HelpMenuItems: View {
     let tour: IntroTour
+    let setup: SetupAssistant
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -208,7 +224,19 @@ struct HelpMenuItems: View {
             .keyboardShortcut("?", modifiers: .command)
         Button("Sicherheit und Datenschutz …") { open("sicherheit") }
         Divider()
-        Button("Einführung zeigen") { tour.start() }
+        // separate, as on the first launch: the setup (archive, mailboxes) and the tour of the window
+        Button("Einrichtung …") {
+            guard tour.step != nil else { return setup.start() }
+            // A running tour makes way. If its card is a sheet, the setup's sheet waits until
+            // that one has gone: two sheet changes on one view in one update lose the second.
+            let wasSheet = tour.sheet.wrappedValue != nil
+            tour.finish(seen: true)
+            guard wasSheet else { return setup.start() }
+            Task { try? await Task.sleep(for: .milliseconds(400)); setup.start() }
+        }
+        .disabled(setup.isShown)
+        Button("Rundgang zeigen") { tour.start() }
+            .disabled(setup.isShown)
         Link("Handbuch öffnen …", destination: HelpBook.handbook)
     }
 

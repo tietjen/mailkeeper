@@ -1,59 +1,58 @@
+import AppKit
 import SwiftUI
 
-/// The tour on first start (8.5): a few cards at the real parts of the window, so the first
-/// look is not a wall of empty columns.
+/// The tour of the window (8.5): a few cards at the real parts of the window, so the first
+/// look is not a wall of empty columns. On the first launch it follows the setup
+/// (`SetupAssistant`); both can be run again from the Help menu.
 ///
-/// Three things about this are not obvious, all learned the hard way in LaunchKeeper:
+/// Four things about this are not obvious, all learned the hard way:
 ///
 /// 1. The columns of a `NavigationSplitView` are hosted separately, so one overlay spanning the
-///    window cannot point at them. Each step therefore hangs as a native `.popover` on the view
-///    it talks about.
-/// 2. A popover only appears when its anchor is on screen. A collapsed sidebar or a hidden
-///    toolbar would stall the tour for good — so a step that has not appeared after a moment is
-///    shown as a sheet instead.
-/// 3. Cards are presented by identity, not by a boolean, and a dismissal only counts when the
-///    card it comes from is still the one being presented. Otherwise the late message of the
-///    previous card ends the tour, or the fallback switch to a sheet does.
+///    window cannot point at them. Each step therefore hangs as a popover on the view it talks
+///    about.
+/// 2. That popover is an `NSPopover` of our own with `.applicationDefined` behaviour, not
+///    SwiftUI's `.popover`. SwiftUI's is transient: it closed whenever MailKeeper lost focus or
+///    the user clicked next to it — and took the whole tour with it (TJ, 0.1.0). Only the card's
+///    own buttons end the tour now.
+/// 3. A popover only appears when its anchor is on screen. A collapsed sidebar or a hidden
+///    toolbar would stall the tour for good — so a step that has not appeared after a moment, or
+///    whose anchor leaves the window, is shown as a sheet instead.
+/// 4. Cards are presented by identity, not by a boolean: a late message about the previous card
+///    must not act on the current one.
 @MainActor
 @Observable
 final class IntroTour {
     enum Step: Int, CaseIterable, Identifiable {
-        case welcome, sidebar, list, reader, toolbar, accounts, done
+        case sidebar, list, reader, toolbar, done
         var id: Int { rawValue }
 
         var title: LocalizedStringKey {
             switch self {
-            case .welcome: "Willkommen bei MailKeeper"
             case .sidebar: "Die Seitenleiste"
             case .list: "Die Liste"
             case .reader: "Der Leser"
             case .toolbar: "Abrufen und Suchen"
-            case .accounts: "Als Nächstes: ein Postfach"
             case .done: "Das war's"
             }
         }
 
         var text: LocalizedStringKey {
             switch self {
-            case .welcome:
-                "MailKeeper holt deine Mail in ein Archiv auf diesem Mac — durchsuchbar, aufräumbar, und lesbar auch ohne diese App. Ein kurzer Rundgang zeigt dir, wo was liegt."
             case .sidebar:
-                "Hier stehen alle Nachrichten, der Papierkorb, „Verdächtig“ — und, sobald du eines eingerichtet hast, jedes Konto mit seinen Ordnern. Gespeicherte Suchen landen als eigene Ansicht darüber."
+                "Oben „Alle Nachrichten“ aus allen Konten, darunter Papierkorb und „Verdächtig“. Dann jedes Konto mit seinen Ordnern – „Alle Ordner“ zeigt nur dieses Konto. Gespeicherte Suchen landen als eigene Ansicht darüber."
             case .list:
                 "Die Mails der gewählten Ansicht. Über „Ansicht“ in der Symbolleiste wird daraus eine Gruppierung nach Absender, Domain oder Liste — so räumt man ein volles Postfach auf, statt Mail für Mail."
             case .reader:
-                "Rechts die geöffnete Mail. Zwei Zeilen lohnen den Blick: „Ort“ sagt, wo die Mail liegt, „Echtheit“, was der empfangende Mailserver über den Absender festgestellt hat."
+                "Rechts die geöffnete Mail. „Ort“ sagt, ob sie noch auf dem Server liegt oder nur noch im Archiv, „Echtheit“, was der empfangende Mailserver über den Absender festgestellt hat."
             case .toolbar:
-                "Rechts oben Abrufen und Importieren, in der Mitte die Ansicht, daneben das Suchfeld. Abgerufen wird nur lesend — auf dem Server ändert MailKeeper nichts, solange du es nicht verlangst."
-            case .accounts:
-                "Ohne Postfach bleibt es leer. Unter Einstellungen › Konten richtest du eines ein: IMAP, Gmail oder die Proton Mail Bridge. Ein vorhandenes Archiv liest Ablage › Importieren ein."
+                "Rechts oben Abrufen – es holt neue Mail aus allen Konten dieses Archivs, nur lesend – und Importieren für vorhandene Maildir-, mbox- oder .eml-Bestände. In der Mitte die Ansicht, daneben das Suchfeld."
             case .done:
-                "Alles Weitere steht in der Hilfe (⌘?) und im Handbuch. Diesen Rundgang findest du im Hilfemenü unter „Einführung zeigen“ wieder."
+                "Das Archiv wechselst du mit einem Klick auf den Fenstertitel. Was beim Löschen und Verschieben auf dem Server mit dem Archiv passiert, steht in der Hilfe (⌘?) unter „Server und Archiv“. Rundgang und Einrichtung findest du im Hilfemenü wieder."
             }
         }
 
         /// Steps with nothing in the window to point at are sheets from the start.
-        var isSheet: Bool { self == .welcome || self == .accounts || self == .done }
+        var isSheet: Bool { self == .done }
     }
 
     private static let atStartKey = "introAtStart"   // the user's wish, off unless asked for
@@ -77,22 +76,26 @@ final class IntroTour {
         didSet { defaults.set(showAtStart, forKey: Self.atStartKey) }
     }
 
+    /// The tour has been finished or skipped once — then the setup does not come back by itself
+    /// either: whoever saw the tour has been through the first launch.
+    var wasSeen: Bool { defaults.bool(forKey: Self.seenKey) }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         showAtStart = defaults.bool(forKey: Self.atStartKey)
     }
 
-    /// Called when the window is up. Runs on the first launch, and after that only if the box
-    /// in the card is ticked — never twice in one launch.
+    /// Called when the window is up (or the setup is done). Runs on the first launch, and after
+    /// that only if the box in the card is ticked — never twice in one launch.
     func startIfWanted() {
         guard !started else { return }
-        guard showAtStart || !defaults.bool(forKey: Self.seenKey) else { return }
+        guard showAtStart || !wasSeen else { return }
         start()
     }
 
     func start() {
         started = true
-        go(to: .welcome)
+        go(to: Step.allCases[0])
     }
 
     func next() {
@@ -100,9 +103,8 @@ final class IntroTour {
         go(to: following)
     }
 
-    /// `seen` only for the two buttons: whoever clicks "Skip" or "Done" has decided. A card
-    /// closed by a click next to it has not — a stray click in the sidebar during step 2
-    /// should not cost the introduction for good, so that one comes back next launch.
+    /// Only the card's buttons call this ("Überspringen", "Fertig"): whoever clicks one has
+    /// decided. Losing focus or clicking next to a card ends nothing (TJ).
     func finish(seen: Bool = true) {
         if seen { defaults.set(true, forKey: Self.seenKey) }
         fallback?.cancel()
@@ -136,31 +138,26 @@ final class IntroTour {
         appeared = true
     }
 
-    /// What a view binds its popover to: non-nil only while this step is current and anchored.
-    func popover(_ step: Step) -> Binding<IntroCardID?> {
-        Binding(
-            get: { self.card(step, sheet: false) },
-            set: { if $0 == nil { self.dismissed(step, sheet: false) } })
+    /// The view a popover hangs on left the window (sidebar collapsed, toolbar item gone into
+    /// the overflow): the card moves into a sheet instead of vanishing.
+    func anchorLost(_ generation: Int) {
+        guard generation == self.generation, step?.isSheet == false else { return }
+        asSheet = true
     }
 
+    /// The card a step's popover shows: non-nil only while this step is current and anchored.
+    func popoverCard(_ step: Step) -> IntroCardID? { card(step, sheet: false) }
+
     /// The sheet over the whole window: the steps with no anchor, and any that fell back to one.
+    /// A `nil` written back (the window closing, a sheet being swapped) ends nothing — the
+    /// getter still names the card, so SwiftUI shows it again.
     var sheet: Binding<IntroCardID?> {
-        Binding(
-            get: { self.step.flatMap { self.card($0, sheet: true) } },
-            set: { if $0 == nil, let step = self.step { self.dismissed(step, sheet: true) } })
+        Binding(get: { self.step.flatMap { self.card($0, sheet: true) } }, set: { _ in })
     }
 
     private func card(_ step: Step, sheet: Bool) -> IntroCardID? {
         guard self.step == step, asSheet == sheet else { return nil }
         return IntroCardID(id: generation, step: step)
-    }
-
-    /// Ends the tour — but only for the card that is actually being presented. A `nil` written
-    /// back by a popover we ourselves just took down (next step, or the switch to a sheet) is
-    /// not the user closing anything.
-    private func dismissed(_ step: Step, sheet: Bool) {
-        guard card(step, sheet: sheet) != nil, appeared else { return }
-        finish(seen: false)
     }
 }
 
@@ -190,6 +187,7 @@ struct IntroCard: View {
                     .font(.caption).foregroundStyle(.tertiary)
                 if card.step != .done {
                     Button("Überspringen") { tour.finish(seen: true) }
+                        .keyboardShortcut(.cancelAction)
                 }
                 Button(card.step == .done ? "Fertig" : "Weiter") { tour.next() }
                     .keyboardShortcut(.defaultAction)
@@ -204,8 +202,131 @@ struct IntroCard: View {
 extension View {
     /// Hangs a tour step on the part of the window it is about.
     func introStep(_ step: IntroTour.Step, _ tour: IntroTour, edge: Edge) -> some View {
-        popover(item: tour.popover(step), arrowEdge: edge) { card in
-            IntroCard(tour: tour, card: card)
+        modifier(IntroStepModifier(tour: tour, step: step, edge: edge))
+    }
+}
+
+/// Reads the tour in `body`, so a step change redraws the anchor with its new card.
+private struct IntroStepModifier: ViewModifier {
+    let tour: IntroTour
+    let step: IntroTour.Step
+    let edge: Edge
+
+    func body(content: Content) -> some View {
+        content.background(IntroPopoverAnchor(tour: tour, card: tour.popoverCard(step), edge: edge))
+    }
+}
+
+/// An invisible view behind the anchor that owns the step's `NSPopover`. `.applicationDefined`
+/// and a delegate that refuses every close the popover did not ask for: the card stays through
+/// a switch to another app and a click next to it, and goes only when the tour moves on.
+private struct IntroPopoverAnchor: NSViewRepresentable {
+    let tour: IntroTour
+    let card: IntroCardID?
+    let edge: Edge
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> AnchorView {
+        let view = AnchorView()
+        let coordinator = context.coordinator
+        view.changed = { [weak coordinator] in coordinator?.anchorChanged() }
+        return view
+    }
+
+    func updateNSView(_ view: AnchorView, context: Context) {
+        context.coordinator.show(card, tour: tour, anchor: view, edge: edge)
+    }
+
+    static func dismantleNSView(_ view: AnchorView, coordinator: Coordinator) {
+        coordinator.close()
+    }
+
+    final class AnchorView: NSView {
+        /// Into or out of a window, or laid out: a card that could not be shown yet may be now.
+        var changed: (() -> Void)?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            changed?()
+        }
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            changed?()
+        }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }  // never takes a click from the anchor
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSPopoverDelegate {
+        private var popover: NSPopover?
+        private var shown: IntroCardID?
+        /// What should be on screen; kept while the anchor has no window yet.
+        private var wanted: (card: IntroCardID, tour: IntroTour, anchor: AnchorView, edge: Edge)?
+
+        func show(_ card: IntroCardID?, tour: IntroTour, anchor: AnchorView, edge: Edge) {
+            // No card for this anchor (another step, or this one moved into a sheet): forget it
+            // entirely, or a later layout pass would bring the old card back beside the sheet.
+            guard let card else { return close() }
+            guard card != shown || popover == nil else { return }
+            close()
+            wanted = (card, tour, anchor, edge)
+            present()
+        }
+
+        func anchorChanged() {
+            guard let wanted else { return }
+            if wanted.anchor.window == nil {
+                guard popover != nil else { return }  // not shown yet: wait for the window
+                // The anchor left the window while its card was up: from now on the tour shows
+                // it as a sheet. Told after this AppKit callback, not in the middle of it.
+                let (tour, id) = (wanted.tour, wanted.card.id)
+                close()
+                Task { @MainActor in tour.anchorLost(id) }
+            } else if popover == nil {
+                present()
+            }
+        }
+
+        private func present() {
+            guard popover == nil, let wanted, let window = wanted.anchor.window, !wanted.anchor.bounds.isEmpty else { return }
+            guard window.isVisible else {
+                // the window is about to come up (tour started from onAppear): try again shortly
+                let card = wanted.card
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    guard let self, self.wanted?.card == card else { return }
+                    self.present()
+                }
+                return
+            }
+            let popover = NSPopover()
+            popover.behavior = .applicationDefined
+            popover.animates = true
+            popover.delegate = self
+            let host = NSHostingController(rootView: IntroCard(tour: wanted.tour, card: wanted.card))
+            host.sizingOptions = .preferredContentSize
+            popover.contentViewController = host
+            popover.show(relativeTo: wanted.anchor.bounds, of: wanted.anchor, preferredEdge: Self.rectEdge(wanted.edge))
+            self.popover = popover
+            shown = wanted.card
+        }
+
+        func close() {
+            popover?.close()  // `close()` skips the delegate; only our own closes get through
+            popover = nil
+            shown = nil
+            wanted = nil
+        }
+
+        func popoverShouldClose(_ popover: NSPopover) -> Bool { false }
+
+        /// The anchor view is not flipped: `.maxY` is its top edge.
+        private static func rectEdge(_ edge: Edge) -> NSRectEdge {
+            switch edge {
+            case .leading: .minX
+            case .trailing: .maxX
+            case .top: .maxY
+            case .bottom: .minY
+            }
         }
     }
 }

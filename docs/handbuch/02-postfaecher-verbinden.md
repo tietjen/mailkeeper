@@ -9,7 +9,10 @@ Dieses Kapitel zeigt für jede Art, was zu tun ist — und was MailKeeper dabei 
 > nur, wenn du eine Aktion startest — und dann über eine eigene, enge Verbindung
 > ([Kapitel 7](07-aufraeumen.md)).
 
-Konten verwaltest du unter **Einstellungen › Konten**. Jedes Konto hat ein **Kürzel**
+Konten verwaltest du unter **Einstellungen › Konten** — beim ersten Start auch in der
+**Einrichtung** (Seite „Postfächer verbinden“, wieder zu holen über **Hilfe › Einrichtung …**).
+Ein Konto gehört zu dem Archiv, das gerade offen ist; ohne Archiv lässt sich keines anlegen.
+Jedes Konto hat ein **Kürzel**
 (Kleinbuchstaben, Ziffern, `-` und `_`, höchstens 40 Zeichen), das im Archiv die Ordner benennt — es lässt sich
 später nicht ändern, also wähle es mit Bedacht: `gmail-privat`, `arbeit`, `proton`.
 
@@ -108,7 +111,22 @@ mkctl --archive ~/MailKeeperArchive import eml ~/Desktop/Einzelmails --account s
 Importierte Mails haben keinen Serverort. Im Leser steht **„nur im Archiv“**, und
 Server-Aktionen lassen sie in Ruhe.
 
-## Mehrere Konten, ein Postfach
+## Mehrere Konten in einem Archiv
+
+Ein Archiv nimmt beliebig viele Konten auf — privat, Arbeit, das alte Postfach beim Provider.
+Dafür legst du einfach noch eines an (**+**). Dann gilt:
+
+- **Abrufen** holt von allen Konten des Archivs, eines nach dem anderen.
+- In der **Seitenleiste** steht jedes Konto als eigener Abschnitt: oben **Alle Ordner** (alle
+  Mails dieses Kontos), darunter seine Ordner. **Alle Nachrichten** ganz oben zeigt alle Konten
+  zusammen.
+- **Zwischen Konten wechseln** heißt also: in der Seitenleiste auf „Alle Ordner“ oder einen
+  Ordner des anderen Kontos klicken. In der Suche geht dasselbe mit `konto:arbeit`.
+
+Ein **zweites Archiv** brauchst du nur, wenn du Mails wirklich getrennt halten willst — eigener
+Ordner, eigenes Backup, eigene KI-Einstellungen ([Kapitel 1](01-archiv-einrichten.md#mehrere-archive)).
+
+## Mehrere Archive, ein Postfach
 
 Dasselbe Postfach in zwei Archiven ist in Ordnung — beide teilen sich den
 Schlüsselbund-Eintrag. Entfernst du ein Konto und wählst „Passwort behalten“, bleibt der Eintrag

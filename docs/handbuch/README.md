@@ -16,8 +16,12 @@ In der Reihenfolge, in der man es braucht. Die ersten drei Kapitel reichen, um l
 | 10 | [Die Kommandozeile `mkctl`](10-kommandozeile.md) | Skripte, große Importe, nächtliche Läufe |
 
 **In der App:** **⌘?** öffnet die Hilfe im Programm — dieselben Themen in Kurzform und
-durchsuchbar, mit einem Link hierher. Den Rundgang vom ersten Start holst du über
-**Hilfe › Einführung zeigen** zurück.
+durchsuchbar, mit einem Link hierher. Einrichtung und Rundgang vom ersten Start holst du über
+**Hilfe › Einrichtung …** und **Hilfe › Rundgang zeigen** zurück.
+
+**Wie Server und Archiv zusammenhängen** — was beim Abrufen wohin geht und was das Archiv macht,
+wenn du auf dem Server löschst oder verschiebst — steht in
+[Kapitel 3](03-abrufen-und-suchen.md#was-sich-auf-dem-server-ändert--und-was-das-archiv-daraus-macht).
 
 **Zum Nachschlagen:** [Funktionsreferenz](../funktionen.md) — jede Funktion mit ihren Grenzen.
 

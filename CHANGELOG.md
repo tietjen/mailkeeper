@@ -3,6 +3,22 @@
 Diese Datei hält fest, was sich für Benutzerinnen und Benutzer ändert. Die Entscheidungen
 dahinter stehen in [docs/adr/](docs/adr/).
 
+## [Unveröffentlicht]
+
+- **Erster Start:** MailKeeper legt kein Archiv mehr von sich aus an. Eine **Einrichtung** in drei
+  Schritten erklärt, wie Server und Archiv zusammenhängen, legt das Archiv an (Standard-Ort,
+  eigener Ordner oder vorhandenes) und verbindet ein oder mehrere Postfächer. Danach folgt der
+  **Rundgang** durchs Fenster; beides gibt es unter *Hilfe › Einrichtung …* und
+  *Hilfe › Rundgang zeigen*.
+- **Rundgang:** Eine Karte bleibt stehen, bis du sie mit ihren Knöpfen weiterschaltest — sie
+  verschwindet nicht mehr, wenn MailKeeper den Fokus verliert.
+- **Leere Zustände** sagen, was zu tun ist: „Noch kein Archiv“, „… ist noch leer“ mit
+  *Konto hinzufügen …*, „Noch nichts abgerufen“ mit *Jetzt abrufen*.
+- **Seitenleiste:** je Konto „Alle Ordner“ — die Mails eines Kontos mit einem Klick.
+- **Einstellungen › Konten** nennt das Archiv, zu dem die Konten gehören.
+- **Hilfe und Handbuch:** neues Kapitel „Server und Archiv“ — was beim Löschen, Verschieben und
+  Umbenennen auf dem Server mit dem Archiv passiert.
+
 ## [0.1.0] — 2026-11-04
 
 Erste Fassung, als Vorabversion.
