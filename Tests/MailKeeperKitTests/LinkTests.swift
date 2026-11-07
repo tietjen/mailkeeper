@@ -26,7 +26,7 @@ struct LinkTests {
         #expect(links.first?.text == "www.bank.example")
         let hostile = String(repeating: "<a href=\"x", count: 20_000) + String(repeating: "<a href=x>", count: 20_000)
         let t = ContinuousClock().measure { _ = LinkExtractor.links(html: hostile, text: "") }
-        #expect(t < .seconds(2))
+        #expect(t < TimeBudget.linear(.seconds(2)))
     }
 
     @Test("Review 5.9 B1: an href inside another attribute's value is no target")
@@ -60,7 +60,7 @@ struct LinkTests {
         for hostile in [String(repeating: "<a ", count: 350_000), String(repeating: "<a title='", count: 100_000),
                         String(repeating: "<b x=", count: 200_000)] {
             let t = ContinuousClock().measure { _ = LinkExtractor.links(html: hostile, text: "") }
-            #expect(t < .milliseconds(300), "\(hostile.prefix(12))")
+            #expect(t < TimeBudget.linear(.milliseconds(300)), "\(hostile.prefix(12))")
         }
     }
 }

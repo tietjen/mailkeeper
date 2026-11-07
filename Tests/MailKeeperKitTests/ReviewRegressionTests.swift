@@ -9,23 +9,23 @@ struct ReviewRegressionTests {
         let subject = String(repeating: "=?a?B?z", count: 20_000)  // 140 KB, no "?=" anywhere
         let clock = ContinuousClock()
         let elapsed = clock.measure { _ = MIMEParser.parse(eml("Subject: \(subject)\n\nx")) }
-        #expect(elapsed < .seconds(1))
+        #expect(elapsed < TimeBudget.linear(.seconds(1)))
         let withClose = String(repeating: "=?a?B?z", count: 20_000) + "?="  // one late close
         let elapsed2 = clock.measure { _ = EncodedWords.decode(withClose) }
-        #expect(elapsed2 < .seconds(2))
+        #expect(elapsed2 < TimeBudget.linear(.seconds(2)))
     }
 
     @Test("N2/N3: long headers are linear, long valid words still decode") func longHeaders() {
         let clock = ContinuousClock()
         let literal = "=?" + String(repeating: "x", count: 1_000_000) + "?="
-        #expect(clock.measure { _ = EncodedWords.decode(literal) } < .seconds(1))
+        #expect(clock.measure { _ = EncodedWords.decode(literal) } < TimeBudget.linear(.seconds(1)))
         let lateClose = String(repeating: "=?a?B?z", count: 150_000) + "?="
-        #expect(clock.measure { _ = EncodedWords.decode(lateClose) } < .seconds(1))
+        #expect(clock.measure { _ = EncodedWords.decode(lateClose) } < TimeBudget.linear(.seconds(1)))
         let umlauts = String(repeating: "Ü", count: 200)
         let word = "=?utf-8?B?\(Data(umlauts.utf8).base64EncodedString())?="
         #expect(EncodedWords.decode(word) == umlauts)
         let entities = String(repeating: "&amp;", count: 800_000)
-        #expect(clock.measure { _ = HTMLText.toText(entities) } < .seconds(2))
+        #expect(clock.measure { _ = HTMLText.toText(entities) } < TimeBudget.linear(.seconds(2)))
     }
 
     @Test("N4: short Content-IDs keep inline images") func shortContentID() {
