@@ -83,11 +83,16 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       # A keychain of its own, deleted again at the end — the runner is shared.
+      # The step checks that the .p12 holds the identity release.sh signs with. Without that
+      # check a wrong certificate (an "Apple Development" one, 2026-11-06) only shows up
+      # eleven minutes later, when codesign finds no identity.
       - name: Signierschlüssel einrichten
         env:
           P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
           P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
         run: |
+          IDENTITY=$(sed -n 's/^IDENTITY="\(.*\)"$/\1/p' Scripts/release.sh)
+          [ -n "$IDENTITY" ] || { echo "::error::IDENTITY nicht in Scripts/release.sh gefunden"; exit 1; }
           KEYCHAIN=$RUNNER_TEMP/build.keychain
           PASSWORD=$(uuidgen)
           security create-keychain -p "$PASSWORD" "$KEYCHAIN"
@@ -95,11 +100,20 @@ jobs:
           security unlock-keychain -p "$PASSWORD" "$KEYCHAIN"
           echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
           security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" \
-                          -T /usr/bin/codesign -T /usr/bin/security
+                          -T /usr/bin/codesign -T /usr/bin/security || {
+            rm -f "$RUNNER_TEMP/cert.p12"
+            echo "::error::Import der .p12 fehlgeschlagen. Bei „MAC verification failed“ passen MACOS_CERTIFICATE_P12 und MACOS_CERTIFICATE_PASSWORD nicht zusammen."
+            exit 1
+          }
           rm -f "$RUNNER_TEMP/cert.p12"
           security set-key-partition-list -S apple-tool:,apple: -s -k "$PASSWORD" "$KEYCHAIN" >/dev/null
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
-          security find-identity -v -p codesigning "$KEYCHAIN"
+          FOUND=$(security find-identity -v -p codesigning "$KEYCHAIN")
+          echo "$FOUND"
+          if ! grep -qF "\"$IDENTITY\"" <<< "$FOUND"; then
+            echo "::error::Die .p12 in MACOS_CERTIFICATE_P12 enthält nicht „$IDENTITY“. Gebraucht wird das Developer-ID-Application-Zertifikat samt privatem Schlüssel."
+            exit 1
+          fi
 
       - name: Bauen, notarisieren, signieren
         env:

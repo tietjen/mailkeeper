@@ -56,6 +56,6 @@ struct QuoteTests {
         let long = String(repeating: "Von: x\n", count: 50_000) + String(repeating: "> q\n", count: 50_000)
         let start = ContinuousClock.now
         _ = QuotedText.newPart(of: long)
-        #expect(ContinuousClock.now - start < .seconds(2))
+        #expect(ContinuousClock.now - start < TimeBudget.linear(.seconds(2)))
     }
 }
