@@ -1319,11 +1319,22 @@
       }
     },
     "Abgerufen wird nur lesend: MailKeeper verändert auf dem Server nichts. Passwörter liegen im Schlüsselbund, nicht im Archiv.": {
+      "extractionState": "stale",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Fetching is read-only: MailKeeper changes nothing on the server. Passwords live in the keychain, not in the archive."
+          }
+        }
+      }
+    },
+    "Abgerufen wird nur lesend: MailKeeper verändert auf dem Server nichts. Was dort gelöscht oder verschoben wird, bleibt im Archiv. Passwörter liegen im Schlüsselbund, nicht im Archiv.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetching is read-only: MailKeeper changes nothing on the server. Whatever is deleted or moved there stays in the archive. Passwords live in the keychain, not in the archive."
           }
         }
       }
@@ -1602,12 +1613,72 @@
         }
       }
     },
+    "Abrufen holt die Mails aller Konten dieses Archivs, nur lesend. Der erste Abruf lädt alles und kann dauern; danach kommt nur Neues.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetch brings in the mail of every account in this archive, read-only. The first fetch loads everything and can take a while; after that only new mail comes in."
+          }
+        }
+      }
+    },
+    "Abrufen kopiert neue Mails vom Server ins Archiv. Auf dem Server ändert sich dabei nichts – nicht einmal das Gelesen-Zeichen.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetching copies new mail from the server into the archive. Nothing changes on the server — not even the read mark."
+          }
+        }
+      }
+    },
+    "Abrufen kopiert vom Server ins Archiv, nie umgekehrt: Neue Mails kommen dazu, Gelesen- und Markiert-Zeichen und Gmail-Labels werden übernommen.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetching copies from the server into the archive, never the other way round: new mail is added, read and flagged marks and Gmail labels are taken over."
+          }
+        }
+      }
+    },
     "Abrufen und Suchen": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Fetching and searching"
+          }
+        }
+      }
+    },
+    "Abrufen und fertig": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetch and Finish"
+          }
+        }
+      }
+    },
+    "Abrufen und weiter": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetch and Continue"
+          }
+        }
+      }
+    },
+    "Abrufen, nur lesend": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetch, read-only"
           }
         }
       }
@@ -1818,6 +1889,16 @@
         }
       }
     },
+    "Alle Mails dieses Kontos, aus allen Ordnern": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All mail of this account, from every folder"
+          }
+        }
+      }
+    },
     "Alle Mails in einer Datei (mboxrd) – zum Import in Apple Mail (Ablage › Postfächer importieren), Thunderbird oder wieder in MailKeeper.": {
       "localizations": {
         "en": {
@@ -1844,6 +1925,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "All messages"
+          }
+        }
+      }
+    },
+    "Alle Ordner": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Folders"
           }
         }
       }
@@ -1919,6 +2010,7 @@
       }
     },
     "Alles Weitere steht in der Hilfe (⌘?) und im Handbuch. Diesen Rundgang findest du im Hilfemenü unter „Einführung zeigen“ wieder.": {
+      "extractionState": "stale",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -2009,6 +2101,7 @@
       }
     },
     "Als Nächstes: ein Postfach": {
+      "extractionState": "stale",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -2040,6 +2133,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "%2$@ from the newsletter on %1$@ %3$@. Further newsletters from here are unwanted."
+          }
+        }
+      }
+    },
+    "Am Standard-Ort anlegen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create in the Standard Location"
           }
         }
       }
@@ -2076,6 +2179,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "On this day"
+          }
+        }
+      }
+    },
+    "Anderes Archiv anlegen …": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create Another Archive…"
           }
         }
       }
@@ -2608,6 +2721,16 @@
         }
       }
     },
+    "Auf dem Server gelöscht: Die Mail bleibt im Archiv. „Ort“ sagt dann „Nur im Archiv – auf dem Server gelöscht“.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleted on the server: the mail stays in the archive. “Place” then says “Only in the archive – deleted on the server”."
+          }
+        }
+      }
+    },
     "Auf dem Server in den Spam-Ordner verschieben; das Archiv merkt sich deine Entscheidung": {
       "localizations": {
         "en": {
@@ -2654,6 +2777,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Delete on the Server…"
+          }
+        }
+      }
+    },
+    "Auf dem Server verschoben: Die Mail kommt im neuen Ordner dazu und bleibt im alten stehen – gespeichert ist sie nur einmal. Wo sie jetzt auf dem Server liegt, sagt „Ort“; mit „Ablage ändern …“ führst du sie im Archiv nur noch dort, wo du willst. Ein umbenannter Ordner wirkt genauso.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moved on the server: the mail is added in the new folder and stays in the old one — it is stored only once. “Place” tells where it lies on the server now; with “Change where it is filed…” the archive keeps it only where you want it. A renamed folder works the same way."
           }
         }
       }
@@ -3322,12 +3455,42 @@
         }
       }
     },
+    "Das Archiv ist nicht geöffnet – seine Konten erscheinen, sobald es wieder erreichbar ist.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The archive is not open — its accounts appear as soon as it can be reached again."
+          }
+        }
+      }
+    },
     "Das Archiv ist nicht verschlüsselt: Die Mails liegen als gewöhnliche .eml-Dateien da, damit sie ohne MailKeeper lesbar bleiben. Die Verschlüsselung kommt von FileVault — liegt das Archiv auf einem unverschlüsselten Laufwerk, sagt die Statusleiste das.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "The archive is not encrypted: the mail sits there as ordinary .eml files, so that it stays readable without MailKeeper. Encryption comes from FileVault — if the archive is on an unencrypted drive, the status bar says so."
+          }
+        }
+      }
+    },
+    "Das Archiv vergisst nichts. Löschst du eine Mail auf dem Server, bleibt sie im Archiv („Nur im Archiv“). Verschiebst du sie, steht sie im Archiv danach im alten und im neuen Ordner – gespeichert nur einmal.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The archive forgets nothing. Delete a mail on the server and it stays in the archive (“Only in the archive”). Move it, and the archive then has it in the old and the new folder — stored only once."
+          }
+        }
+      }
+    },
+    "Das Archiv wechselst du mit einem Klick auf den Fenstertitel. Was beim Löschen und Verschieben auf dem Server mit dem Archiv passiert, steht in der Hilfe (⌘?) unter „Server und Archiv“. Rundgang und Einrichtung findest du im Hilfemenü wieder.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click the window title to switch archives. What deleting and moving on the server does to the archive is in the help (⌘?) under “Server and archive”. The tour and the setup are in the Help menu."
           }
         }
       }
@@ -3428,6 +3591,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Of those, still on a server"
+          }
+        }
+      }
+    },
+    "Dein Archiv": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your archive"
           }
         }
       }
@@ -3554,6 +3727,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Empty the archive's trash (%lld mails)"
+          }
+        }
+      }
+    },
+    "Den Server ändert MailKeeper nur auf deinen Befehl: Auf dem Server löschen, Zurückspielen, Ablage auch auf dem Server, „Kein Spam“ und „Ist Spam“ – immer erst nach einem Plan, den du bestätigst.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MailKeeper changes the server only on your command: delete on the server, put back, filing on the server too, “Not Spam” and “Is Spam” — always after a plan you confirm."
+          }
+        }
+      }
+    },
+    "Den Server ändert MailKeeper nur, wenn du es verlangst: Löschen, Zurückspielen, Verschieben – und immer erst nach einem Plan, den du bestätigst.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MailKeeper changes the server only when you ask it to: deleting, putting back, moving — and always after a plan you confirm."
           }
         }
       }
@@ -3694,6 +3887,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "The conversation in a few sentences: who wanted what, what is decided, what is open (⌥⇧⌘S)"
+          }
+        }
+      }
+    },
+    "Der erste Abruf läuft": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The first fetch is running"
           }
         }
       }
@@ -3844,6 +4047,16 @@
         }
       }
     },
+    "Die Einrichtung schließen. Du findest sie unter Hilfe › Einrichtung …": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close the setup. You find it again under Help › Setup…"
+          }
+        }
+      }
+    },
     "Die KI": {
       "localizations": {
         "en": {
@@ -3920,6 +4133,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "The AI checks mail in the spam folder – your own decisions stay"
+          }
+        }
+      }
+    },
+    "Die Konten werden im Archiv gespeichert – leg zuerst eines an.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accounts are stored in the archive — create one first."
           }
         }
       }
@@ -4006,6 +4229,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "The mail of the selected view. “View” in the toolbar turns it into a grouping by sender, domain or list — that is how a full mailbox gets cleared out, instead of one mail at a time."
+          }
+        }
+      }
+    },
+    "Die Mails erscheinen hier, sobald der Abruf sie geholt hat. Den Fortschritt zeigt die Statusleiste unten.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The mail appears here as soon as the fetch has brought it in. The status bar at the bottom shows the progress."
           }
         }
       }
@@ -4420,12 +4653,62 @@
         }
       }
     },
+    "Ein Archiv ist ein Ordner auf diesem Mac. Darin liegen die Mails, der Suchindex und die Konten, die in dieses Archiv abrufen. Du kannst mehrere Archive haben – etwa privat und Arbeit –, jedes mit eigenen Konten.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An archive is a folder on this Mac. It holds the mail, the search index and the accounts that fetch into it. You can have several archives — personal and work, say — each with its own accounts."
+          }
+        }
+      }
+    },
+    "Ein Archiv ist ein Ordner auf diesem Mac. Darin liegen die Mails, der Suchindex und die Konten. Du kannst mehrere Archive haben, jedes mit eigenen Konten; der Fenstertitel zeigt, in welchem du bist, ein Klick darauf wechselt.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An archive is a folder on this Mac. It holds the mail, the search index and the accounts. You can have several archives, each with its own accounts; the window title shows which one you are in, and a click on it switches."
+          }
+        }
+      }
+    },
+    "Ein Archiv nimmt beliebig viele Konten auf. Die Konten gehören zum Archiv, das gerade offen ist – ein anderes Archiv hat seine eigenen. Hilfe › Einrichtung … führt Schritt für Schritt durch Archiv und Konten.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An archive takes any number of accounts. The accounts belong to the archive that is open — another archive has its own. Help › Setup… walks you through archive and accounts step by step."
+          }
+        }
+      }
+    },
     "Ein Klick auf einen Spaltenkopf sortiert die Treffer nach dieser Spalte": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "A click on a column header sorts the results by that column"
+          }
+        }
+      }
+    },
+    "Ein Konto ist ein Postfach auf einem Mailserver. Ein Archiv nimmt beliebig viele auf. In der Seitenleiste steht jedes mit seinen Ordnern; „Alle Ordner“ zeigt nur dieses Konto, „Alle Nachrichten“ alle zusammen. Abrufen holt von allen Konten des Archivs.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An account is a mailbox on a mail server. An archive takes any number of them. The sidebar lists each with its folders; “All Folders” shows only that account, “All messages” all of them together. Fetch brings in mail from every account of the archive."
+          }
+        }
+      }
+    },
+    "Ein Konto zu entfernen löscht keine Mails: Was abgerufen ist, bleibt im Archiv; es wird nur nicht mehr abgerufen.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removing an account deletes no mail: what has been fetched stays in the archive; it is just not fetched any more."
           }
         }
       }
@@ -4450,6 +4733,16 @@
         }
       }
     },
+    "Ein Ordner, in dem schon ein MailKeeper-Archiv liegt.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A folder that already holds a MailKeeper archive."
+          }
+        }
+      }
+    },
     "Ein Tippfehler in einem Feldwert bricht die Suche ab, statt mehr zu finden. Auf einer Treffermenge wird manchmal gelöscht — sie darf durch einen Vertipper nie größer werden.": {
       "localizations": {
         "en": {
@@ -4466,6 +4759,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "A word you use, for example “work = the Proton account”"
+          }
+        }
+      }
+    },
+    "Ein leerer Ordner deiner Wahl – etwa auf einem verschlüsselten Laufwerk oder dort, wo dein Backup hinschaut. Nötig, wenn du auch mkctl benutzen willst.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An empty folder of your choice — on an encrypted drive, say, or where your backup looks. Needed if you also want to use mkctl."
           }
         }
       }
@@ -4531,6 +4834,7 @@
       }
     },
     "Einführung zeigen": {
+      "extractionState": "stale",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -4556,6 +4860,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "Classify"
+          }
+        }
+      }
+    },
+    "Einrichtung": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setup"
+          }
+        }
+      }
+    },
+    "Einrichtung starten": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Setup"
+          }
+        }
+      }
+    },
+    "Einrichtung …": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setup…"
           }
         }
       }
@@ -4832,6 +5166,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Enter the address first – the key belongs to it."
+          }
+        }
+      }
+    },
+    "Erst ein Archiv anlegen oder öffnen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create or open an archive first"
+          }
+        }
+      }
+    },
+    "Erst ein Archiv anlegen: Hilfe › Einrichtung …": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create an archive first: Help › Setup…"
           }
         }
       }
@@ -5495,6 +5849,7 @@
       }
     },
     "Hier stehen alle Nachrichten, der Papierkorb, „Verdächtig“ — und, sobald du eines eingerichtet hast, jedes Konto mit seinen Ordnern. Gespeicherte Suchen landen als eigene Ansicht darüber.": {
+      "extractionState": "stale",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -5540,6 +5895,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Add"
+          }
+        }
+      }
+    },
+    "Holt die Mails aller Konten dieses Archivs, nur lesend. Der erste Abruf lädt alles und kann dauern.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetches the mail of every account in this archive, read-only. The first fetch loads everything and can take a while."
           }
         }
       }
@@ -5600,6 +5965,16 @@
         }
       }
     },
+    "Im Archiv gelöscht: Auf dem Server ändert sich nichts. Was noch auf einem Server liegt, lässt sich nicht aus dem Archiv löschen – es käme beim nächsten Abruf wieder; der Plan bietet an, es zuerst dort zu löschen. Der Papierkorb des Archivs hält 30 Tage, und endgültig Gelöschtes holt kein Abruf zurück.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleted in the archive: nothing changes on the server. Mail that still lies on a server cannot be deleted from the archive — the next fetch would bring it back; the plan offers to delete it there first. The archive's trash keeps mail for 30 days, and no fetch brings back what was deleted for good."
+          }
+        }
+      }
+    },
     "Im Finder zeigen": {
       "localizations": {
         "en": {
@@ -5616,6 +5991,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "In the background"
+          }
+        }
+      }
+    },
+    "Im Ordner der App unter ~/Library/Containers. Genügt zum Ausprobieren.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In the app's folder under ~/Library/Containers. Enough to try things out."
           }
         }
       }
@@ -5816,6 +6201,16 @@
         }
       }
     },
+    "In eigenem Ordner anlegen …": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create in a Folder of Your Own…"
+          }
+        }
+      }
+    },
     "In einen anderen Ordner …": {
       "localizations": {
         "en": {
@@ -5966,12 +6361,42 @@
         }
       }
     },
+    "Jedes Archiv hat eigene Konten. Das Archiv wechselst du über einen Klick auf den Fenstertitel oder Ablage › Archiv wechseln.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every archive has its own accounts. To switch archives, click the window title or use File › Switch Archive."
+          }
+        }
+      }
+    },
+    "Jedes Postfach ist ein Konto: Gmail, Proton Mail Bridge oder ein beliebiges IMAP-Postfach. Ein Archiv nimmt beliebig viele Konten auf – dafür brauchst du kein zweites Archiv.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every mailbox is an account: Gmail, Proton Mail Bridge or any IMAP mailbox. One archive takes any number of accounts — you do not need a second archive for that."
+          }
+        }
+      }
+    },
     "Jetzt abmelden": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Unsubscribe now"
+          }
+        }
+      }
+    },
+    "Jetzt abrufen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetch Now"
           }
         }
       }
@@ -6266,6 +6691,16 @@
         }
       }
     },
+    "Konten in „%@“": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accounts in “%@”"
+          }
+        }
+      }
+    },
     "Konto": {
       "localizations": {
         "en": {
@@ -6312,6 +6747,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Add account"
+          }
+        }
+      }
+    },
+    "Konto hinzufügen …": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Account…"
           }
         }
       }
@@ -6573,11 +7018,22 @@
       }
     },
     "Links die Seitenleiste: alle Nachrichten, deine gespeicherten Ansichten, der Papierkorb, die Spam-Prüfung und das Verdächtige — darunter je Konto seine Ordner.": {
+      "extractionState": "stale",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "On the left the sidebar: all messages, your saved views, the trash, the spam check and the suspicious — below that, each account with its folders."
+          }
+        }
+      }
+    },
+    "Links die Seitenleiste: alle Nachrichten, deine gespeicherten Ansichten, der Papierkorb, die Spam-Prüfung und das Verdächtige — darunter je Konto „Alle Ordner“ und seine einzelnen Ordner.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On the left the sidebar: all messages, your saved views, the trash, the spam check and the suspicious mail — below that, for each account, “All Folders” and its single folders."
           }
         }
       }
@@ -6773,6 +7229,7 @@
       }
     },
     "MailKeeper holt deine Mail in ein Archiv auf diesem Mac — durchsuchbar, aufräumbar, und lesbar auch ohne diese App. Ein kurzer Rundgang zeigt dir, wo was liegt.": {
+      "extractionState": "stale",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -6812,6 +7269,16 @@
         }
       }
     },
+    "MailKeeper legt deine Mails in einem Archiv ab – einem Ordner auf diesem Mac. Die Einrichtung legt eines an und verbindet deine Postfächer.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MailKeeper keeps your mail in an archive — a folder on this Mac. The setup creates one and connects your mailboxes."
+          }
+        }
+      }
+    },
     "MailKeeper lädt die Mails aus dem Archiv wieder auf den Server – mit ihrem Status (gelesen, beantwortet, markiert), bei Gmail mit den Labels. Vorher sucht es jede im Zielordner: Was dort schon liegt, kommt nicht doppelt. Danach holt es sie zur Kontrolle zurück. Ordner legt MailKeeper nicht an.": {
       "localizations": {
         "en": {
@@ -6832,12 +7299,32 @@
         }
       }
     },
+    "MailKeeper prüft die Verbindung, bevor es speichert. Passwörter liegen im Schlüsselbund, nicht im Archiv. In der Seitenleiste steht danach jedes Konto mit seinen Ordnern; „Alle Nachrichten“ zeigt alle zusammen. Später findest du die Konten unter Einstellungen › Konten.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MailKeeper checks the connection before it saves. Passwords live in the keychain, not in the archive. The sidebar then lists each account with its folders; “All messages” shows them all together. Later you find the accounts under Settings › Accounts."
+          }
+        }
+      }
+    },
     "MailKeeper schickt %@ die standardisierte Ein-Klick-Abmeldung (RFC 8058) – ohne Browser, ohne Cookies. Der Absender ist von deinem Server bestätigt.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "MailKeeper sends %@ the standard one-click unsubscribe (RFC 8058) – no browser, no cookies. The sender is confirmed by your own server."
+          }
+        }
+      }
+    },
+    "MailKeeper sichert deine Postfächer in ein Archiv auf diesem Mac – durchsuchbar, aufräumbar und lesbar auch ohne diese App.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MailKeeper keeps your mailboxes in an archive on this Mac — searchable, tidy, and readable even without this app."
           }
         }
       }
@@ -7080,6 +7567,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mail in which the AI sees or suspects phishing"
+          }
+        }
+      }
+    },
+    "Mailserver": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mail server"
           }
         }
       }
@@ -7714,12 +8211,42 @@
         }
       }
     },
+    "Noch kein Archiv": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No archive yet"
+          }
+        }
+      }
+    },
+    "Noch kein Archiv. Die Konten werden im Archiv gespeichert – leg zuerst eines an: Hilfe › Einrichtung … oder Ablage › Neues Archiv anlegen …": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No archive yet. Accounts are stored in the archive — create one first: Help › Setup… or File › Create New Archive…"
+          }
+        }
+      }
+    },
     "Noch keine Vektoren – die Embeddings laufen im Hintergrund (Statusleiste).": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "No vectors yet – the embeddings are running in the background (status bar)."
+          }
+        }
+      }
+    },
+    "Noch nichts abgerufen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing fetched yet"
           }
         }
       }
@@ -7860,6 +8387,16 @@
         }
       }
     },
+    "Oben „Alle Nachrichten“ aus allen Konten, darunter Papierkorb und „Verdächtig“. Dann jedes Konto mit seinen Ordnern – „Alle Ordner“ zeigt nur dieses Konto. Gespeicherte Suchen landen als eigene Ansicht darüber.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "At the top “All messages” from every account, below it the trash and “Suspicious”. Then each account with its folders — “All Folders” shows only that account. Saved searches appear as views of their own above."
+          }
+        }
+      }
+    },
     "Offen": {
       "localizations": {
         "en": {
@@ -7876,6 +8413,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Open (no rule, no AI yet)"
+          }
+        }
+      }
+    },
+    "Offen: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open: %@"
           }
         }
       }
@@ -7911,6 +8458,7 @@
       }
     },
     "Ohne Postfach bleibt es leer. Unter Einstellungen › Konten richtest du eines ein: IMAP, Gmail oder die Proton Mail Bridge. Ein vorhandenes Archiv liest Ablage › Importieren ein.": {
+      "extractionState": "stale",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -8319,6 +8867,7 @@
       }
     },
     "Rechts die geöffnete Mail. Zwei Zeilen lohnen den Blick: „Ort“ sagt, wo die Mail liegt, „Echtheit“, was der empfangende Mailserver über den Absender festgestellt hat.": {
+      "extractionState": "stale",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -8328,12 +8877,33 @@
         }
       }
     },
+    "Rechts die geöffnete Mail. „Ort“ sagt, ob sie noch auf dem Server liegt oder nur noch im Archiv, „Echtheit“, was der empfangende Mailserver über den Absender festgestellt hat.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On the right the open mail. “Place” says whether it still lies on the server or only in the archive, “Authenticity” what the receiving mail server found out about the sender."
+          }
+        }
+      }
+    },
     "Rechts oben Abrufen und Importieren, in der Mitte die Ansicht, daneben das Suchfeld. Abgerufen wird nur lesend — auf dem Server ändert MailKeeper nichts, solange du es nicht verlangst.": {
+      "extractionState": "stale",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Top right Fetch and Import, in the middle the view, next to it the search field. Fetching is read-only — MailKeeper changes nothing on the server unless you ask it to."
+          }
+        }
+      }
+    },
+    "Rechts oben Abrufen – es holt neue Mail aus allen Konten dieses Archivs, nur lesend – und Importieren für vorhandene Maildir-, mbox- oder .eml-Bestände. In der Mitte die Ansicht, daneben das Suchfeld.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Top right Fetch — it brings in new mail from every account of this archive, read-only — and Import for existing Maildir, mbox or .eml collections. In the middle the view, next to it the search field."
           }
         }
       }
@@ -8404,6 +8974,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Travel"
+          }
+        }
+      }
+    },
+    "Rundgang zeigen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Tour"
           }
         }
       }
@@ -8730,6 +9310,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Save"
+          }
+        }
+      }
+    },
+    "Später": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Later"
           }
         }
       }
@@ -9070,6 +9660,16 @@
         }
       }
     },
+    "Verbinde ein Postfach, dann kopiert „Abrufen“ seine Mails hierher. Oder lies vorhandene Mails ein: Maildir, mbox (auch Google Takeout) oder .eml.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect a mailbox, and “Fetch” copies its mail here. Or read in mail you already have: Maildir, mbox (Google Takeout too) or .eml."
+          }
+        }
+      }
+    },
     "Verbinden und prüfen": {
       "localizations": {
         "en": {
@@ -9356,6 +9956,16 @@
         }
       }
     },
+    "Vorhandenes Archiv öffnen …": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Existing Archive…"
+          }
+        }
+      }
+    },
     "Vorschau": {
       "localizations": {
         "en": {
@@ -9516,6 +10126,16 @@
         }
       }
     },
+    "Wechseln kannst du jederzeit: über einen Klick auf den Fenstertitel oder Ablage › Archiv wechseln. Die Mails liegen als gewöhnliche .eml-Dateien im Archiv – am besten auf einem verschlüsselten Laufwerk (FileVault) und im Backup.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can switch at any time: click the window title or use File › Switch Archive. The mail lies in the archive as ordinary .eml files — best on an encrypted drive (FileVault) and in your backup."
+          }
+        }
+      }
+    },
     "Weiter": {
       "localizations": {
         "en": {
@@ -9542,6 +10162,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "More suggestions: Settings › Rules"
+          }
+        }
+      }
+    },
+    "Weiteres Konto hinzufügen …": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Another Account…"
           }
         }
       }
@@ -9862,6 +10492,16 @@
         }
       }
     },
+    "Zurück zum Archiv": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back to the Archive"
+          }
+        }
+      }
+    },
     "Zurück, wo abgerufen bzw. importiert": {
       "localizations": {
         "en": {
@@ -10154,6 +10794,16 @@
         }
       }
     },
+    "dein Konto, z. B. Gmail": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "your account, e.g. Gmail"
+          }
+        }
+      }
+    },
     "deine Entscheidung": {
       "localizations": {
         "en": {
@@ -10246,6 +10896,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "you: not spam"
+          }
+        }
+      }
+    },
+    "ein Ordner auf diesem Mac": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a folder on this Mac"
           }
         }
       }
@@ -10786,6 +11446,16 @@
         }
       }
     },
+    "noch keines": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "none yet"
+          }
+        }
+      }
+    },
     "noch nicht eingeordnet": {
       "localizations": {
         "en": {
@@ -10802,6 +11472,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "still open"
+          }
+        }
+      }
+    },
+    "nur auf deinen Befehl, mit Plan": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "only on your command, with a plan"
           }
         }
       }
@@ -10862,6 +11542,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "sender:updates@linkedin.com"
+          }
+        }
+      }
+    },
+    "server archiv konto konten abrufen löschen verschieben ordner umbenennen nur im archiv ort entfernen mehrere archive wechseln einrichtung": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "server archive account accounts fetch delete move folder rename only in the archive place remove several archives switch setup"
           }
         }
       }
@@ -11328,6 +12018,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "“%@” is not empty. A new archive needs an empty folder."
+          }
+        }
+      }
+    },
+    "„%@“ ist noch leer": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” is still empty"
           }
         }
       }

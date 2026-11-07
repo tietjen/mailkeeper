@@ -4,6 +4,8 @@ import SwiftUI
 struct ContentView: View {
     @Bindable var model: AppModel
     let tour: IntroTour
+    let setup: SetupAssistant
+    @State private var addingAccount = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,6 +43,8 @@ struct ContentView: View {
                                     .help(model.archiveSwitchBlocked ? "Erst wenn die laufende Aktion fertig oder angehalten ist (× in der Statusleiste)" : "")
                             }
                             }
+                        } else if model.noArchiveYet {
+                            NoArchiveView(model: model) { openSetup() }
                         } else if let error = model.listError {
                             ContentUnavailableView {
                                 Label("Index nicht lesbar", systemImage: "exclamationmark.triangle")
@@ -55,6 +59,9 @@ struct ContentView: View {
                             } description: {
                                 Text(error)
                             }
+                        } else if model.hasArchive, (model.stats?.messages ?? 0) == 0, model.sidebarSelection == .all,
+                                  model.viewMode == .messages, model.searchText.allSatisfy(\.isWhitespace) {
+                            EmptyArchiveView(model: model) { addingAccount = true }
                         } else if model.viewMode != .messages ? model.groups.isEmpty : model.messageIDs.isEmpty {
                             let searching = !model.searchText.allSatisfy(\.isWhitespace)
                             let suspicious = model.sidebarSelection == .suspicious && model.viewMode == .messages
@@ -163,7 +170,9 @@ struct ContentView: View {
                     if model.syncRunning { ProgressView().controlSize(.small) } else { Label("Abrufen", systemImage: "arrow.down.circle") }
                 }
                 .disabled(model.syncRunning || model.importRunning || model.actionRunning || model.accountConfigs.isEmpty)
-                .help(model.accountConfigs.isEmpty ? "Erst ein Konto anlegen: Einstellungen › Konten"
+                .help(model.noArchiveYet ? "Erst ein Archiv anlegen: Hilfe › Einrichtung …"
+                      : !model.hasArchive ? "Das Archiv ist nicht geöffnet – seine Konten erscheinen, sobald es wieder erreichbar ist."
+                      : model.accountConfigs.isEmpty ? "Erst ein Konto anlegen: Einstellungen › Konten"
                       : model.actionRunning ? "Erst wenn die laufende Aktion fertig ist (oder mit × anhalten)"
                       : "Neue Mails von allen Konten abrufen (nur lesend)")
                 .introStep(.toolbar, tour, edge: .bottom)
@@ -176,10 +185,23 @@ struct ContentView: View {
                 } label: {
                     Label("Importieren", systemImage: "square.and.arrow.down")
                 }
+                .disabled(!model.hasArchive)
                 .help("Mails aus Maildir, mbox oder .eml-Dateien ins Archiv übernehmen")
             }
         }
-        .onAppear { tour.startIfWanted() }
+        .onAppear {
+            // first launch: the setup, then the tour; otherwise the tour if it is wanted
+            if !setup.startIfFirstLaunch(tourSeen: tour.wasSeen) { tour.startIfWanted() }
+        }
+        .sheet(isPresented: Binding(get: { setup.isShown }, set: { if !$0, setup.isShown { setup.close() } }),
+               onDismiss: {
+                   guard setup.takeTourFollows() else { return }
+                   // after the sheet has animated away, or the first popover opens beside it
+                   Task { try? await Task.sleep(for: .milliseconds(400)); tour.startIfWanted() }
+               }) {
+            SetupSheet(setup: setup, model: model)
+        }
+        .sheet(isPresented: $addingAccount) { AddAccountSheet(model: model) }
         .sheet(item: tour.sheet) { IntroCard(tour: tour, card: $0) }
         .sheet(item: $model.pendingPlan) { PlanSheet(model: model, plan: $0) }
         .sheet(item: $model.placing) { PlacementSheet(model: model, request: $0) }
@@ -202,6 +224,12 @@ struct ContentView: View {
         .sheet(isPresented: Binding(get: { model.importStatus != nil }, set: { if !$0 { model.dismissImportStatus() } })) {
             if let status = model.importStatus { ImportSheet(model: model, status: status) }
         }
+    }
+
+    /// The setup from the empty window: a running tour makes way for it.
+    private func openSetup() {
+        if tour.step != nil { tour.finish(seen: true) }
+        setup.start()
     }
 }
 
@@ -245,6 +273,11 @@ struct Sidebar: View {
             }
             ForEach(model.accounts, id: \.id) { account in
                 Section(account.name) {
+                    // the whole account in one click — switching between accounts (TJ)
+                    Label("Alle Ordner", systemImage: "tray.2")
+                        .badge(account.messageCount)
+                        .tag(SidebarItem.account(account.id))
+                        .help("Alle Mails dieses Kontos, aus allen Ordnern")
                     ForEach(account.mailboxes, id: \.self) { box in
                         Label(box.name, systemImage: icon(for: box.name))
                             .badge(box.count)

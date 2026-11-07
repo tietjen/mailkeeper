@@ -250,30 +250,81 @@ final class AppModel {
 
     // MARK: Archive location
 
+    /// What the app opens at launch.
+    enum InitialArchive: Equatable {
+        /// MAILKEEPER_ARCHIVE (development; only effective unsandboxed) — created if need be.
+        case environment(String)
+        /// The archive opened last, remembered as a security-scoped bookmark.
+        case remembered
+        /// The default location, because an archive already lies there.
+        case standard
+        /// Nothing yet: the setup or the empty window offers to create or open one.
+        case none
+    }
+
+    /// The first launch creates nothing (TJ): an app that is tried and thrown away leaves no
+    /// archive behind, and the setup asks where the mail should go. Only an archive that is
+    /// already at the default location (an older version made one there) opens by itself.
+    nonisolated static func initialArchive(environment: String?, hasBookmark: Bool, standardExists: Bool) -> InitialArchive {
+        if let environment, !environment.isEmpty { return .environment(environment) }
+        if hasBookmark { return .remembered }
+        return standardExists ? .standard : .none
+    }
+
     /// Default: inside the app container (sandboxed) or ~/Library/Application Support (unsandboxed,
     /// shared with mkctl). A user-chosen location is remembered as a security-scoped bookmark.
     private func openInitialArchive() {
-        // Development override (only effective unsandboxed): MAILKEEPER_ARCHIVE=/path
-        if let env = ProcessInfo.processInfo.environment["MAILKEEPER_ARCHIVE"], !env.isEmpty {
-            open(URL(fileURLWithPath: (env as NSString).expandingTildeInPath), create: true)
+        let bookmark = UserDefaults.standard.data(forKey: Self.bookmarkKey)
+        switch Self.initialArchive(environment: ProcessInfo.processInfo.environment["MAILKEEPER_ARCHIVE"],
+                                   hasBookmark: bookmark != nil,
+                                   standardExists: Self.holdsArchive(Self.defaultArchiveURL)) {
+        case .environment(let path):
+            open(URL(fileURLWithPath: (path as NSString).expandingTildeInPath), create: true)
+        case .remembered:
+            if let bookmark { openRemembered(bookmark) }
+        case .standard:
+            open(Self.defaultArchiveURL, create: false)
+        case .none:
+            break
+        }
+    }
+
+    private static func holdsArchive(_ url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: url.appending(path: "archive.json").path)
+    }
+
+    /// Whether an archive is open or being prepared — without one there is nothing to fetch
+    /// into, no accounts and no settings to keep.
+    var hasArchive: Bool { reader != nil || preparingArchive }
+
+    /// No archive and no failed attempt at one — the first launch (or the app's settings were
+    /// reset). The window offers the setup instead of an empty list.
+    var noArchiveYet: Bool { archiveRoot == nil && openError == nil && !preparingArchive }
+
+    /// The archive at the default location, created only when asked for — in the setup or from
+    /// the empty window. An archive already there is opened, not touched.
+    func createStandardArchive() {
+        guard !refuseSwitchWhileBusy() else { return }
+        let url = Self.defaultArchiveURL
+        guard !Self.holdsArchive(url) else { return openExisting(url) }
+        guard open(url, create: true) else { return }  // remembers it, for the next launch too
+        scopedURL?.stopAccessingSecurityScopedResource()  // the container needs no scope
+        scopedURL = nil
+    }
+
+    private func openRemembered(_ data: Data) {
+        var stale = false
+        guard let url = try? URL(resolvingBookmarkData: data, options: [.withSecurityScope], bookmarkDataIsStale: &stale) else {
+            // The chosen archive is unreachable (volume not mounted, folder gone). Do not fall
+            // back to another archive silently: imports would land in the wrong place.
+            openError = String(localized: "Das gewählte Archiv ist nicht erreichbar. Ist das Laufwerk angeschlossen?")
             return
         }
-        if let data = UserDefaults.standard.data(forKey: Self.bookmarkKey) {
-            var stale = false
-            guard let url = try? URL(resolvingBookmarkData: data, options: [.withSecurityScope], bookmarkDataIsStale: &stale) else {
-                // The chosen archive is unreachable (volume not mounted, folder gone). Do not fall
-                // back to another archive silently: imports would land in the wrong place.
-                openError = String(localized: "Das gewählte Archiv ist nicht erreichbar. Ist das Laufwerk angeschlossen?")
-                return
-            }
-            if url.startAccessingSecurityScopedResource() { scopedURL = url }
-            if stale, let fresh = try? url.bookmarkData(options: [.withSecurityScope]) {
-                UserDefaults.standard.set(fresh, forKey: Self.bookmarkKey)
-            }
-            open(url, create: false)
-            return
+        if url.startAccessingSecurityScopedResource() { scopedURL = url }
+        if stale, let fresh = try? url.bookmarkData(options: [.withSecurityScope]) {
+            UserDefaults.standard.set(fresh, forKey: Self.bookmarkKey)
         }
-        open(Self.defaultArchiveURL, create: true)
+        open(url, create: false)
     }
 
     static var defaultArchiveURL: URL {
@@ -457,6 +508,8 @@ final class AppModel {
                 openError = nil
                 preparingArchive = true
                 accounts = []
+                accountConfigs = []  // the previous archive's accounts are not this one's
+                passwordPresent = [:]
                 messageIDs = []
                 listGeneration += 1
                 Task { [weak self] in
@@ -491,6 +544,8 @@ final class AppModel {
             archiveRoot = url
             openError = "\(error)"
             accounts = []
+            accountConfigs = []
+            passwordPresent = [:]
             messageIDs = []
             listGeneration += 1
             return false

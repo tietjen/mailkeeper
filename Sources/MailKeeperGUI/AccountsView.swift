@@ -14,9 +14,24 @@ struct AccountsSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            // accounts belong to the archive (accounts.json in it): say which one (TJ)
+            if model.hasArchive {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Konten in „\(model.currentArchiveName)“").font(.headline)
+                    Text("Jedes Archiv hat eigene Konten. Das Archiv wechselst du über einen Klick auf den Fenstertitel oder Ablage › Archiv wechseln.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            } else if model.noArchiveYet {
+                Label("Noch kein Archiv. Die Konten werden im Archiv gespeichert – leg zuerst eines an: Hilfe › Einrichtung … oder Ablage › Neues Archiv anlegen …",
+                      systemImage: "archivebox")
+                    .font(.callout).foregroundStyle(.orange)
+            } else {
+                Label("Das Archiv ist nicht geöffnet – seine Konten erscheinen, sobald es wieder erreichbar ist.", systemImage: "archivebox")
+                    .font(.callout).foregroundStyle(.orange)
+            }
             List(model.accountConfigs, selection: $selection) { account in
                 HStack {
-                    Image(systemName: icon(account.kind)).frame(width: 20)
+                    Image(systemName: Self.icon(account.kind)).frame(width: 20)
                     VStack(alignment: .leading) {
                         Text(DisplayText.safe(account.displayName))
                         Text("\(DisplayText.safe(account.username)) · \(account.host):\(account.port)\(account.policy.include.map { " · nur " + $0.joined(separator: ", ") } ?? "")")
@@ -43,6 +58,7 @@ struct AccountsSettings: View {
             HStack {
                 Button { adding = true } label: { Image(systemName: "plus") }
                     .help("Konto hinzufügen")
+                    .disabled(model.reader == nil)
                 Button {
                     removing = model.accountConfigs.first { $0.id == selection }
                 } label: { Image(systemName: "minus") }
@@ -72,12 +88,12 @@ struct AccountsSettings: View {
             if let note = model.accountError {
                 Text(DisplayText.safe(note)).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
             }
-            Text("Abgerufen wird nur lesend: MailKeeper verändert auf dem Server nichts. Passwörter liegen im Schlüsselbund, nicht im Archiv.")
+            Text("Abgerufen wird nur lesend: MailKeeper verändert auf dem Server nichts. Was dort gelöscht oder verschoben wird, bleibt im Archiv. Passwörter liegen im Schlüsselbund, nicht im Archiv.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .padding(16)
-        .frame(width: 560, height: 380)
+        .frame(width: 560, height: 430)
         .sheet(isPresented: $adding) { AddAccountSheet(model: model) }
         .sheet(item: $signingIn) { account in GoogleSignInSheet(model: model, account: account) }
         .sheet(item: $toPassword) { account in UsePasswordSheet(model: model, account: account) }
@@ -99,7 +115,7 @@ struct AccountsSettings: View {
         }
     }
 
-    private func icon(_ kind: AccountConfig.Kind) -> String {
+    static func icon(_ kind: AccountConfig.Kind) -> String {
         switch kind {
         case .gmail: "envelope.badge"
         case .protonBridge: "lock.shield"

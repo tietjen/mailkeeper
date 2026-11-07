@@ -7,10 +7,11 @@ import SwiftUI
 struct MailKeeperApp: App {
     @State private var model = AppModel()
     @State private var tour = IntroTour()
+    @State private var setup = SetupAssistant()
 
     var body: some Scene {
         Window("MailKeeper", id: "main") {
-            ContentView(model: model, tour: tour)
+            ContentView(model: model, tour: tour, setup: setup)
                 .frame(minWidth: 900, minHeight: 520)
                 .task { await ContentRules.shared.compile() }
         }
@@ -52,6 +53,7 @@ struct MailKeeperApp: App {
                         Button(kind.title) { model.startImport(kind) }
                     }
                 }
+                .disabled(!model.hasArchive)
                 Divider()
                 Button("Auswahl exportieren …") { model.exportSelection() }
                     .keyboardShortcut("e", modifiers: [.command, .shift])
@@ -90,7 +92,7 @@ struct MailKeeperApp: App {
                     .keyboardShortcut("r", modifiers: [.command, .shift])
             }
             // The stock help item would open a help book that does not exist.
-            CommandGroup(replacing: .help) { HelpMenuItems(tour: tour) }
+            CommandGroup(replacing: .help) { HelpMenuItems(tour: tour, setup: setup) }
         }
     }
 }

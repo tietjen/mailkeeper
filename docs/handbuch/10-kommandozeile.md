@@ -19,7 +19,7 @@ Ohne beides: `~/Library/Application Support/MailKeeper/Archive`. Die Reihenfolge
 ist egal — `mkctl search rechnung --archive ~/X` geht auch.
 
 > **Achtung:** Das ist **nicht** das Standard-Archiv der App. Die läuft in einer Sandbox und legt
-> ihres in ihrem Container ab
+> ihres — wenn du in der Einrichtung „Am Standard-Ort anlegen“ wählst — in ihrem Container ab
 > (`~/Library/Containers/de.paranoidsecurity.MailKeeper/Data/Library/Application Support/…`).
 > Wer beide Wege nutzt, legt das Archiv an einen selbst gewählten Ort und gibt `--archive`
 > immer mit — sonst prüft `mkctl verify` ein leeres Archiv und meldet brav, dass alles in

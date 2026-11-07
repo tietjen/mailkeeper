@@ -4,19 +4,43 @@ Ein **Archiv** ist ein Ordner, in dem MailKeeper alles ablegt: die Mails selbst,
 und einen Suchindex. Du kannst mehrere Archive haben — eines für privat, eines für die Arbeit,
 eines auf einer externen Platte.
 
+## Der erste Start
+
+MailKeeper legt beim ersten Start **nichts** an — kein Archiv, keinen Ordner. Wer die App nur
+ausprobiert und wieder löscht, hat keine Mails irgendwo liegen. Stattdessen kommen nacheinander
+zwei Dinge:
+
+1. **Die Einrichtung** — drei Seiten:
+   - **So arbeitet MailKeeper:** Server und Archiv in einem Bild — Abrufen kopiert nur, das
+     Archiv vergisst nichts, den Server ändert MailKeeper nur auf deinen Befehl
+     ([Kapitel 3](03-abrufen-und-suchen.md#was-sich-auf-dem-server-ändert--und-was-das-archiv-daraus-macht)).
+   - **Dein Archiv:** hier entsteht das erste Archiv — am Standard-Ort, in einem Ordner deiner
+     Wahl oder durch Öffnen eines vorhandenen (siehe unten).
+   - **Postfächer verbinden:** ein Konto nach dem anderen, so viele du willst
+     ([Kapitel 2](02-postfaecher-verbinden.md)). Ist mindestens eines da, startet
+     **Abrufen und weiter** gleich den ersten Abruf.
+2. **Der Rundgang** — fünf Karten an den Teilen des Fensters: Seitenleiste, Liste, Leser,
+   Symbolleiste. Eine Karte bleibt stehen, bis du **Weiter**, **Überspringen** oder **Fertig**
+   klickst — auch wenn du zwischendurch in ein anderes Programm wechselst.
+
+Beides kannst du überspringen („Später“) und jederzeit wieder holen: **Hilfe › Einrichtung …**
+und **Hilfe › Rundgang zeigen**. Im selben Menü steht die Hilfe im Programm (**⌘?**) — die
+Kurzfassung dieses Handbuchs, durchsuchbar.
+
+Hast du die Einrichtung übersprungen, sagt das Fenster selbst, was fehlt: „Noch kein Archiv“
+mit **Einrichtung starten**, und in einem leeren Archiv **Konto hinzufügen …** oder
+**Jetzt abrufen**.
+
 ## Das erste Archiv
 
-Beim allerersten Start führt dich ein kurzer **Rundgang** durch das Fenster. Du kannst ihn
-überspringen; über **Hilfe › Einführung zeigen** kommt er zurück. Im selben Menü steht die
-Hilfe im Programm (**⌘?**) — die Kurzfassung dieses Handbuchs, durchsuchbar.
+Drei Wege, in der Einrichtung wie im Menü:
 
-Beim ersten Start legt MailKeeper ein **Standard-Archiv** in seinem eigenen Container an
-(`~/Library/Containers/de.paranoidsecurity.MailKeeper/Data/Library/Application Support/MailKeeper/Archive`).
-Das genügt zum Ausprobieren — wer auch mit `mkctl` arbeiten oder das Archiv gezielt sichern
-will, legt es besser an einem selbst gewählten Ort an:
-
-- **Ablage › Neues Archiv anlegen …** — der Ordner muss **leer** sein. („„…“ ist nicht leer. Ein
-  neues Archiv braucht einen leeren Ordner.“)
+- **Am Standard-Ort anlegen** — im Container der App
+  (`~/Library/Containers/de.paranoidsecurity.MailKeeper/Data/Library/Application Support/MailKeeper/Archive`).
+  Das genügt zum Ausprobieren. Der Fenstertitel heißt dann „Standard-Archiv“.
+- **In eigenem Ordner anlegen …** (in der Ablage: **Neues Archiv anlegen …**) — besser, wenn
+  du auch mit `mkctl` arbeiten oder das Archiv gezielt sichern willst. Der Ordner muss **leer**
+  sein. („„…“ ist nicht leer. Ein neues Archiv braucht einen leeren Ordner.“)
 - **Ablage › Archiv öffnen …** (⇧⌘O) für ein vorhandenes.
 - **Ablage › Archiv wechseln** listet alles, was du schon einmal geöffnet hast. Dasselbe Menü
   erreichst du über einen Klick auf den Fenstertitel.
@@ -104,6 +128,11 @@ zeigt die letzten Stationen.
 Jedes Archiv ist für sich: eigene Konten, eigene KI-Einstellungen, eigenes Gedächtnis. Was sich
 zwei Archive teilen, sind die **Zugangsdaten im Schlüsselbund** — dasselbe Postfach in zwei
 Archiven braucht das Passwort nur einmal.
+
+**Die Konten gehören zum Archiv.** Wechselst du das Archiv, wechselt die Seitenleiste auf dessen
+Konten, und **Einstellungen › Konten** zeigt oben, für welches Archiv die Liste gilt („Konten in
+„Standard-Archiv““). Für mehrere Postfächer brauchst du aber kein zweites Archiv: Ein Archiv
+nimmt beliebig viele Konten auf ([Kapitel 2](02-postfaecher-verbinden.md#mehrere-konten-in-einem-archiv)).
 
 Aus der Liste der bekannten Archive entfernst du einen Eintrag über **Archiv wechseln › Aus der
 Liste entfernen**. Der Ordner bleibt, wo er ist.

@@ -11,7 +11,8 @@ Flags abgeglichen, wie viele nicht mehr auf dem Server sind. **Abbrechen ist jed
 — der nächste Lauf macht dort weiter.
 
 Verschwundene Mails werden als *nicht mehr auf dem Server* vermerkt, **nicht gelöscht**. Sie
-bleiben im Archiv und in der Suche; im Leser steht dann „nur im Archiv“.
+bleiben im Archiv und in der Suche; im Leser steht dann „Nur im Archiv“. Was das im Einzelnen
+heißt, steht im nächsten Abschnitt.
 
 Auf der Kommandozeile dasselbe:
 
@@ -23,6 +24,35 @@ mkctl --archive ~/MailKeeperArchive sync gmail      # nur eines
 Nach jedem Abruf laufen die Einordnungsregeln über die neue Post, und ein kleiner Teil geht zur
 Prüfung an ein Modell (siehe [Kapitel 5](05-mails-einordnen.md) und
 [Kapitel 6](06-spam-und-phishing.md)).
+
+## Was sich auf dem Server ändert — und was das Archiv daraus macht
+
+Das Archiv ist **kein Spiegel** des Servers, sondern sein Gedächtnis. Abrufen kopiert vom Server
+ins Archiv, nie umgekehrt; was einmal im Archiv liegt, bleibt dort, bis *du* es dort löschst.
+
+| Auf dem Server … | Im Archiv nach dem nächsten Abruf |
+|---|---|
+| kommt eine Mail an | sie kommt dazu (außer in Spam und Papierkorb; Spam auf Wunsch je Konto) |
+| wird eine Mail gelesen, markiert, ein Gmail-Label geändert | wird übernommen |
+| wird eine Mail **gelöscht** | sie **bleibt**; im Leser „Ort: Nur im Archiv – auf dem Server gelöscht“ |
+| wird eine Mail in einen anderen Ordner **verschoben** | sie kommt im neuen Ordner dazu **und bleibt im alten stehen** — gespeichert nur einmal; „Ort“ nennt den neuen Ordner |
+| wird ein Ordner gelöscht oder umbenannt | die Mails bleiben unter dem alten Namen; unter dem neuen kommen sie dazu |
+
+Das Verschieben verdient einen zweiten Blick: Ordnest du auf dem Server um, steht eine Mail im
+Archiv danach in beiden Ordnern. Wo sie *jetzt* auf dem Server liegt, zeigt der Leser unter
+**„Ort“**; wo das Archiv sie führt, unter **„Ablage“**. Willst du sie im Archiv nur noch an
+einer Stelle sehen, legst du sie mit **Ablage ändern …** dorthin
+([Kapitel 7](07-aufraeumen.md)). Bei **Gmail** gibt es kein Verschieben — Ordner sind dort
+Labels, und es ändern sich nur die Labels der Mail.
+
+Umgekehrt:
+
+| Im Archiv … | Auf dem Server |
+|---|---|
+| Art, Ablage (ohne Server), Notizen ändern | nichts |
+| **Aus dem Archiv löschen** | nichts — und nur für Mails, die auf keinem Server mehr liegen (sonst kämen sie beim nächsten Abruf wieder; der Plan bietet an, sie zuerst dort zu löschen). 30 Tage Papierkorb; endgültig Gelöschtes holt kein Abruf zurück |
+| **Auf dem Server löschen**, **Zurückspielen**, **Ablage auch auf dem Server**, **Kein Spam** / **Ist Spam** | genau das — nach einem Plan, den du bestätigst |
+| ein **Konto entfernen** | nichts; die abgerufenen Mails bleiben im Archiv, es wird nur nicht mehr abgerufen |
 
 ## Suchen
 
