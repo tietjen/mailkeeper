@@ -225,6 +225,8 @@ struct GroupDetailView: View {
             Menu("Aufräumen …") {
                 Button("Auf dem Server löschen …") { model.planGroup(.serverDelete, group) }
                 Button("Aus dem Archiv löschen …") { model.planGroup(.archiveDelete, group) }
+                Divider()
+                Button("Komplett entfernen …") { model.planGroupRemoval(group) }
             }
             .fixedSize()
             .disabled(model.actionRunning)
@@ -335,7 +337,7 @@ struct CleanupOverviewView: View {
                 }
                 if s.archiveOnly > 0 {
                     Button("Aus dem Archiv löschen …") { model.planSuggestion(s, .archiveDelete) }
-                        .help("\(s.archiveOnly) Mails, die auf keinem Server mehr liegen, in den Papierkorb des Archivs – nach 30 Tagen endgültig weg; vorher kommt die Übersicht")
+                        .help("\(s.archiveOnly) Mails, die auf keinem Server mehr liegen, in den Papierkorb des Archivs; vorher kommt die Übersicht")
                 }
             }
             .controlSize(.small)

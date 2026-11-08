@@ -42,12 +42,13 @@ Gruppenliste eingrenzen:
 Immer nur einer ist aktiv; ein zweiter Klick hebt ihn auf. Daneben stehen **Vorschläge** und
 deine **Regeln** sowie die fünf größten Gruppen nach Speicherplatz.
 
-## Die vier Wege, eine Mail loszuwerden
+## Die fünf Wege, eine Mail loszuwerden
 
 | Weg | Was passiert | Umkehrbar? |
 |---|---|---|
 | **Auf dem Server löschen** | in den Papierkorb des Servers; Archiv behält sie | ja, über „Zurückspielen“ |
-| **Aus dem Archiv löschen** | in den Archiv-Papierkorb, nach 30 Tagen endgültig | 30 Tage lang |
+| **Aus dem Archiv löschen** | in den Archiv-Papierkorb, nach dessen Frist endgültig | solange sie im Papierkorb liegt |
+| **Komplett entfernen** | erst in den Papierkorb des Servers, dann in den Archiv-Papierkorb | solange sie im Archiv-Papierkorb liegt |
 | **Endgültig löschen** | sofort weg | **nein** |
 | **Abmelden** | keine neuen mehr | — |
 
@@ -74,16 +75,39 @@ Typische Übersprungen-Gründe: „erst seit weniger als N Tagen auf dem Server 
 
 ### Aus dem Archiv löschen
 
-⌘⌫ oder das Kontextmenü. Die Mails wandern in den **Papierkorb des Archivs** und werden nach 30
-Tagen endgültig gelöscht.
+⌘⌫ oder das Kontextmenü. Die Mails wandern in den **Papierkorb des Archivs** und werden nach
+dessen Frist endgültig gelöscht (Standard 30 Tage, siehe unten).
 
 Was **noch auf einem Server liegt, wird übersprungen** („liegt noch auf einem Server – erst dort
-löschen“). Der Plan bietet dafür direkt **„Zuerst auf dem Server löschen …“** an. Der Grund: Was
-beim nächsten Abruf wiederkäme, löscht man nicht sinnvoll aus dem Archiv.
+löschen“). Der Plan bietet dafür direkt **„Auch auf dem Server löschen …“** an: Das macht daraus
+*Komplett entfernen*. Der Grund: Was beim nächsten Abruf wiederkäme, löscht man nicht sinnvoll aus
+dem Archiv.
+
+### Komplett entfernen
+
+⌥⌘⌫, das Kontextmenü, bei mehreren ausgewählten Mails rechts, oder für eine Gruppe unter
+**Aufräumen …**. Ein Plan, zwei Schritte: Erst wandern die Mails in den Papierkorb ihres Servers
+— mit allem, was *Auf dem Server löschen* prüft, also auch der Schonfrist —, danach in den
+Papierkorb des Archivs. Mails, die schon nur im Archiv lagen, gehen gleich mit.
+
+Was der Server nicht hergibt (Schonfrist, markiert, Konto nicht erreichbar), bleibt **auf dem
+Server und im Archiv**; das Ergebnis sagt, wie viele. Ebenso eine Mail, die auf dem Server schon
+nicht mehr an ihrem Platz lag: Sie kann seit dem letzten Abruf in einen anderen Ordner gewandert
+sein, darum erst neu abrufen. Hältst du den Lauf an oder bricht er ab, bleibt der Archiv-Schritt
+aus, und die Meldung sagt das. „Fehlgeschlagene erneut versuchen …“ entfernt wieder komplett.
+
+### Der Papierkorb des Archivs
 
 Im Papierkorb (Seitenleiste) gibt es **Wiederherstellen**, **Endgültig löschen …** und
 **Papierkorb leeren …**. Die beiden letzten verlangen **Touch ID oder dein Passwort** — ohne
 beides geht es nicht.
+
+Oben in der Leiste steht unter **Automatisch leeren**, wann der Papierkorb von selbst leert:
+nach 7, 14, 30, 60, 90, 180 oder 365 Tagen, oder **nur von Hand**. Standard sind 30 Tage. Die
+Frist gehört zum Archiv (Datei `settings.json` darin): Ein anderes Archiv hat seine eigene. Löscht
+eine kürzere Frist sofort Mails, die schon länger im Papierkorb liegen, fragt MailKeeper vorher
+nach Touch ID oder deinem Passwort und löscht sie gleich danach. Ist die Datei da, aber nicht
+lesbar, leert der Papierkorb nur von Hand, bis du wieder eine Frist wählst; die Leiste sagt das.
 
 ### Zurückspielen
 

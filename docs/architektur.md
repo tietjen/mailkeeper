@@ -141,7 +141,7 @@ geholt) · die Mail ist älter als die **Schonfrist**, die im Plan-Blatt für di
 nicht geschützt. Gelöscht heißt: verschieben in den Papierkorb des Servers. Endgültig löschen
 ist eine eigene, ausdrückliche Entscheidung.
 
-**Im Archiv** landet Gelöschtes zuerst im Archiv-Papierkorb (30 Tage). Danach wird es wirklich
+**Im Archiv** landet Gelöschtes zuerst im Archiv-Papierkorb (Frist je Archiv, Standard 30 Tage). Danach wird es wirklich
 entfernt — und ein Blob nur dann, wenn keine Mail mehr darauf zeigt. Was noch auf einem Server
 liegt, kann nicht im Archiv-Papierkorb landen; was wieder auftaucht, verlässt ihn von selbst.
 

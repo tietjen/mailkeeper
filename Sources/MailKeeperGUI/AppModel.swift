@@ -68,6 +68,12 @@ struct PlannedAction: Identifiable {
     var alsoConfirm: [String] = []
     /// "Kein Spam" (6.8): each item's own folder as planned, kept while another target is chosen.
     var origins: [Int: RestoreTarget] = [:]
+    /// "Komplett entfernen": the archive trash for the same mails, run right after the server
+    /// delete. Stored only then — a server half that stops or fails leaves no archive half
+    /// waiting to be resumed on its own.
+    var followUp: ActionJob?
+
+    var removesEverywhere: Bool { followUp != nil }
 }
 
 /// Where "Kein Spam" sends the mails of a plan (6.8).
@@ -170,6 +176,12 @@ final class AppModel {
     var pendingExport: ExportRequest?
     var exportResult: ExportReport?
     var actionResult: ActionJob?
+    /// "Komplett entfernen": what the archive half did (shown with `actionResult`).
+    var actionFollowUp: ActionJob?
+    /// Days in the archive trash before it empties by itself; nil = only by hand. Per archive.
+    private(set) var trashDays: Int? = ArchiveSettings.defaultTrashDays
+    /// The archive's `settings.json` is there but unreadable: the trash then empties only by hand.
+    private(set) var trashSettingsUnreadable = false
     var actionError: String?
     private(set) var actionProgress: ActionRunProgress?
     private(set) var actionRunning = false
@@ -509,6 +521,8 @@ final class AppModel {
                 preparingArchive = true
                 accounts = []
                 accountConfigs = []  // the previous archive's accounts are not this one's
+                trashDays = ArchiveSettings.defaultTrashDays
+                trashSettingsUnreadable = false
                 passwordPresent = [:]
                 messageIDs = []
                 listGeneration += 1
@@ -545,6 +559,8 @@ final class AppModel {
             openError = "\(error)"
             accounts = []
             accountConfigs = []
+            trashDays = ArchiveSettings.defaultTrashDays
+            trashSettingsUnreadable = false
             passwordPresent = [:]
             messageIDs = []
             listGeneration += 1
@@ -1278,20 +1294,33 @@ final class AppModel {
         selectedMessageIDs.count > 1 ? Array(selectedMessageIDs) : (selectedMessageID.map { [$0] } ?? [])
     }
 
-    func planSelection(_ kind: ActionKind) {
+    func planSelection(_ kind: ActionKind, everywhere: Bool = false) {
         let ids = actionSelection
         guard !ids.isEmpty else { return }
         plan(kind, filter: MessageFilter(ids: ids), title: ids.count == 1 ? String(localized: "1 ausgewählte Mail")
-                                                                        : String(localized: "\(ids.count) ausgewählte Mails"))
+                                                                        : String(localized: "\(ids.count) ausgewählte Mails"),
+             everywhere: everywhere)
     }
 
-    func planGroup(_ kind: ActionKind, _ group: MessageGroup) {
+    func planGroup(_ kind: ActionKind, _ group: MessageGroup, everywhere: Bool = false) {
         guard var filter = lastFilter else { return }
         filter.also.append(group.query)
-        plan(kind, filter: filter, title: group.name ?? group.key)
+        plan(kind, filter: filter, title: group.name ?? group.key, everywhere: everywhere)
     }
 
-    func plan(_ kind: ActionKind, filter: MessageFilter, title: String, graceDays: Int = 30, restore: RestoreOptions = RestoreOptions()) {
+    /// "Komplett entfernen": on the server and in the archive in one plan (TJ) — the server
+    /// delete with all its checks, then the archive trash for what no server holds any more.
+    func planRemoval(filter: MessageFilter, title: String, graceDays: Int = 30) {
+        plan(.serverDelete, filter: filter, title: title, graceDays: graceDays, everywhere: true)
+    }
+
+    func planSelectionRemoval() { planSelection(.serverDelete, everywhere: true) }
+
+    func planGroupRemoval(_ group: MessageGroup) { planGroup(.serverDelete, group, everywhere: true) }
+
+    /// `everywhere` (server delete only): the archive trash follows for the same mails.
+    func plan(_ kind: ActionKind, filter: MessageFilter, title: String, graceDays: Int = 30, restore: RestoreOptions = RestoreOptions(),
+              everywhere: Bool = false) {
         guard let reader else { return }
         do {
             let planned: (ActionJob, ActionPlanSummary)
@@ -1304,7 +1333,13 @@ final class AppModel {
             case .export, .unsubscribe, .moveToFolder: return  // "Ablage ändern" plans with its target (PlacementSheet)
             }
             let examples = try reader.summaries(Array(try reader.messageIDs(filter).prefix(5)))
-            pendingPlan = PlannedAction(job: planned.0, summary: planned.1, filter: filter, examples: examples)
+            // planned now, with the server half: its items are these mails, whatever the search
+            // matches after the server half has moved them (a folder view would lose them)
+            var followUp: ActionJob?
+            if everywhere && kind == .serverDelete {
+                followUp = try reader.planArchiveDelete(filter, title: title, afterServerDelete: true).0
+            }
+            pendingPlan = PlannedAction(job: planned.0, summary: planned.1, filter: filter, examples: examples, followUp: followUp)
         } catch {
             actionError = "\(error)"
         }
@@ -1312,7 +1347,7 @@ final class AppModel {
 
     /// Plan sheet: another grace period, same selection.
     func replan(_ plan: PlannedAction, graceDays: Int) {
-        self.plan(plan.job.kind, filter: plan.filter, title: plan.job.title, graceDays: graceDays)
+        self.plan(plan.job.kind, filter: plan.filter, title: plan.job.title, graceDays: graceDays, everywhere: plan.removesEverywhere)
         pendingPlan?.id = plan.id  // same sheet, new numbers
     }
 
@@ -1446,32 +1481,52 @@ final class AppModel {
             let identities = plan.alsoConfirm
             withWriter { writer in for identity in identities { try await writer.confirmNotSpam(identity: identity) } }
         }
-        let job = plan.job, stored = plan.stored
+        let job = plan.job, stored = plan.stored, followUp = plan.followUp
         let accounts = accountConfigs, credentials = self.credentials, audit = self.audit
         actionRunning = true
-        actionProgress = ActionRunProgress(title: Self.actionTitle(job.kind), done: 0, total: job.open.count, failed: 0)
+        actionFollowUp = nil
+        actionProgress = ActionRunProgress(title: followUp != nil ? Self.removalTitle : Self.actionTitle(job.kind),
+                                           done: 0, total: job.open.count + (followUp?.open.count ?? 0), failed: 0)
         let indexing = pauseTextIndexing()
         actionTask = Task.detached { [weak self] in
             await indexing?.value  // the queue holds the writer until it has stopped
             var result: ActionJob?
+            var followUpResult: ActionJob?
             var problem: String?
             do {
                 let layout = try ArchiveLayout.open(at: root, create: false)
                 if !stored { try ActionStore(layout: layout).create(job) }
+                let extra = followUp?.open.count ?? 0
+                let serverRuns = job.open.count  // what the server half works through, for a steady total
                 result = try await Self.run(job.id, kind: job.kind, layout: layout, accounts: accounts, credentials: credentials,
                                             audit: audit) { done, total, failed in
-                    Task { @MainActor in self?.actionProgress?.done = done; self?.actionProgress?.total = total; self?.actionProgress?.failed = failed }
+                    Task { @MainActor in self?.actionProgress?.done = done; self?.actionProgress?.total = total + extra; self?.actionProgress?.failed = failed }
+                }
+                // the archive half only after a server half that ran to its end; what it could not
+                // take from a server stays there and in the archive (the writer checks each one)
+                if let followUp, let server = result, !server.cancelled {
+                    try Task.checkCancellation()
+                    let archiveHalf = followUp.archiveHalf(after: server)
+                    try ActionStore(layout: layout).create(archiveHalf)
+                    followUpResult = try await Self.run(archiveHalf.id, kind: .archiveDelete, layout: layout, accounts: accounts,
+                                                        credentials: credentials, audit: audit) { done, total, failed in
+                        Task { @MainActor in self?.actionProgress?.done = serverRuns + done; self?.actionProgress?.total = serverRuns + total }
+                    }
                 }
             } catch is CancellationError {
                 problem = String(localized: "Abgebrochen. Erledigtes bleibt erledigt; der Rest lässt sich fortsetzen.")
             } catch {
                 problem = "\(error)"
             }
+            if followUp != nil, followUpResult == nil, problem != nil {  // the archive half never ran
+                problem = (problem ?? "") + "\n\n" + String(localized: "Der Archiv-Schritt ist nicht gelaufen: Die Mails liegen weiter im Archiv. Was vom Server weg ist, nimmt danach „Aus dem Archiv löschen“.")
+            }
             await MainActor.run {
                 guard let self else { return }
                 self.actionRunning = false
                 self.actionProgress = nil
                 self.actionTask = nil
+                self.actionFollowUp = followUpResult
                 if let result { self.actionResult = result }
                 if let problem { self.actionError = problem }
                 self.refresh()
@@ -1522,7 +1577,9 @@ final class AppModel {
     func cancelAction() { actionTask?.cancel() }
 
     /// The failed items as a new job, through the plan sheet again.
-    func retryFailed(_ job: ActionJob) {
+    /// `followUp`: the archive half of a "Komplett entfernen" — the retry is one again, its archive
+    /// half the mails that half had to leave (the writer checks each again).
+    func retryFailed(_ job: ActionJob, followUp: ActionJob? = nil) {
         let failed = job.items.filter { $0.state == .failed }
         guard !failed.isEmpty else { return }
         let items = failed.enumerated().map { n, item -> ActionItem in
@@ -1534,9 +1591,23 @@ final class AppModel {
         }
         var retry = ActionJob(kind: job.kind, title: job.title, query: job.query, graceDays: job.graceDays, restore: job.restore, items: items)
         retry.title = String(localized: "\(job.title) – erneut")
+        var archiveHalf: ActionJob?
+        if let followUp, job.kind == .serverDelete {
+            let left = followUp.items.filter { $0.state == .skipped || $0.state == .failed }.enumerated().map { n, item -> ActionItem in
+                var i = item
+                i.id = n
+                i.state = .planned
+                i.reason = nil
+                return i
+            }
+            if !left.isEmpty {
+                archiveHalf = ActionJob(kind: .archiveDelete, title: retry.title, query: followUp.query, graceDays: nil, items: left)
+            }
+        }
         actionResult = nil
+        actionFollowUp = nil
         pendingPlan = PlannedAction(job: retry, summary: ActionPlanSummary(messages: items.count, archiveOnly: 0, perAccount: Self.perTarget(items)),
-                                    filter: MessageFilter(ids: []), examples: [])
+                                    filter: MessageFilter(ids: []), examples: [], followUp: archiveHalf)
     }
 
     /// Jobs a crash or quit interrupted (planned or claimed items left).
@@ -1559,6 +1630,8 @@ final class AppModel {
         try? ActionStore(layout: layout).cancel(job: job.id)
         reloadUnfinishedJobs()
     }
+
+    static let removalTitle = String(localized: "Komplett entfernen")
 
     static func actionTitle(_ kind: ActionKind) -> String {
         switch kind {
@@ -1588,6 +1661,35 @@ final class AppModel {
               let identities = try? reader.identities(of: actionSelection).filter(trashed.contains), !identities.isEmpty else { return }
         guard await authenticate(String(localized: "\(identities.count) Mails endgültig aus dem Archiv löschen")) else { return }
         withWriter { _ = try await $0.purge(identities) }
+    }
+
+    /// The trash view's period, saved in the archive. A shorter one that would purge mails at
+    /// once is a permanent delete like any other: Touch ID or the password first (ADR-0006).
+    func changeTrashDays(_ days: Int?) async {
+        guard days != trashDays || trashSettingsUnreadable, let root = archiveRoot, let reader else { return }
+        if let days {
+            // unknown is not "none": a count that fails asks like one that finds mails
+            let due: Int? = try? reader.trashedCount(olderThan: days)
+            if due != 0 {
+                let reason = due.map { String(localized: "Papierkorb-Frist \(TrashPeriod.label(days)): \($0) Mails liegen schon länger darin und werden endgültig gelöscht") }
+                    ?? String(localized: "Papierkorb-Frist \(TrashPeriod.label(days)): Mails, die schon länger darin liegen, werden endgültig gelöscht")
+                guard await authenticate(reason), archiveRoot == root else { return }  // not into an archive opened meanwhile
+            }
+        }
+        do {
+            let settings = ArchiveSettings(trashDays: days)
+            try ArchiveSettingsStore(layout: try ArchiveLayout.open(at: root, create: false)).save(settings)
+            trashDays = settings.trashDays
+            trashSettingsUnreadable = false
+        } catch {
+            actionError = "\(error)"
+            return
+        }
+        // now, as the prompt said — the background run may be busy for minutes; when MailKeeper is
+        // busy itself, that run purges with the new period once it is free
+        if let days, !actionRunning, !syncRunning, !importRunning {
+            if let problem = await writeNow({ _ = try await $0.purgeExpired(days: days) }) { actionError = problem }
+        }
     }
 
     func emptyTrash() async {
@@ -1907,7 +2009,8 @@ final class AppModel {
     func startTextIndexing() {
         guard let root = archiveRoot, let reader, textIndexTask == nil, !syncRunning, !importRunning, !actionRunning else { return }
         textStats = try? reader.attachmentTextStats()
-        let expired = (stats?.trashed ?? 0) > 0  // may hold mail older than 30 days to purge
+        let trashDays = self.trashDays
+        let expired = trashDays != nil && (stats?.trashed ?? 0) > 0  // may hold mail past the period to purge
         let rules = ((try? reader.heuristicPendingCount()) ?? 0) > 0  // categories by rule (5.4)
         let headers = ((try? reader.headerFieldsPending()) ?? 0) > 0  // authentication and delivery (6.3)
         let categoryRules = ((try? reader.rules()) ?? []).contains { !$0.action.isDestructive }  // the user's rules (6.5b)
@@ -1924,8 +2027,10 @@ final class AppModel {
         textIndexTask = Task.detached(priority: .utility) { [weak self] in
             do {
                 let writer = try ArchiveWriter(layout: try ArchiveLayout.open(at: root, create: false))
-                let purged = try await writer.purgeExpired(days: 30)  // archive trash: 30 days, then for good (ADR-0006)
-                if purged.messages > 0 || purged.backOnServer > 0 { await MainActor.run { self?.refresh() } }
+                if let trashDays {  // archive trash: the archive's period, then for good (ADR-0006)
+                    let purged = try await writer.purgeExpired(days: trashDays)
+                    if purged.messages > 0 || purged.backOnServer > 0 { await MainActor.run { self?.refresh() } }
+                }
                 if rules {  // fast: headers only, no message is read
                     while try await writer.classifyHeuristically() > 0 { try Task.checkCancellation() }
                     await MainActor.run { self?.contentGeneration += 1 }
@@ -1999,6 +2104,7 @@ final class AppModel {
         accountConfigs = (try? AccountStore(layout: layout).load()) ?? []
         passwordPresent = Dictionary(uniqueKeysWithValues: accountConfigs.map { ($0.id, credentials.hasCredential(for: $0)) })
         aiConfig = AIConfigStore(layout: layout).load()
+        (trashDays, trashSettingsUnreadable) = { let l = ArchiveSettingsStore(layout: layout).load(); return (l.settings.trashDays, l.unreadable) }()
         aiKeyStored = aiConfig.secretKey.map(credentials.secretExists) ?? false
         aiRouterCache = nil
     }

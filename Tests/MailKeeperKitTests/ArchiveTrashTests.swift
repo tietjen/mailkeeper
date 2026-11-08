@@ -158,7 +158,9 @@ struct ArchiveTrashTests {
         try await writer.trash([try Self.identity(r, "C")], time: trashedAt.timeIntervalSince1970)
         let detail = try #require(try r.detail(c))
         #expect(detail.place == .trash)
-        #expect(abs(detail.purgeDate()!.timeIntervalSince(trashedAt) - 30 * 86_400) < 1)
+        #expect(abs(detail.purgeDate(days: 30)!.timeIntervalSince(trashedAt) - 30 * 86_400) < 1)
+        #expect(detail.purgeDate(days: 7).map { abs($0.timeIntervalSince(trashedAt) - 7 * 86_400) < 1 } == true)
+        #expect(detail.purgeDate(days: nil) == nil)  // only by hand: no date
         // back on a server (moved there by the user): out of the trash, also after a rebuild
         _ = try await writer.ingest(sampleMessage(id: "<c@t.test>", subject: "C"),
                                     at: LocationInfo(account: "imap", mailbox: "INBOX", uidValidity: 9, uid: 50))

@@ -49,7 +49,7 @@ public enum MessagePlace: Sendable, Equatable {
     case serverAndArchive
     /// Only in the archive (imported, or deleted on the server).
     case archiveOnly
-    /// In the archive trash — on no server any more; purged after 30 days.
+    /// In the archive trash — on no server any more; purged after the archive's period.
     case trash
 }
 
@@ -92,8 +92,8 @@ public struct MessageDetail: Sendable {
         return locations.contains(where: \.isOnServer) ? .serverAndArchive : .archiveOnly
     }
 
-    /// When the trash purges it (ADR-0006: 30 days).
-    public func purgeDate(days: Int = 30) -> Date? { trashed?.addingTimeInterval(Double(days) * 86_400) }
+    /// When the trash purges it (`ArchiveSettings.trashDays`; nil = only by hand, so never by itself).
+    public func purgeDate(days: Int?) -> Date? { days.flatMap { d in trashed?.addingTimeInterval(Double(d) * 86_400) } }
 }
 
 public struct ArchiveStats: Sendable, Equatable {
@@ -311,6 +311,14 @@ public final class ArchiveReader {
     /// Identities of everything in the archive trash.
     public func trashedIdentities() throws -> [String] {
         try self.db.query("SELECT identity FROM messages WHERE trashed IS NOT NULL") { $0.text(0) ?? "" }
+    }
+
+    /// Messages in the archive trash for longer than `days` — what a shorter period purges at once.
+    /// The same cutoff as `ArchiveWriter.purgeExpired`.
+    public func trashedCount(olderThan days: Int, now: Date = Date()) throws -> Int {
+        let cutoff = now.timeIntervalSince1970 - Double(days) * 86_400
+        return Int(try self.db.queryOne("SELECT count(*) FROM messages WHERE trashed IS NOT NULL AND trashed < ?",
+                                        [.double(cutoff)]) { $0.int(0) } ?? 0)
     }
 
     /// Number of messages matching a filter (sidebar badges of saved searches).

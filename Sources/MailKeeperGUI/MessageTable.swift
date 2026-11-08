@@ -202,6 +202,7 @@ struct MessageTable: NSViewRepresentable {
             } else {
                 add(menu, String(localized: "Auf dem Server löschen …"), #selector(deleteOnServer))
                 add(menu, String(localized: "Aus dem Archiv löschen …"), #selector(deleteFromArchive))
+                add(menu, String(localized: "Komplett entfernen …"), #selector(removeEverywhere))
                 menu.addItem(.separator())
                 add(menu, String(localized: "Auf den Server zurückspielen …"), #selector(restoreToServer))
                 add(menu, String(localized: "Exportieren …"), #selector(export))
@@ -240,6 +241,7 @@ struct MessageTable: NSViewRepresentable {
 
         @objc private func deleteOnServer() { model.planSelection(.serverDelete) }
         @objc private func deleteFromArchive() { model.planSelection(.archiveDelete) }
+        @objc private func removeEverywhere() { model.planSelectionRemoval() }
         @objc private func restoreToServer() { model.planSelection(.restore) }
         @objc private func export() { model.exportSelection() }
         @objc private func classify() { model.classifySelection() }

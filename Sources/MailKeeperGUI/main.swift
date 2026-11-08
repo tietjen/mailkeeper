@@ -69,6 +69,9 @@ struct MailKeeperApp: App {
                     .disabled(model.actionSelection.isEmpty || model.sidebarSelection == .trash)
                 Button("Auf dem Server löschen …") { model.planSelection(.serverDelete) }
                     .disabled(model.actionSelection.isEmpty || model.sidebarSelection == .trash)
+                Button("Komplett entfernen …") { model.planSelectionRemoval() }
+                    .keyboardShortcut(.delete, modifiers: [.command, .option])
+                    .disabled(model.actionSelection.isEmpty || model.sidebarSelection == .trash)
                 Button("Auf den Server zurückspielen …") { model.planSelection(.restore) }
                     .disabled(model.actionSelection.isEmpty || model.sidebarSelection == .trash)
             }

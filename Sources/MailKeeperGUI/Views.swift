@@ -205,7 +205,7 @@ struct ContentView: View {
         .sheet(item: tour.sheet) { IntroCard(tour: tour, card: $0) }
         .sheet(item: $model.pendingPlan) { PlanSheet(model: model, plan: $0) }
         .sheet(item: $model.placing) { PlacementSheet(model: model, request: $0) }
-        .sheet(item: $model.actionResult) { ResultSheet(model: model, job: $0) }
+        .sheet(item: $model.actionResult) { ResultSheet(model: model, job: $0, followUp: model.actionFollowUp) }
         .sheet(item: $model.pendingExport) { ExportSheet(model: model, request: $0) }
         .alert("Export fertig", isPresented: Binding(get: { model.exportResult != nil }, set: { if !$0 { model.exportResult = nil } }),
                presenting: model.exportResult) { report in
@@ -626,7 +626,8 @@ struct ReaderView: View {
         case .archiveOnly:
             d.locations.contains { $0.uid != nil } ? String(localized: "auf dem Server gelöscht") : String(localized: "importiert, auf keinem Server")
         case .trash:
-            d.purgeDate().map { String(localized: "wird am \($0.formatted(date: .long, time: .omitted)) endgültig gelöscht") } ?? ""
+            d.purgeDate(days: model.trashDays).map { String(localized: "wird am \($0.formatted(date: .long, time: .omitted)) endgültig gelöscht") }
+                ?? String(localized: "bleibt, bis du den Papierkorb leerst")
         }
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text("Ort").foregroundStyle(.secondary).frame(width: 64, alignment: .trailing)

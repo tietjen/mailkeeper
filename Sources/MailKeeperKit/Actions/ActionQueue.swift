@@ -4,7 +4,7 @@ import Foundation
 public enum ActionKind: String, Codable, Sendable, CaseIterable {
     /// Move the message to the account's Trash on the server; the archive keeps it.
     case serverDelete
-    /// Move the message to the archive trash (purged after 30 days).
+    /// Move the message to the archive trash (purged after the archive's period, `ArchiveSettings`).
     case archiveDelete
     /// Append the stored bytes to an account.
     case restore

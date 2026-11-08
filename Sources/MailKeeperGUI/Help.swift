@@ -54,7 +54,7 @@ enum HelpBook {
                 String(localized: "Abrufen kopiert vom Server ins Archiv, nie umgekehrt: Neue Mails kommen dazu, Gelesen- und Markiert-Zeichen und Gmail-Labels werden übernommen."),
                 String(localized: "Auf dem Server gelöscht: Die Mail bleibt im Archiv. „Ort“ sagt dann „Nur im Archiv – auf dem Server gelöscht“."),
                 String(localized: "Auf dem Server verschoben: Die Mail kommt im neuen Ordner dazu und bleibt im alten stehen – gespeichert ist sie nur einmal. Wo sie jetzt auf dem Server liegt, sagt „Ort“; mit „Ablage ändern …“ führst du sie im Archiv nur noch dort, wo du willst. Ein umbenannter Ordner wirkt genauso."),
-                String(localized: "Im Archiv gelöscht: Auf dem Server ändert sich nichts. Was noch auf einem Server liegt, lässt sich nicht aus dem Archiv löschen – es käme beim nächsten Abruf wieder; der Plan bietet an, es zuerst dort zu löschen. Der Papierkorb des Archivs hält 30 Tage, und endgültig Gelöschtes holt kein Abruf zurück."),
+                String(localized: "Im Archiv gelöscht: Auf dem Server ändert sich nichts. Was noch auf einem Server liegt, lässt sich nicht aus dem Archiv löschen – es käme beim nächsten Abruf wieder; der Plan bietet an, es auch dort zu löschen („Komplett entfernen“). Der Papierkorb des Archivs hält Mails 30 Tage – einstellbar oben in der Papierkorb-Ansicht –, und endgültig Gelöschtes holt kein Abruf zurück."),
                 String(localized: "Den Server ändert MailKeeper nur auf deinen Befehl: Auf dem Server löschen, Zurückspielen, Ablage auch auf dem Server, „Kein Spam“ und „Ist Spam“ – immer erst nach einem Plan, den du bestätigst."),
                 String(localized: "Ein Konto zu entfernen löscht keine Mails: Was abgerufen ist, bleibt im Archiv; es wird nur nicht mehr abgerufen."),
             ],
@@ -112,12 +112,13 @@ enum HelpBook {
             id: "aufraeumen", title: String(localized: "Aufräumen"), symbol: "trash",
             paragraphs: [
                 String(localized: "Ein volles Postfach räumt man nach Absendern auf: Ansicht › Absender, Domains oder Listen. Ein hoher Anteil ungelesener Mails ist das deutlichste Zeichen."),
-                String(localized: "Vier Wege: auf dem Server löschen (das Archiv behält alles), aus dem Archiv löschen (30 Tage Papierkorb), endgültig löschen (verlangt Touch ID oder dein Passwort) und abmelden."),
+                String(localized: "Fünf Wege: auf dem Server löschen (das Archiv behält alles), aus dem Archiv löschen (in den Papierkorb), komplett entfernen (erst vom Server, dann in den Papierkorb des Archivs), endgültig löschen (verlangt Touch ID oder dein Passwort) und abmelden."),
+                String(localized: "Wie lange der Papierkorb des Archivs Mails hält, stellst du oben in der Papierkorb-Ansicht ein: 30 Tage, wenn du nichts änderst, oder „nur von Hand“. Die Frist gilt für das geöffnete Archiv."),
                 String(localized: "Jede dieser Aktionen zeigt vorher den Plan: wie viele Mails, wie groß, was übersprungen wird und warum. Erst dein Klick startet etwas, und anhalten kannst du jederzeit."),
                 String(localized: "Die Schonfrist (Standard 30 Tage) schützt neue Mail vor anderen Programmen, die dasselbe Postfach lesen."),
                 String(localized: "„Ablage ändern“ ist etwas anderes als Löschen: Es bestimmt, wo das Archiv eine Mail führt — unabhängig davon, wo sie auf dem Server liegt."),
             ],
-            keywords: String(localized: "aufräumen löschen server archiv papierkorb schonfrist zurückspielen export ablage regeln gruppen")),
+            keywords: String(localized: "aufräumen löschen komplett entfernen server archiv papierkorb frist schonfrist zurückspielen export ablage regeln gruppen")),
         HelpChapter(
             id: "ki", title: String(localized: "Die KI"), symbol: "brain",
             paragraphs: [

@@ -770,18 +770,18 @@
         }
       }
     },
-    "%lld Mails über 10 MB, älter als ein Jahr – zusammen %@; %@. Vom Server löschen kostet nichts, das Archiv behält sie; aus dem Archiv gelöscht sind sie nach 30 Tagen endgültig weg – nur, wenn du die Anhänge nirgends brauchst.": {
+    "%lld Mails über 10 MB, älter als ein Jahr – zusammen %@; %@. Vom Server löschen kostet nichts, das Archiv behält sie; aus dem Archiv gelöscht sind sie nach dem Papierkorb endgültig weg – nur, wenn du die Anhänge nirgends brauchst.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "new",
-            "value": "%1$lld Mails über 10 MB, älter als ein Jahr – zusammen %2$@; %3$@. Vom Server löschen kostet nichts, das Archiv behält sie; aus dem Archiv gelöscht sind sie nach 30 Tagen endgültig weg – nur, wenn du die Anhänge nirgends brauchst."
+            "value": "%1$lld Mails über 10 MB, älter als ein Jahr – zusammen %2$@; %3$@. Vom Server löschen kostet nichts, das Archiv behält sie; aus dem Archiv gelöscht sind sie nach dem Papierkorb endgültig weg – nur, wenn du die Anhänge nirgends brauchst."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld mails over 10 MB, older than a year – %@ together; %@. Deleting them on the server costs nothing, the archive keeps them; deleted from the archive they are gone for good after 30 days – only do that if you need the attachments nowhere."
+            "value": "%1$lld mails over 10 MB, older than a year – %2$@ in total; %3$@. Deleting them from the server costs nothing, the archive keeps them; deleted from the archive, they are gone for good once the trash empties – only if you need the attachments nowhere."
           }
         }
       }
@@ -802,12 +802,12 @@
         }
       }
     },
-    "%lld Mails, die auf keinem Server mehr liegen, in den Papierkorb des Archivs – nach 30 Tagen endgültig weg; vorher kommt die Übersicht": {
+    "%lld Mails, die auf keinem Server mehr liegen, in den Papierkorb des Archivs; vorher kommt die Übersicht": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld mails that lie on no server any more into the archive's trash – gone for good after 30 days; the plan comes first"
+            "value": "%lld mails that are on no server any more, into the archive trash; you see the overview first"
           }
         }
       }
@@ -1959,6 +1959,16 @@
         }
       }
     },
+    "Alle ausgewählten Mails, die danach auf keinem Server mehr liegen – auch die, die schon nur im Archiv waren": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All selected mails that are on no server afterwards – including those that were only in the archive already"
+          }
+        }
+      }
+    },
     "Alle hier gelisteten Mails, die noch im Spam-Ordner auf dem Server liegen, dorthin zurück, wo sie vorher lagen (sonst Posteingang) – mit Plan und Rückfrage. Was nicht zurück soll, vorher mit „Ist Spam“ markieren: dann fällt es aus der Liste.": {
       "localizations": {
         "en": {
@@ -2681,6 +2691,16 @@
         }
       }
     },
+    "Auch auf dem Server löschen …": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete on the Server Too…"
+          }
+        }
+      }
+    },
     "Auch dazu? Nur ankreuzen, wenn du sicher bist – vorgewählt ist, wofür es Belege gibt.": {
       "localizations": {
         "en": {
@@ -3007,6 +3027,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Export Selection…"
+          }
+        }
+      }
+    },
+    "Automatisch leeren": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empty automatically"
           }
         }
       }
@@ -3425,6 +3455,16 @@
         }
       }
     },
+    "Bleibt, liegt noch auf einem Server": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stays, still on a server"
+          }
+        }
+      }
+    },
     "Bridge-Passwort": {
       "localizations": {
         "en": {
@@ -3491,6 +3531,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Then"
+          }
+        }
+      }
+    },
+    "Danach in den Papierkorb des Archivs": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Then into the archive trash"
           }
         }
       }
@@ -3931,6 +3981,16 @@
         }
       }
     },
+    "Der Archiv-Schritt ist nicht gelaufen: Die Mails liegen weiter im Archiv. Was vom Server weg ist, nimmt danach „Aus dem Archiv löschen“.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The archive step did not run: the mails are still in the archive. Whatever is off the server, “Delete from the Archive” takes afterwards."
+          }
+        }
+      }
+    },
     "Der Begriff ist leer.": {
       "localizations": {
         "en": {
@@ -4363,12 +4423,12 @@
         }
       }
     },
-    "Die Mails wandern in den Papierkorb des Archivs und werden nach 30 Tagen endgültig gelöscht; bis dahin lassen sie sich wiederherstellen. Was noch auf einem Server liegt, bleibt dort — nach dem endgültigen Löschen holt MailKeeper es nicht wieder.": {
+    "Die Mails wandern in den Papierkorb des Archivs. %@; bis dahin lassen sie sich wiederherstellen. Was noch auf einem Server liegt, bleibt dort — nach dem endgültigen Löschen holt MailKeeper es nicht wieder.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The mails move into the archive's trash and are deleted for good after 30 days; until then they can be restored. Whatever still lies on a server stays there — after the final deletion MailKeeper does not fetch it again."
+            "value": "The mails go to the archive trash. %@; until then they can be restored. Whatever is still on a server stays there — once deleted for good, MailKeeper does not fetch it again."
           }
         }
       }
@@ -4679,6 +4739,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "Domains: %@"
+          }
+        }
+      }
+    },
+    "Dort bleiben sie %lld Tage": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "They stay there for %lld days"
+          }
+        }
+      }
+    },
+    "Dort bleiben sie 1 Tag": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "They stay there for 1 day"
+          }
+        }
+      }
+    },
+    "Dort bleiben sie, bis du den Papierkorb leerst": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "They stay there until you empty the trash"
           }
         }
       }
@@ -5320,6 +5410,26 @@
         }
       }
     },
+    "Erst vom Server, dann in den Papierkorb des Archivs; vorher kommt eine Übersicht": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "First from the server, then into the archive trash; you see an overview first"
+          }
+        }
+      }
+    },
+    "Erst wandern die Mails in den Papierkorb ihres Servers – mit denselben Prüfungen wie beim Löschen auf dem Server –, danach in den Papierkorb des Archivs. %@; bis dahin lassen sie sich wiederherstellen. Was der Server nicht hergibt (Schonfrist, markiert, nicht erreichbar), bleibt auf dem Server und im Archiv.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "First the mails go to their server's trash – with the same checks as when deleting on the server –, then into the archive trash. %@; until then they can be restored. Whatever the server does not give up (grace period, flagged, unreachable) stays on the server and in the archive."
+          }
+        }
+      }
+    },
     "Erst wenn Import oder Abruf fertig sind, lässt sich das Archiv wechseln.": {
       "localizations": {
         "en": {
@@ -5536,6 +5646,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Available: %@"
+          }
+        }
+      }
+    },
+    "Fünf Wege: auf dem Server löschen (das Archiv behält alles), aus dem Archiv löschen (in den Papierkorb), komplett entfernen (erst vom Server, dann in den Papierkorb des Archivs), endgültig löschen (verlangt Touch ID oder dein Passwort) und abmelden.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Five ways: delete on the server (the archive keeps everything), delete from the archive (into the trash), remove completely (first from the server, then into the archive trash), delete for good (requires Touch ID or your password) and unsubscribe."
           }
         }
       }
@@ -6095,12 +6215,12 @@
         }
       }
     },
-    "Im Archiv gelöscht: Auf dem Server ändert sich nichts. Was noch auf einem Server liegt, lässt sich nicht aus dem Archiv löschen – es käme beim nächsten Abruf wieder; der Plan bietet an, es zuerst dort zu löschen. Der Papierkorb des Archivs hält 30 Tage, und endgültig Gelöschtes holt kein Abruf zurück.": {
+    "Im Archiv gelöscht: Auf dem Server ändert sich nichts. Was noch auf einem Server liegt, lässt sich nicht aus dem Archiv löschen – es käme beim nächsten Abruf wieder; der Plan bietet an, es auch dort zu löschen („Komplett entfernen“). Der Papierkorb des Archivs hält Mails 30 Tage – einstellbar oben in der Papierkorb-Ansicht –, und endgültig Gelöschtes holt kein Abruf zurück.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deleted in the archive: nothing changes on the server. Mail that still lies on a server cannot be deleted from the archive — the next fetch would bring it back; the plan offers to delete it there first. The archive's trash keeps mail for 30 days, and no fetch brings back what was deleted for good."
+            "value": "Deleted in the archive: nothing changes on the server. What is still on a server cannot be deleted from the archive – it would come back with the next fetch; the plan offers to delete it there too (“Remove Completely”). The archive trash keeps mails for 30 days – adjustable at the top of the trash view –, and nothing deleted for good comes back with a fetch."
           }
         }
       }
@@ -6151,16 +6271,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "In the trash"
-          }
-        }
-      }
-    },
-    "Im Papierkorb liegt nur, was auf keinem Server mehr ist": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Only what lies on no server any more goes into the trash"
           }
         }
       }
@@ -6225,12 +6335,12 @@
         }
       }
     },
-    "In den Papierkorb des Archivs (30 Tage) – nur Mails, die auf keinem Server mehr liegen; vorher kommt eine Übersicht": {
+    "In den Papierkorb des Archivs – nur Mails, die auf keinem Server mehr liegen; vorher kommt eine Übersicht": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Into the archive's trash (30 days) – only mail that lies on no server any more; the plan comes first"
+            "value": "Into the archive trash – only mails that are on no server any more; you see an overview first"
           }
         }
       }
@@ -6827,6 +6937,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "Click to filter by this"
+          }
+        }
+      }
+    },
+    "Komplett entfernen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Completely"
+          }
+        }
+      }
+    },
+    "Komplett entfernen …": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Completely…"
+          }
+        }
+      }
+    },
+    "Komplett entfernen: erst vom Server, dann in den Papierkorb des Archivs – im Papierkorb liegt nur, was auf keinem Server mehr ist": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove completely: first from the server, then into the archive trash – the trash holds only what is on no server any more"
           }
         }
       }
@@ -7595,16 +7735,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mail goes only to this endpoint and to the model on this Mac – to no cloud service. Every call is in the log without its content (~/Library/Logs/MailKeeper/ai.jsonl). The AI only suggests; it never deletes or moves anything."
-          }
-        }
-      }
-    },
-    "Mails im Papierkorb werden nach 30 Tagen endgültig gelöscht.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mail in the trash is deleted for good after 30 days."
           }
         }
       }
@@ -8511,6 +8641,16 @@
         }
       }
     },
+    "Nur im Archiv (gehen gleich mit)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only in the archive (go along)"
+          }
+        }
+      }
+    },
     "Nur im Archiv (nichts zu tun)": {
       "localizations": {
         "en": {
@@ -8812,6 +8952,32 @@
           "stringUnit": {
             "state": "translated",
             "value": "Empty Trash…"
+          }
+        }
+      }
+    },
+    "Papierkorb-Frist %@: %lld Mails liegen schon länger darin und werden endgültig gelöscht": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Papierkorb-Frist %1$@: %2$lld Mails liegen schon länger darin und werden endgültig gelöscht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trash period %1$@: %2$lld mails have been in it longer and will be deleted for good"
+          }
+        }
+      }
+    },
+    "Papierkorb-Frist %@: Mails, die schon länger darin liegen, werden endgültig gelöscht": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trash period %@: mails that have been in it longer will be deleted for good"
           }
         }
       }
@@ -10049,16 +10215,6 @@
         }
       }
     },
-    "Vier Wege: auf dem Server löschen (das Archiv behält alles), aus dem Archiv löschen (30 Tage Papierkorb), endgültig löschen (verlangt Touch ID oder dein Passwort) und abmelden.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Four ways: delete on the server (the archive keeps everything), delete from the archive (30 days in the trash), delete for good (asks for Touch ID or your password) and unsubscribe."
-          }
-        }
-      }
-    },
     "Vier Wege: auf dem Server löschen (das Archiv behält alles), aus dem Archiv löschen (30 Tage Papierkorb), endgültig löschen (verlangt Touch ID) und abmelden.": {
       "extractionState": "stale",
       "localizations": {
@@ -10406,6 +10562,26 @@
         }
       }
     },
+    "Wie lange Mails im Papierkorb dieses Archivs bleiben, bevor MailKeeper sie von selbst endgültig löscht": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How long mails stay in this archive's trash before MailKeeper deletes them for good by itself"
+          }
+        }
+      }
+    },
+    "Wie lange der Papierkorb des Archivs Mails hält, stellst du oben in der Papierkorb-Ansicht ein: 30 Tage, wenn du nichts änderst, oder „nur von Hand“. Die Frist gilt für das geöffnete Archiv.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How long the archive trash keeps mails is set at the top of the trash view: 30 days unless you change it, or “only by hand”. The period applies to the open archive."
+          }
+        }
+      }
+    },
     "Wieder mit App-Passwort anmelden": {
       "localizations": {
         "en": {
@@ -10648,16 +10824,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Too many nested brackets."
-          }
-        }
-      }
-    },
-    "Zuerst auf dem Server löschen …": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete on the Server First…"
           }
         }
       }
@@ -10932,12 +11098,12 @@
         }
       }
     },
-    "aufräumen löschen server archiv papierkorb schonfrist zurückspielen export ablage regeln gruppen": {
+    "aufräumen löschen komplett entfernen server archiv papierkorb frist schonfrist zurückspielen export ablage regeln gruppen": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "clean up delete server archive trash grace period put back export filed under rules groups bulk"
+            "value": "clean up delete remove completely server archive trash period grace period restore export filing rules groups"
           }
         }
       }
@@ -11014,6 +11180,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "example.com"
+          }
+        }
+      }
+    },
+    "bis zu %@ Mails": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "up to %@ mails"
+          }
+        }
+      }
+    },
+    "bleibt, bis du den Papierkorb leerst": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "stays until you empty the trash"
           }
         }
       }
@@ -11486,6 +11672,16 @@
         }
       }
     },
+    "lag auf dem Server nicht mehr dort – erst neu abrufen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no longer where it was on the server – fetch first"
+          }
+        }
+      }
+    },
     "lag bereits dort": {
       "localizations": {
         "en": {
@@ -11646,12 +11842,32 @@
         }
       }
     },
+    "nach %lld Tagen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "after %lld days"
+          }
+        }
+      }
+    },
     "nach %lld Tagen vom Server löschen": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "delete from the server after %lld days"
+          }
+        }
+      }
+    },
+    "nach 1 Tag": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "after 1 day"
           }
         }
       }
@@ -11776,6 +11992,16 @@
         }
       }
     },
+    "nur von Hand": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "only by hand"
+          }
+        }
+      }
+    },
     "offen – keine Regel passt": {
       "localizations": {
         "en": {
@@ -11832,6 +12058,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "server archive account accounts fetch delete move folder rename only in the archive place remove several archives switch setup"
+          }
+        }
+      }
+    },
+    "settings.json des Archivs nicht lesbar – leert nur von Hand, bis du eine Frist wählst": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The archive's settings.json is unreadable – empties only by hand until you choose a period"
           }
         }
       }

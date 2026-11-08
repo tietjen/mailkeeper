@@ -50,7 +50,7 @@ Umgekehrt:
 | Im Archiv … | Auf dem Server |
 |---|---|
 | Art, Ablage (ohne Server), Notizen ändern | nichts |
-| **Aus dem Archiv löschen** | nichts — und nur für Mails, die auf keinem Server mehr liegen (sonst kämen sie beim nächsten Abruf wieder; der Plan bietet an, sie zuerst dort zu löschen). 30 Tage Papierkorb; endgültig Gelöschtes holt kein Abruf zurück |
+| **Aus dem Archiv löschen** | nichts — und nur für Mails, die auf keinem Server mehr liegen (sonst kämen sie beim nächsten Abruf wieder; der Plan bietet an, sie zuerst dort zu löschen). Papierkorb mit einstellbarer Frist (Standard 30 Tage); endgültig Gelöschtes holt kein Abruf zurück |
 | **Auf dem Server löschen**, **Zurückspielen**, **Ablage auch auf dem Server**, **Kein Spam** / **Ist Spam** | genau das — nach einem Plan, den du bestätigst |
 | ein **Konto entfernen** | nichts; die abgerufenen Mails bleiben im Archiv, es wird nur nicht mehr abgerufen |
 

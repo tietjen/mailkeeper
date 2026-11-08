@@ -158,7 +158,7 @@ Ehrlich aufgezählt, weil ein falsches Sicherheitsgefühl schlimmer ist als kein
   27 — und bei Phishing 7 von 7 gegenüber 4 von 7. Eine Einordnung ist ein Hinweis, kein Urteil
   — deshalb löscht auch nie etwas deswegen.
 - **Kein Virenscanner.** MailKeeper prüft Links und Kopfzeilen, nicht Anhänge auf Schadcode.
-- **Endgültig gelöscht ist endgültig.** Nach dem Archiv-Papierkorb (30 Tage) ist eine Mail weg,
+- **Endgültig gelöscht ist endgültig.** Nach dem Archiv-Papierkorb (Standard 30 Tage) ist eine Mail weg,
   wenn kein Backup sie hat.
 
 ## Weiter

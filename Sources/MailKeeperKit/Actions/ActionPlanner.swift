@@ -82,9 +82,14 @@ extension ArchiveReader {
     }
 
     /// Plans "delete from the archive" (ADR-0006 4): one item per message, to the archive trash
-    /// for 30 days. In the trash means on no server (TJ): a message still on a server is skipped
-    /// ("delete it there first"). `summary.archiveOnly` counts those that can go.
-    public func planArchiveDelete(_ filter: MessageFilter, title: String) throws -> (ActionJob, ActionPlanSummary) {
+    /// (purged after the archive's period). In the trash means on no server (TJ): a message still
+    /// on a server is skipped ("delete it there first"). `summary.archiveOnly` counts those that can go.
+    ///
+    /// `afterServerDelete`: the second half of "Komplett entfernen" — it runs right after a server
+    /// delete of the same messages, so one still on a server now is planned all the same; the
+    /// writer leaves it alone if the server delete did not take it (checked when it happens).
+    public func planArchiveDelete(_ filter: MessageFilter, title: String,
+                                  afterServerDelete: Bool = false) throws -> (ActionJob, ActionPlanSummary) {
         let (whereClause, params) = try Self.whereClause(filter)
         var items: [ActionItem] = []
         var onServer = 0
@@ -93,8 +98,8 @@ extension ArchiveReader {
                    EXISTS (SELECT 1 FROM locations l WHERE l.message_id = m.id AND \(QuerySQL.serverLocation))
             FROM messages m\(whereClause) ORDER BY m.date, m.id
             """, params) { row in
-            let stillOnServer = row.bool(5)
-            if stillOnServer { onServer += 1 }
+            let stillOnServer = row.bool(5) && !afterServerDelete
+            if row.bool(5) { onServer += 1 }
             items.append(ActionItem(id: items.count, sha256: row.text(1) ?? "", messageID: row.text(2), size: Int(row.int(3)),
                                     date: row.optionalDouble(4).map(Date.init(timeIntervalSince1970:)), location: nil,
                                     identity: row.text(0), state: stillOnServer ? .skipped : .planned,
