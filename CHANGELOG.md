@@ -5,6 +5,12 @@ dahinter stehen in [docs/adr/](docs/adr/).
 
 ## [Unveröffentlicht]
 
+- **Aufräumen, Server und Archiv:** Die Gruppenliste hat zwei neue Spalten, **Server** und
+  **Nur Archiv**: wie viele Mails einer Gruppe noch auf dem Server liegen und wie viele nur noch
+  im Archiv. Beide lassen sich sortieren. Rechts zeigt ein zweifarbiger Balken dasselbe
+  Verhältnis, darunter Anzahl und Größe beider Teile.
+- **Aufräumen, Knöpfe:** Die Knöpfe unter einer Gruppe sind jetzt Symbole. Was sie tun, steht
+  im Tooltip, und nichts wird mehr abgeschnitten.
 - **Komplett entfernen:** Ein neuer Weg nimmt Mails vom Server und aus dem Archiv in einem
   Plan: erst in den Papierkorb ihres Servers, mit denselben Prüfungen wie beim Löschen auf dem
   Server, danach in den Papierkorb des Archivs. Was der Server nicht hergibt (Schonfrist,

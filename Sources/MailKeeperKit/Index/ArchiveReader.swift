@@ -126,6 +126,11 @@ public struct MessageGroup: Sendable, Hashable, Identifiable {
     public var unread: Int
     /// Some message offers List-Unsubscribe.
     public var unsubscribe: Bool
+    /// Messages still in a server location (`on:server`); the rest are archive-only.
+    public var onServer: Int = 0
+
+    /// Messages on no server any more (`only:archive`).
+    public var archiveOnly: Int { count - onServer }
 
     public var id: String { mode.rawValue + ":" + key }
 
@@ -353,13 +358,15 @@ public final class ArchiveReader {
             WITH base AS (
                 SELECT \(key) AS k, m.size AS size, m.date AS date, m.list_unsubscribe AS unsub,
                        \(nameColumn) AS name,
-                       seen.message_id IS NULL AS unread
+                       seen.message_id IS NULL AS unread, srv.message_id IS NOT NULL AS server
                 FROM messages m
                 LEFT JOIN (SELECT DISTINCT message_id FROM locations
                            WHERE instr(' ' || lower(flags) || ' ', ' \\seen ') > 0) seen ON seen.message_id = m.id
+                LEFT JOIN (SELECT DISTINCT l.message_id FROM locations l
+                           WHERE \(QuerySQL.serverLocation)) srv ON srv.message_id = m.id  -- the same test as on:server
                 \(whereClause)
             ), names AS (\(mode == .sender ? Self.usualName(from: "base") : "SELECT NULL AS k, NULL AS name"))
-            SELECT b.k, \(name), count(*), sum(b.size), max(b.date), min(b.date), sum(b.unread), max(b.unsub)
+            SELECT b.k, \(name), count(*), sum(b.size), max(b.date), min(b.date), sum(b.unread), max(b.unsub), sum(b.server)
             FROM base b LEFT JOIN names n ON n.k = b.k
             WHERE b.k IS NOT NULL AND b.k != '' AND instr(b.k, '"') = 0  -- a quote cannot be expressed in a query value
             GROUP BY b.k ORDER BY count(*) DESC, b.k LIMIT ?
@@ -368,7 +375,7 @@ public final class ArchiveReader {
             MessageGroup(mode: mode, key: row.text(0) ?? "", name: row.text(1), count: Int(row.int(2)), bytes: row.int(3),
                          newest: row.optionalDouble(4).map(Date.init(timeIntervalSince1970:)),
                          oldest: row.optionalDouble(5).map(Date.init(timeIntervalSince1970:)),
-                         unread: Int(row.int(6)), unsubscribe: row.bool(7))
+                         unread: Int(row.int(6)), unsubscribe: row.bool(7), onServer: Int(row.int(8)))
         }
     }
 

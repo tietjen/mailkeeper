@@ -112,6 +112,7 @@ enum HelpBook {
             id: "aufraeumen", title: String(localized: "Aufräumen"), symbol: "trash",
             paragraphs: [
                 String(localized: "Ein volles Postfach räumt man nach Absendern auf: Ansicht › Absender, Domains oder Listen. Ein hoher Anteil ungelesener Mails ist das deutlichste Zeichen."),
+                String(localized: "Die Spalten „Server“ und „Nur Archiv“ zeigen je Gruppe, wie viele Mails noch auf dem Server liegen und wie viele nur noch im Archiv. Rechts steht dasselbe als zweifarbiger Balken. Die Knöpfe darunter sind Symbole; was sie tun, sagt der Tooltip."),
                 String(localized: "Fünf Wege: auf dem Server löschen (das Archiv behält alles), aus dem Archiv löschen (in den Papierkorb), komplett entfernen (erst vom Server, dann in den Papierkorb des Archivs), endgültig löschen (verlangt Touch ID oder dein Passwort) und abmelden."),
                 String(localized: "Wie lange der Papierkorb des Archivs Mails hält, stellst du oben in der Papierkorb-Ansicht ein: 30 Tage, wenn du nichts änderst, oder „nur von Hand“. Die Frist gilt für das geöffnete Archiv."),
                 String(localized: "Jede dieser Aktionen zeigt vorher den Plan: wie viele Mails, wie groß, was übersprungen wird und warum. Erst dein Klick startet etwas, und anhalten kannst du jederzeit."),

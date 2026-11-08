@@ -22,11 +22,16 @@ struct GroupDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
                 metrics
+                placement
                 activity
                 facts
                 if !detail.members.isEmpty { members }
                 recent
                 actions
+                if let assessment = unsubscribe, assessment.isBlocked {
+                    Label("Abmelden gesperrt: \(assessment.blocked.map(DisplayText.safe).joined(separator: " · "))", systemImage: "hand.raised")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                }
                 if let unsubscribeResult { Text(DisplayText.safe(unsubscribeResult)).font(.callout).foregroundStyle(.secondary) }
             }
             .padding(16)
@@ -99,6 +104,57 @@ struct GroupDetailView: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(.quaternary.opacity(0.6)))
     }
 
+    /// Where the mails are (TJ): still on a server or only in the archive — two bars side by side,
+    /// each as long as its share. Blue for the server as in the reader's "Ort"; the archive part
+    /// purple, not the reader's grey, which next to blue would read as an empty track.
+    private var placement: some View {
+        let server = min(max(detail.onServer, 0), group.count)
+        let archive = group.count - server
+        let serverBytes = min(max(detail.onServerBytes, 0), group.bytes)
+        let archiveBytes = group.bytes - serverBytes
+        let share = { (n: Int) in (group.count > 0 ? Double(n) / Double(group.count) : 0).formatted(.percent.precision(.fractionLength(0))) }
+        return VStack(alignment: .leading, spacing: 6) {
+            SplitBar(parts: [
+                .init(value: server, color: Self.serverColor,
+                      help: String(localized: "\(server.formatted()) von \(group.count.formatted()) Mails (\(share(server))) noch auf dem Server")),
+                .init(value: archive, color: Self.archiveColor,
+                      help: String(localized: "\(archive.formatted()) von \(group.count.formatted()) Mails (\(share(archive))) nur noch im Archiv")),
+            ])
+            .frame(height: 10)
+            .clipped()  // a pane narrower than the minimum slivers must not draw past it
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) { serverLegend(server, serverBytes); archiveLegend(archive, archiveBytes) }
+                VStack(alignment: .leading, spacing: 4) { serverLegend(server, serverBytes); archiveLegend(archive, archiveBytes) }
+            }
+            .font(.callout)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    static let serverColor = Color.blue
+    static let archiveColor = Color.purple
+
+    private func serverLegend(_ count: Int, _ bytes: Int64) -> some View {
+        legend("Auf dem Server", icon: "server.rack", color: Self.serverColor, count, bytes)
+    }
+
+    private func archiveLegend(_ count: Int, _ bytes: Int64) -> some View {
+        legend("Nur im Archiv", icon: "archivebox", color: Self.archiveColor, count, bytes)
+    }
+
+    private func legend(_ label: LocalizedStringKey, icon: String, color: Color, _ count: Int, _ bytes: Int64) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Image(systemName: icon).foregroundStyle(color).accessibilityHidden(true)
+            Text(label).foregroundStyle(.secondary)
+            Text(count.formatted()).fontWeight(.medium).monospacedDigit()
+            if count > 0 {
+                Text(verbatim: "(\(bytes.formatted(.byteCount(style: .file))))").foregroundStyle(.secondary).monospacedDigit()
+            }
+        }
+        .lineLimit(1)
+        .fixedSize()
+    }
+
     private var activity: some View {
         let peak = max(1, detail.months.map(\.count).max() ?? 1)
         let monthly = Double(detail.lastYear) / 12
@@ -135,7 +191,6 @@ struct GroupDetailView: View {
     private var facts: some View {
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
             fact("Ablage", detail.places.map { "\(DisplayText.safe($0.mailbox)) \($0.count.formatted())" }.joined(separator: " · "))
-            fact("Auf dem Server", String(localized: "\(detail.onServer.formatted()) (\(detail.onServerBytes.formatted(.byteCount(style: .file)))) · nur im Archiv \((group.count - detail.onServer).formatted())"))
             fact("Mit Anhang", detail.withAttachments == 0 ? String(localized: "keine")
                  : String(localized: "\(detail.withAttachments.formatted()) · größte Mail \(detail.largest.formatted(.byteCount(style: .file)))"))
             if let target = detail.unsubscribe?.preferred {
@@ -208,33 +263,57 @@ struct GroupDetailView: View {
         }
     }
 
+    /// Icons, the words in the tooltip (TJ: the words were cut off, without a tooltip). The
+    /// title stays the button's accessibility label.
     private var actions: some View {
         HStack(spacing: 8) {
-            Button("Mails anzeigen") { model.openGroup(group) }
-            Button("Als Ansicht sichern …") { saving = model.savedSearch(for: group) }
+            iconButton(String(localized: "Mails anzeigen"), "envelope") { model.openGroup(group) }
+            iconButton(String(localized: "Als Ansicht sichern …"), "bookmark") { saving = model.savedSearch(for: group) }
             if let assessment = unsubscribe {
                 if assessment.isBlocked {
-                    Button("Abmelden gesperrt") {}.disabled(true)
-                        .help(assessment.blocked.joined(separator: "\n"))
+                    iconButton(String(localized: "Abmelden gesperrt"), "hand.raised", help: assessment.blocked.joined(separator: "\n"),
+                               disabled: true) {}
+                } else if unsubscribing {
+                    ProgressView().controlSize(.small).help("Melde ab …")  // the click's visible answer
                 } else {
-                    Button(unsubscribing ? "Melde ab …" : "Abmelden …") { confirmingUnsubscribe = true }
-                        .disabled(unsubscribing)
-                        .help(UnsubscribeRow.how(assessment))
+                    iconButton(String(localized: "Abmelden …"), "bell.slash", help: UnsubscribeRow.how(assessment)) {
+                        confirmingUnsubscribe = true
+                    }
                 }
             }
-            Menu("Aufräumen …") {
+            Menu {
                 Button("Auf dem Server löschen …") { model.planGroup(.serverDelete, group) }
                 Button("Aus dem Archiv löschen …") { model.planGroup(.archiveDelete, group) }
                 Divider()
                 Button("Komplett entfernen …") { model.planGroupRemoval(group) }
+            } label: {
+                Label("Aufräumen …", systemImage: "trash")
             }
+            .labelStyle(.iconOnly)
             .fixedSize()
             .disabled(model.actionRunning)
-            .help("Alle Mails dieser Gruppe – mit Plan und Rückfrage")
-            Button("Regel …") { ruleDraft = RuleDraft(query: group.query, name: group.name ?? group.key) }
-                .help("Für diese Gruppe künftig: Art festlegen, nach Tagen vom Server löschen oder in den Spam-Ordner")
+            .help(Self.tooltip(String(localized: "Aufräumen …"), String(localized: "Alle Mails dieser Gruppe – mit Plan und Rückfrage")))
+            iconButton(String(localized: "Regel …"), "list.bullet.rectangle",
+                       help: String(localized: "Für diese Gruppe künftig: Art festlegen, nach Tagen vom Server löschen oder in den Spam-Ordner")) {
+                ruleDraft = RuleDraft(query: group.query, name: group.name ?? group.key)
+            }
         }
         .controlSize(.regular)
+    }
+
+    /// `.help` outside `.disabled`: a tooltip inside a disabled view does not show.
+    private func iconButton(_ title: String, _ icon: String, help: String? = nil, disabled: Bool = false,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) { Label(title, systemImage: icon) }
+            .labelStyle(.iconOnly)
+            .disabled(disabled)
+            .help(Self.tooltip(title, help))
+    }
+
+    /// The button's words, the explanation (if any) on the next line.
+    static func tooltip(_ title: String, _ explanation: String?) -> String {
+        guard let explanation, !explanation.isEmpty else { return title }
+        return title + "\n" + explanation
     }
 
     // MARK: Unsubscribe (variant 2: open after confirmation, https and mailto only)
@@ -430,5 +509,57 @@ struct CleanupOverviewView: View {
         }
         .onAppear { model.reloadSuggestions(); model.reloadRules() }
         .sheet(item: $ruleDraft) { d in RuleEditor(model: model, draft: d) { _ in ruleDraft = nil } }
+    }
+}
+
+/// Bars side by side whose lengths add up to the width, each in proportion to its value. A part
+/// above zero stays visible as a sliver however small its share (8 of 753 on the server).
+struct SplitBar: View {
+    struct Part {
+        var value: Int
+        var color: Color
+        var help: String
+    }
+
+    let parts: [Part]
+    var gap: CGFloat = 2
+    var minimum: CGFloat = 4
+
+    var body: some View {
+        GeometryReader { geo in
+            let widths = Self.widths(parts.map(\.value), total: geo.size.width, gap: gap, minimum: minimum)
+            HStack(spacing: gap) {
+                ForEach(parts.indices, id: \.self) { i in
+                    if widths[i] > 0 {
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(parts[i].color)
+                            .frame(width: widths[i])
+                            .help(parts[i].help)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Width per value: zero for a value of zero, at least `minimum` otherwise; what the minimums
+    /// add is taken from the parts above it, the largest first. Together with the gaps between the
+    /// visible parts they fill `total` exactly (as long as it holds the minimums at all).
+    nonisolated static func widths(_ values: [Int], total: CGFloat, gap: CGFloat, minimum: CGFloat) -> [CGFloat] {
+        let shown = values.indices.filter { values[$0] > 0 }
+        guard !shown.isEmpty, total > 0 else { return values.map { _ in 0 } }
+        let sum = CGFloat(shown.reduce(0) { $0 + values[$1] })
+        let room = max(0, total - gap * CGFloat(shown.count - 1))
+        var widths = values.map { $0 > 0 ? room * CGFloat($0) / sum : 0 }
+        var excess: CGFloat = 0
+        for i in shown where widths[i] < minimum {
+            excess += minimum - widths[i]
+            widths[i] = minimum
+        }
+        for i in shown.sorted(by: { widths[$0] > widths[$1] }) where excess > 0 {
+            let take = min(excess, max(0, widths[i] - minimum))
+            widths[i] -= take
+            excess -= take
+        }
+        return widths
     }
 }
