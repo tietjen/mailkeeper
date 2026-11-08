@@ -36,6 +36,21 @@ APPEND, Proton rebuilds messages and ignores the APPEND date, Dovecot is textboo
    the trash instead. A location marked gone that the server lists again is present again (sync,
    journalled), and leaves the trash. A purged `mid:` identity's tombstone keeps a hash of sender
    and subject (no text): a different message reusing the Message-ID is not swallowed by it.
+   *As built (TJ 2026-11-08):* the period is the archive's own (`settings.json`, default 30
+   days, 1–3650, or `null` = only by hand; a file that is there but unreadable means only by
+   hand, never the default — fail closed); a shorter period that would purge at once, or whose
+   count fails, asks for Touch ID / password like any permanent delete, and purges right after. **"Komplett entfernen"** is a server delete
+   followed by an archive delete of the same messages, planned together (both halves' items fixed
+   at plan time) and shown in one plan sheet. The archive half is stored and run only after the
+   server half ran to its end — a stopped or failed server half leaves no archive half to resume
+   on its own — and it plans messages still on a server as well: the writer's own check leaves
+   whatever the server half did not take off the server ("liegt noch auf einem Server"). Before
+   it runs, it is fitted to the server half's result (`ActionJob.archiveHalf`, matched by
+   Message-ID or blob): a mail with a server item not done stays, and so does one whose UID was
+   already gone — it may have moved to another folder since the last fetch, which the writer
+   cannot see ("erst neu abrufen"). A retry of failed server items is a removal again. An
+   account that fetches its server trash brings a removed mail back out of the archive trash
+   with the next fetch (nothing lost; the removal holds only until then).
 5. **Restore:** `APPEND` of the stored bytes with original flags and INTERNALDATE (Proton
    ignores the date and uses `Date:`); Message-ID pre-check in the target; Gmail labels via
    `STORE +X-GM-LABELS`; Proton in batches of 100–500 with long timeouts (~1.5 s/message).

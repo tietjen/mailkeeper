@@ -11,6 +11,16 @@ dahinter stehen in [docs/adr/](docs/adr/).
   Verhältnis, darunter Anzahl und Größe beider Teile.
 - **Aufräumen, Knöpfe:** Die Knöpfe unter einer Gruppe sind jetzt Symbole. Was sie tun, steht
   im Tooltip, und nichts wird mehr abgeschnitten.
+- **Komplett entfernen:** Ein neuer Weg nimmt Mails vom Server und aus dem Archiv in einem
+  Plan: erst in den Papierkorb ihres Servers, mit denselben Prüfungen wie beim Löschen auf dem
+  Server, danach in den Papierkorb des Archivs. Was der Server nicht hergibt (Schonfrist,
+  markiert, nicht erreichbar), bleibt an beiden Orten. Zu finden in *Bearbeiten* (⌥⌘⌫), im
+  Kontextmenü, bei mehreren ausgewählten Mails und bei einer Gruppe unter *Aufräumen*. Der Plan
+  *Aus dem Archiv löschen* bietet ihn an, wenn Mails noch auf einem Server liegen.
+- **Papierkorb des Archivs:** Wie lange er Mails hält, bevor er sie von selbst endgültig löscht,
+  stellst du oben in der Papierkorb-Ansicht ein: 7 Tage bis ein Jahr oder „nur von Hand“.
+  Standard bleiben 30 Tage. Die Frist gilt je Archiv. Löscht eine kürzere Frist sofort Mails,
+  fragt MailKeeper vorher nach Touch ID oder deinem Passwort.
 
 ## [0.2.1] — 2026-11-08
 

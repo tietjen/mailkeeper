@@ -155,7 +155,8 @@ Alle gehen über **Plan → Ausführen → Prüfen**, mit Protokoll in
 | Aktion | Start | Was sie tut | Grenze |
 |---|---|---|---|
 | **Auf dem Server löschen** | Bearbeiten, Kontextmenü, Gruppe | in den Papierkorb des Servers | Schonfrist (Standard 30 Tage); Archiv behält alles |
-| **Aus dem Archiv löschen** | ⌘⌫ | in den Archiv-Papierkorb, 30 Tage | überspringt, was noch auf einem Server liegt |
+| **Aus dem Archiv löschen** | ⌘⌫ | in den Archiv-Papierkorb | überspringt, was noch auf einem Server liegt |
+| **Komplett entfernen** | ⌥⌘⌫, Kontextmenü, Gruppe | erst Papierkorb des Servers, dann Archiv-Papierkorb | was der Server nicht hergibt, bleibt an beiden Orten |
 | **Wiederherstellen** | Papierkorb, Leser | zurück aus dem Archiv-Papierkorb | ohne Plan und Rückfrage |
 | **Endgültig löschen / Papierkorb leeren** | Papierkorb-Leiste | unwiderruflich | verlangt **Touch ID oder Passwort** |
 | **Auf den Server zurückspielen** | Bearbeiten, Kontextmenü | lädt wieder hoch, prüft danach | nur Ordner, die das Konto abruft; Proton ~1,5 s je Mail |
@@ -221,7 +222,7 @@ Das Zeitlimit für KI-Anfragen (120 s) steht nur in `ai.json`, nicht in der Ober
 
 | | |
 |---|---|
-| Archiv-Papierkorb | 30 Tage |
+| Archiv-Papierkorb | 30 Tage (7–365 oder „nur von Hand“, je Archiv) |
 | Schonfrist Server-Löschung | 30 Tage (0–3650 einstellbar) |
 | KI-Lauf | 500 Mails |
 | Prüfung nach dem Abruf | 14 Tage, 30 Mails, 50 aus Spam-Ordnern |

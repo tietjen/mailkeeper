@@ -1,5 +1,44 @@
 import Foundation
 
+extension ActionJob {
+    /// Keys that tie a server item to an archive item of the same mail: the Message-ID, and the
+    /// blob (a server item carries its location's blob, an archive item the message's primary one,
+    /// so the Message-ID is what usually matches).
+    public static func mailKeys(_ item: ActionItem) -> [String] {
+        [item.messageID.map { "mid:" + $0 }, item.sha256.isEmpty ? nil : "sha:" + item.sha256].compactMap { $0 }
+    }
+
+    /// "Komplett entfernen": the archive half (`self`), with every mail the server half did not
+    /// verifiably take off its server skipped — failed, skipped or left open there, or found gone
+    /// already (it may have moved to another folder since the last fetch: fetch first). The
+    /// writer checks the server state again; this keeps the moved ones out, which it cannot see.
+    public func archiveHalf(after server: ActionJob) -> ActionJob {
+        var staying: Set<String> = []
+        var moved: Set<String> = []
+        for item in server.items {
+            if item.state != .done {
+                staying.formUnion(Self.mailKeys(item))
+            } else if item.reason == ServerDeleteExecutor.alreadyGone {
+                moved.formUnion(Self.mailKeys(item))
+            }
+        }
+        var job = self
+        for i in job.items.indices where job.items[i].state == .planned {
+            let keys = Self.mailKeys(job.items[i])
+            if keys.contains(where: staying.contains) {
+                job.items[i].state = .skipped
+                job.items[i].reason = ArchiveReader.stillOnServer
+            } else if keys.contains(where: moved.contains) {
+                job.items[i].state = .skipped
+                job.items[i].reason = Self.notThereAnyMore
+            }
+        }
+        return job
+    }
+
+    public static let notThereAnyMore = String(localized: "lag auf dem Server nicht mehr dort – erst neu abrufen")
+}
+
 /// Runs a planned archive-delete job: messages go to the archive trash (journalled), in batches;
 /// each item is recorded in the queue and the audit log. Reversible until purged.
 public struct ArchiveDeleteExecutor: Sendable {

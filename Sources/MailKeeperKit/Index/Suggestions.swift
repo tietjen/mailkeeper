@@ -3,7 +3,7 @@ import Foundation
 /// Where cleaning up pays off (6.5a, plan §3): deterministic counts, a query that shows exactly
 /// those mails, and a plain reason. Nothing happens from a suggestion itself — deleting goes
 /// through the plan sheet with its checks (on the server: grace period, the archive keeps them;
-/// in the archive: the trash for 30 days, only what no server holds — ADR-0006).
+/// in the archive: the trash for the archive's period, only what no server holds — ADR-0006).
 public struct CleanupSuggestion: Sendable, Equatable, Identifiable {
     public enum Kind: String, Sendable { case unreadList, oldNotifications, largeOld, oldSpam }
 
@@ -71,7 +71,7 @@ extension ArchiveReader {
             String(localized: "\(n) automatische Benachrichtigungen, älter als ein Jahr; \(place(server)).")
         }
         try bucket(.largeOld, "larger:10M before:1y", Self.suggestionMinimum.large, String(localized: "Große alte Mails")) { n, bytes, server in
-            String(localized: "\(n) Mails über 10 MB, älter als ein Jahr – zusammen \(bytes.formatted(.byteCount(style: .file))); \(place(server)). Vom Server löschen kostet nichts, das Archiv behält sie; aus dem Archiv gelöscht sind sie nach 30 Tagen endgültig weg – nur, wenn du die Anhänge nirgends brauchst.")
+            String(localized: "\(n) Mails über 10 MB, älter als ein Jahr – zusammen \(bytes.formatted(.byteCount(style: .file))); \(place(server)). Vom Server löschen kostet nichts, das Archiv behält sie; aus dem Archiv gelöscht sind sie nach dem Papierkorb endgültig weg – nur, wenn du die Anhänge nirgends brauchst.")
         }
         try bucket(.oldSpam, "is:war-im-spam before:30d (kategorie:spam OR is:phishing)", Self.suggestionMinimum.spam,
                    String(localized: "Bestätigter Spam")) { n, _, server in

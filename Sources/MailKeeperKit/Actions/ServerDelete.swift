@@ -45,6 +45,10 @@ public struct ServerDeleteProgress: Sendable, Equatable {
 /// (journalled) and in the audit log. Resumable: claimed items from an interrupted run are
 /// checked again; cancelling stops after the current batch.
 public struct ServerDeleteExecutor: Sendable {
+    /// Done, but not by this delete: the UID was no longer there — deleted, or moved to another
+    /// folder since the last fetch (then the mail still lives on the server).
+    public static let alreadyGone = String(localized: "war bereits nicht mehr auf dem Server")
+
     public let writer: ArchiveWriter
     public let store: ActionStore
     public let audit: AuditLog
@@ -161,7 +165,7 @@ public struct ServerDeleteExecutor: Sendable {
         var gone: Set<UInt32> = []
         for item in alreadyGone {
             gone.insert(item.location!.uid)
-            try finish(&job, item.id, .done, String(localized: "war bereits nicht mehr auf dem Server"), &p)
+            try finish(&job, item.id, .done, ServerDeleteExecutor.alreadyGone, &p)
         }
         for item in go {
             if stillThere.contains(item.location!.uid) {

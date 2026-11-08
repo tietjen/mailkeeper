@@ -28,11 +28,18 @@ struct PlanSheet: View {
 
     private var job: ActionJob { plan.job }
     private var runs: Int { job.open.count }
+    /// "Komplett entfernen": the mails the archive half would take — those with no server copy
+    /// the server half skips (it may still fail on one; the writer then leaves it).
+    private var archiveRuns: Int {
+        guard let followUp = plan.followUp else { return 0 }
+        let staying = Set(job.items.filter { $0.state == .skipped }.flatMap(ActionJob.mailKeys))
+        return followUp.open.filter { !ActionJob.mailKeys($0).contains(where: staying.contains) }.count
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(AppModel.actionTitle(job.kind)).font(.title3.weight(.semibold))
+                Text(plan.removesEverywhere ? AppModel.removalTitle : AppModel.actionTitle(job.kind)).font(.title3.weight(.semibold))
                 Text(DisplayText.safe(job.title)).foregroundStyle(.secondary).lineLimit(2)
             }
             Text(explanation).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -70,7 +77,7 @@ struct PlanSheet: View {
                     }
                     if plan.summary.archiveOnly > 0 {
                         GridRow {
-                            Text("Nur im Archiv (nichts zu tun)").foregroundStyle(.secondary)
+                            Text(plan.removesEverywhere ? "Nur im Archiv (gehen gleich mit)" : "Nur im Archiv (nichts zu tun)").foregroundStyle(.secondary)
                             Text(plan.summary.archiveOnly.formatted())
                         }
                     }
@@ -92,6 +99,14 @@ struct PlanSheet: View {
                         Text("Übersprungen: \(reason)").foregroundStyle(.orange)
                         Text(count.formatted())
                     }
+                }
+                if plan.removesEverywhere {  // the second half under the first, after what the server keeps
+                    GridRow {
+                        Text("Danach in den Papierkorb des Archivs")
+                        Text("bis zu \(archiveRuns.formatted()) Mails").fontWeight(.semibold)
+                    }
+                    .padding(.top, 8)  // a Divider across the grid made the reason above truncate instead of wrap
+                    .help("Alle ausgewählten Mails, die danach auf keinem Server mehr liegen – auch die, die schon nur im Archiv waren")
                 }
             }
             .font(.callout)
@@ -159,17 +174,17 @@ struct PlanSheet: View {
                 }
                 if job.kind == .archiveDelete, !plan.stored, plan.filter.ids != [],
                    job.reasons.contains(where: { $0.reason == ArchiveReader.stillOnServer }) {
-                    Button("Zuerst auf dem Server löschen …") {
-                        model.plan(.serverDelete, filter: plan.filter, title: job.title)
+                    Button("Auch auf dem Server löschen …") {
+                        model.planRemoval(filter: plan.filter, title: job.title)
                     }
-                    .help("Im Papierkorb liegt nur, was auf keinem Server mehr ist")
+                    .help("Komplett entfernen: erst vom Server, dann in den Papierkorb des Archivs – im Papierkorb liegt nur, was auf keinem Server mehr ist")
                 }
                 Spacer()
                 Button("Abbrechen") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button(runs == 0 ? "Nichts zu tun" : job.kind == .restore ? "Zurückspielen" : "Ausführen",
+                Button(runs + archiveRuns == 0 ? "Nichts zu tun" : job.kind == .restore ? "Zurückspielen" : "Ausführen",
                        role: job.kind == .restore ? nil : .destructive) { model.execute(plan) }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(runs == 0 || model.actionRunning || model.syncRunning || model.importRunning)
+                    .disabled(runs + archiveRuns == 0 || model.actionRunning || model.syncRunning || model.importRunning)
             }
         }
         .padding(20)
@@ -178,11 +193,14 @@ struct PlanSheet: View {
     }
 
     private var explanation: String {
-        switch job.kind {
+        if plan.removesEverywhere {
+            return String(localized: "Erst wandern die Mails in den Papierkorb ihres Servers – mit denselben Prüfungen wie beim Löschen auf dem Server –, danach in den Papierkorb des Archivs. \(TrashPeriod.stay(model.trashDays)); bis dahin lassen sie sich wiederherstellen. Was der Server nicht hergibt (Schonfrist, markiert, nicht erreichbar), bleibt auf dem Server und im Archiv.")
+        }
+        return switch job.kind {
         case .serverDelete:
             String(localized: "Die Mails wandern in den Papierkorb ihres Servers; das Archiv behält sie. Unmittelbar vorher prüft MailKeeper jede einzelne: Archivkopie intakt, noch dieselbe Mail, nicht inzwischen markiert.")
         case .archiveDelete:
-            String(localized: "Die Mails wandern in den Papierkorb des Archivs und werden nach 30 Tagen endgültig gelöscht; bis dahin lassen sie sich wiederherstellen. Was noch auf einem Server liegt, bleibt dort — nach dem endgültigen Löschen holt MailKeeper es nicht wieder.")
+            String(localized: "Die Mails wandern in den Papierkorb des Archivs. \(TrashPeriod.stay(model.trashDays)); bis dahin lassen sie sich wiederherstellen. Was noch auf einem Server liegt, bleibt dort — nach dem endgültigen Löschen holt MailKeeper es nicht wieder.")
         case .restore:
             String(localized: "MailKeeper lädt die Mails aus dem Archiv wieder auf den Server – mit ihrem Status (gelesen, beantwortet, markiert), bei Gmail mit den Labels. Vorher sucht es jede im Zielordner: Was dort schon liegt, kommt nicht doppelt. Danach holt es sie zur Kontrolle zurück. Ordner legt MailKeeper nicht an.")
                 + (protonInvolved ? " " + String(localized: "Proton braucht etwa 1,5 Sekunden je Mail und nimmt das Datum aus der Mail.") : "")
@@ -206,17 +224,29 @@ struct PlanSheet: View {
 struct ResultSheet: View {
     let model: AppModel
     let job: ActionJob
+    /// "Komplett entfernen": the archive half, after the server half (`job`).
+    var followUp: ActionJob?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("\(AppModel.actionTitle(job.kind)): fertig").font(.title3.weight(.semibold))
+            Text("\(followUp != nil ? AppModel.removalTitle : AppModel.actionTitle(job.kind)): fertig").font(.title3.weight(.semibold))
             Text(DisplayText.safe(job.title)).foregroundStyle(.secondary).lineLimit(2)
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 6) {
-                GridRow { Text("Erledigt"); Text(job.count(.done).formatted()).fontWeight(.semibold) }
+                GridRow { Text(followUp != nil ? "In den Papierkorb des Servers" : "Erledigt"); Text(job.count(.done).formatted()).fontWeight(.semibold) }
                 if job.count(.failed) > 0 { GridRow { Text("Fehlgeschlagen").foregroundStyle(.red); Text(job.count(.failed).formatted()) } }
                 if job.count(.skipped) > 0 { GridRow { Text("Übersprungen").foregroundStyle(.orange); Text(job.count(.skipped).formatted()) } }
                 if !job.open.isEmpty { GridRow { Text("Offen").foregroundStyle(.secondary); Text(job.open.count.formatted()) } }
+                if let followUp {
+                    Divider().gridCellColumns(2)
+                    GridRow { Text("In den Papierkorb des Archivs"); Text(followUp.count(.done).formatted()).fontWeight(.semibold) }
+                    if followUp.count(.skipped) > 0 {
+                        GridRow { Text("Bleibt, liegt noch auf einem Server").foregroundStyle(.orange); Text(followUp.count(.skipped).formatted()) }
+                    }
+                    if followUp.count(.failed) > 0 {
+                        GridRow { Text("Fehlgeschlagen").foregroundStyle(.red); Text(followUp.count(.failed).formatted()) }
+                    }
+                }
             }
             .font(.callout)
             if !job.reasons.isEmpty {
@@ -240,7 +270,7 @@ struct ResultSheet: View {
             HStack {
                 Spacer()
                 if job.count(.failed) > 0 {
-                    Button("Fehlgeschlagene erneut versuchen …") { model.retryFailed(job) }
+                    Button("Fehlgeschlagene erneut versuchen …") { model.retryFailed(job, followUp: followUp) }
                 }
                 Button("Schließen") { dismiss() }.keyboardShortcut(.defaultAction)
             }
@@ -389,8 +419,12 @@ struct SelectionSummaryView: View {
                         model.planSelection(.serverDelete)
                     }
                     action("Aus dem Archiv löschen …", "archivebox",
-                           "In den Papierkorb des Archivs (30 Tage) – nur Mails, die auf keinem Server mehr liegen; vorher kommt eine Übersicht") {
+                           "In den Papierkorb des Archivs – nur Mails, die auf keinem Server mehr liegen; vorher kommt eine Übersicht") {
                         model.planSelection(.archiveDelete)
+                    }
+                    action("Komplett entfernen …", "trash",
+                           "Erst vom Server, dann in den Papierkorb des Archivs; vorher kommt eine Übersicht", role: .destructive) {
+                        model.planSelectionRemoval()
                     }
                     action("Auf den Server zurückspielen …", "arrow.up.to.line",
                            "Mails, die nur noch im Archiv liegen, wieder auf einen Server hochladen; vorher kommt eine Übersicht") {
@@ -424,11 +458,41 @@ struct SelectionSummaryView: View {
 /// Above the list in the trash view.
 struct TrashBar: View {
     let model: AppModel
+    /// The picker's own value, set back to the saved period after every change: a cancelled
+    /// Touch ID leaves the model as it was, and the menu must not keep showing the refused choice.
+    @State private var choice: Int
+
+    init(model: AppModel) {
+        self.model = model
+        _choice = State(initialValue: model.trashDays ?? 0)
+    }
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "trash").foregroundStyle(.secondary)
-            Text("Mails im Papierkorb werden nach 30 Tagen endgültig gelöscht.").font(.callout).foregroundStyle(.secondary)
+            Text("Automatisch leeren").font(.callout).foregroundStyle(.secondary)
+            Picker("Automatisch leeren", selection: $choice) {
+                ForEach(TrashPeriod.choices(including: model.trashDays), id: \.self) { days in
+                    Text(TrashPeriod.label(days)).tag(days)
+                }
+                Divider()
+                Text("nur von Hand").tag(0)
+            }
+            .labelsHidden()
+            .fixedSize()
+            .disabled(model.actionRunning)
+            .help("Wie lange Mails im Papierkorb dieses Archivs bleiben, bevor MailKeeper sie von selbst endgültig löscht")
+            .onChange(of: choice) { _, days in
+                Task {
+                    await model.changeTrashDays(days == 0 ? nil : days)
+                    choice = model.trashDays ?? 0
+                }
+            }
+            .onChange(of: model.trashDays) { _, saved in choice = saved ?? 0 }  // another archive opened
+            if model.trashSettingsUnreadable {
+                Label("settings.json des Archivs nicht lesbar – leert nur von Hand, bis du eine Frist wählst", systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange).lineLimit(2)
+            }
             Spacer()
             Button("Wiederherstellen") { model.restoreSelection() }
                 .disabled(model.actionSelection.isEmpty || model.actionRunning)
@@ -441,5 +505,28 @@ struct TrashBar: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(.bar)
+    }
+}
+
+/// The archive trash's period in words (per archive, `ArchiveSettings.trashDays`).
+enum TrashPeriod {
+    /// The trash view's choices, and the archive's own period if it is not among them.
+    static func choices(including current: Int?) -> [Int] {
+        var all = ArchiveSettings.trashDayChoices
+        if let current, !all.contains(current) { all.append(current); all.sort() }
+        return all
+    }
+
+    static func label(_ days: Int) -> String {
+        days == 1 ? String(localized: "nach 1 Tag") : String(localized: "nach \(days) Tagen")
+    }
+
+    /// How long the mails of a plan stay in the trash, as a sentence of its own.
+    static func stay(_ days: Int?) -> String {
+        switch days {
+        case nil: String(localized: "Dort bleiben sie, bis du den Papierkorb leerst")
+        case 1?: String(localized: "Dort bleiben sie 1 Tag")
+        case let d?: String(localized: "Dort bleiben sie \(d) Tage")
+        }
     }
 }
