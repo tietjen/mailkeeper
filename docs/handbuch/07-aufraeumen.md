@@ -7,9 +7,9 @@ immer gleichen Weg: erst der Plan, dann dein Klick, dann die Prüfung.
 ## Die Aufräum-Ansicht
 
 Oben in der Symbolleiste steht **Ansicht**: „Nachrichten“, **„Absender“**, **„Domains“**,
-**„Listen“**. Die drei letzten gruppieren dieselben Mails — mit Anzahl, Größe, Anteil
-ungelesener, neuester und ältester Mail, und einem **✉︎** für Absender, die eine Abmeldung
-anbieten.
+**„Listen“**. Die drei letzten gruppieren dieselben Mails — mit Anzahl, Größe, wie viele davon
+noch auf dem **Server** und wie viele **nur noch im Archiv** liegen, Anteil ungelesener, neuester
+und ältester Mail, und einem **✉︎** für Absender, die eine Abmeldung anbieten.
 
 Ein hoher Ungelesen-Anteil ist das deutlichste Zeichen: über 90 % bei mindestens zehn Mails
 färbt MailKeeper orange ein. Das ist Post, die du nie liest.
@@ -21,11 +21,16 @@ färbt MailKeeper orange ein. Das ist Post, die du nie liest.
 Rechts stehen zu jeder Gruppe:
 
 - **Mails · Größe · Gelesen · Seit** auf einen Blick,
+- ein zweifarbiger Balken: blau, was noch **auf dem Server** liegt, lila, was **nur noch im
+  Archiv** ist, darunter Anzahl und Größe beider Teile,
 - ein **Balkendiagramm über 24 Monate** („etwa N pro Monat“, „zuletzt vor …“) — daran siehst
   du, ob der Absender noch aktiv ist,
-- **Ablage · Auf dem Server · Mit Anhang · Abmeldung**,
+- **Ablage · Mit Anhang · Abmeldung**,
 - bei Domains und Listen die einzelnen Absender darin,
-- die neuesten Mails.
+- die neuesten Mails,
+- darunter die Knöpfe als Symbole: Mails anzeigen, als Ansicht sichern, abmelden, aufräumen
+  (Menü: auf dem Server oder aus dem Archiv löschen) und Regel. Was ein Symbol tut, sagt sein
+  Tooltip.
 
 ### Bereiche
 

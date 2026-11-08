@@ -279,7 +279,8 @@ func summarize(_ p: ImportProgress, start: Date) {
             let unread = g.count > 0 ? g.unread * 100 / g.count : 0
             let count = String(g.count).padding(toLength: 6, withPad: " ", startingAt: 0)
             let size = bytes(g.bytes).padding(toLength: 10, withPad: " ", startingAt: 0)
-            print("\(count) \(size) \(String(format: "%3d", unread))% unread  \(clean(g.key))\(g.name.map { "  (\(clean($0)))" } ?? "")")
+            let server = String(g.onServer).padding(toLength: 6, withPad: " ", startingAt: 0)
+            print("\(count) \(size) \(String(format: "%3d", unread))% unread  \(server)on server  \(clean(g.key))\(g.name.map { "  (\(clean($0)))" } ?? "")")
         }
         print(String(format: "%d groups in %.3fs", groups.count, elapsed))
 

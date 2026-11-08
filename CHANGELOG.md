@@ -3,6 +3,15 @@
 Diese Datei hält fest, was sich für Benutzerinnen und Benutzer ändert. Die Entscheidungen
 dahinter stehen in [docs/adr/](docs/adr/).
 
+## [Unveröffentlicht]
+
+- **Aufräumen, Server und Archiv:** Die Gruppenliste hat zwei neue Spalten, **Server** und
+  **Nur Archiv**: wie viele Mails einer Gruppe noch auf dem Server liegen und wie viele nur noch
+  im Archiv. Beide lassen sich sortieren. Rechts zeigt ein zweifarbiger Balken dasselbe
+  Verhältnis, darunter Anzahl und Größe beider Teile.
+- **Aufräumen, Knöpfe:** Die Knöpfe unter einer Gruppe sind jetzt Symbole. Was sie tun, steht
+  im Tooltip, und nichts wird mehr abgeschnitten.
+
 ## [0.2.1] — 2026-11-08
 
 Gmail-Anmeldung verständlich.

@@ -60,22 +60,6 @@
         }
       }
     },
-    "%@ (%@) · nur im Archiv %@": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "new",
-            "value": "%1$@ (%2$@) · nur im Archiv %3$@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (%@) · only in the archive %@"
-          }
-        }
-      }
-    },
     "%@ (%lld)": {
       "localizations": {
         "de": {
@@ -392,6 +376,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ instead of %@"
+          }
+        }
+      }
+    },
+    "%@ von %@ Mails (%@) noch auf dem Server": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$@ von %2$@ Mails (%3$@) noch auf dem Server"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ of %2$@ mails (%3$@) still on the server"
+          }
+        }
+      }
+    },
+    "%@ von %@ Mails (%@) nur noch im Archiv": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$@ von %2$@ Mails (%3$@) nur noch im Archiv"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ of %2$@ mails (%3$@) only in the archive now"
           }
         }
       }
@@ -1505,6 +1521,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Unsubscribing locked"
+          }
+        }
+      }
+    },
+    "Abmelden gesperrt: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unsubscribe blocked: %@"
           }
         }
       }
@@ -3655,6 +3681,16 @@
         }
       }
     },
+    "Davon auf keinem Server (dort gelöscht oder importiert)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Of these, on no server (deleted there or imported)"
+          }
+        }
+      }
+    },
     "Davon noch auf einem Server": {
       "localizations": {
         "en": {
@@ -4459,6 +4495,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "The sidebar"
+          }
+        }
+      }
+    },
+    "Die Spalten „Server“ und „Nur Archiv“ zeigen je Gruppe, wie viele Mails noch auf dem Server liegen und wie viele nur noch im Archiv. Rechts steht dasselbe als zweifarbiger Balken. Die Knöpfe darunter sind Symbole; was sie tun, sagt der Tooltip.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The “Server” and “Archive only” columns show per group how many mails are still on the server and how many are only in the archive. On the right, the same as a two-coloured bar. The buttons below it are symbols; the tooltip says what they do."
           }
         }
       }
@@ -8447,6 +8493,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Take notes, terms, rules and relationships from an exported file – MailKeeper shows what is in it first; examples belong to the archive they came from"
+          }
+        }
+      }
+    },
+    "Nur Archiv": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archive only"
           }
         }
       }
