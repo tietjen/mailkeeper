@@ -3,7 +3,9 @@
 Diese Datei hält fest, was sich für Benutzerinnen und Benutzer ändert. Die Entscheidungen
 dahinter stehen in [docs/adr/](docs/adr/).
 
-## [Unveröffentlicht]
+## [0.3.0] — 2026-11-08
+
+Aufräumen: Server und Archiv auf einen Blick, Mails komplett entfernen.
 
 - **Aufräumen, Server und Archiv:** Die Gruppenliste hat zwei neue Spalten, **Server** und
   **Nur Archiv**: wie viele Mails einer Gruppe noch auf dem Server liegen und wie viele nur noch
