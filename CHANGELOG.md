@@ -3,7 +3,9 @@
 Diese Datei hält fest, was sich für Benutzerinnen und Benutzer ändert. Die Entscheidungen
 dahinter stehen in [docs/adr/](docs/adr/).
 
-## [Unveröffentlicht]
+## [0.2.1] — 2026-11-08
+
+Gmail-Anmeldung verständlich.
 
 - **Gmail-Konto hinzufügen:** Der Dialog sagt, was die beiden Wege kosten (App-Passwort: etwa
   2 Minuten; Anmeldung mit Google: einmalig ein eigener Google-Client, etwa 10 Minuten), und
