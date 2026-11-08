@@ -45,9 +45,11 @@ private struct GroupTableView: NSViewRepresentable {
         table.usesAutomaticRowHeights = false
         table.rowHeight = 34  // two lines: name and address
         let columns: [(id: String, title: String, width: CGFloat, min: CGFloat, flexible: Bool, ascending: Bool)] = [
-            ("name", String(localized: "Absender"), 280, 180, true, true),
+            ("name", String(localized: "Absender"), 280, 150, true, true),
             ("count", String(localized: "Mails"), 60, 50, false, false),
             ("bytes", String(localized: "Größe"), 75, 60, false, false),
+            ("server", String(localized: "Server"), 60, 44, false, false),
+            ("archive", String(localized: "Nur Archiv"), 80, 52, false, false),
             ("unread", String(localized: "Ungelesen"), 75, 60, false, false),
             ("newest", String(localized: "Neueste"), 85, 70, false, false),
             ("oldest", String(localized: "Älteste"), 85, 70, false, true),
@@ -58,6 +60,11 @@ private struct GroupTableView: NSViewRepresentable {
             col.title = c.title
             col.minWidth = c.min
             col.width = c.width
+            switch c.id {
+            case "server": col.headerToolTip = String(localized: "Davon noch auf einem Server")
+            case "archive": col.headerToolTip = String(localized: "Davon auf keinem Server (dort gelöscht oder importiert)")
+            default: break
+            }
             if c.id == "unsubscribe" {
                 col.maxWidth = c.width
                 col.resizingMask = []
@@ -71,7 +78,8 @@ private struct GroupTableView: NSViewRepresentable {
             table.addTableColumn(col)
         }
         table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
-        table.autosaveName = "MailKeeper.GroupTable"
+        // a new name with new columns: the layout saved under the old one would leave them at the end
+        table.autosaveName = "MailKeeper.GroupTable.2"
         table.autosaveTableColumns = true
         table.sortDescriptors = [NSSortDescriptor(key: "count", ascending: false)]
         table.dataSource = context.coordinator
@@ -85,6 +93,10 @@ private struct GroupTableView: NSViewRepresentable {
         let scroll = NSScrollView()
         scroll.documentView = table
         scroll.hasVerticalScroller = true
+        // the columns' minimum widths add up to more than the narrowest middle pane: scroll
+        // sideways rather than cut off "Neueste", "Älteste" and ✉︎ without a sign
+        scroll.hasHorizontalScroller = true
+        scroll.autohidesScrollers = true
         return scroll
     }
 
@@ -146,6 +158,8 @@ private struct GroupTableView: NSViewRepresentable {
                 switch key {
                 case "name": order(a.displaySort, b.displaySort, a, b)
                 case "bytes": order(a.bytes, b.bytes, a, b)
+                case "server": order(a.onServer, b.onServer, a, b)
+                case "archive": order(a.archiveOnly, b.archiveOnly, a, b)
                 case "unread": order(a.unreadShare, b.unreadShare, a, b)
                 case "newest": order(a.newestSort, b.newestSort, a, b)
                 case "oldest": order(a.oldestSort, b.oldestSort, a, b)
@@ -186,6 +200,8 @@ private struct GroupTableView: NSViewRepresentable {
             switch id.rawValue {
             case "count": cell.textField?.stringValue = g.count.formatted()
             case "bytes": cell.textField?.stringValue = g.bytes.formatted(.byteCount(style: .file))
+            case "server": cell.textField?.stringValue = g.onServer.formatted()
+            case "archive": cell.textField?.stringValue = g.archiveOnly.formatted()
             case "unread":
                 cell.textField?.stringValue = g.unreadShare.formatted(.percent.precision(.fractionLength(0)))
                 if g.unreadShare > 0.9 && g.count >= 10 { cell.textField?.textColor = .systemOrange }

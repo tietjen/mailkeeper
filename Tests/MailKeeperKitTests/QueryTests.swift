@@ -289,6 +289,7 @@ struct GroupTests {
             #expect(!groups.isEmpty, "\(mode)")
             for g in groups {
                 #expect(try r.count(MessageFilter(base: g.query)) == g.count, "\(g.query)")
+                #expect(try r.count(MessageFilter(text: "on:server ", base: g.query)) == g.onServer, "\(g.query)")
             }
         }
         let senders = try r.groups(MessageFilter(), by: .sender)
@@ -387,6 +388,7 @@ struct Phase3ReviewTests {
         for mode in GroupMode.allCases {
             for g in try r.groups(MessageFilter(), by: mode) {
                 #expect(try r.count(MessageFilter(base: g.query)) == g.count, "\(g.query)")
+                #expect(try r.count(MessageFilter(text: "on:server ", base: g.query)) == g.onServer, "\(g.query)")
             }
         }
         let domains = try r.groups(MessageFilter(), by: .domain).map(\.key).sorted()
@@ -528,6 +530,7 @@ struct OnServerTests {
         #expect(try subjects("only:archive") == ["imported", "synced"])
         let g = try #require(try r.groups(MessageFilter(), by: .sender).first)
         #expect(try r.groupDetail(g, within: MessageFilter()).onServer == 1)  // only "both" is still there
+        #expect(g.count == 3 && g.onServer == 1 && g.archiveOnly == 2)  // the table's columns say the same
     }
 }
 
