@@ -27,7 +27,8 @@ Weg, den Google langfristig vorsieht. **Dein Google-Passwort sieht MailKeeper in
 
 ## 2. Zustimmungsbildschirm
 
-**APIs und Dienste › OAuth-Zustimmungsbildschirm**:
+**APIs und Dienste › OAuth-Zustimmungsbildschirm** — Google nennt diesen Bereich inzwischen
+**Google Auth Platform**, mit den Seiten *Branding*, *Zielgruppe*, *Clients* und *Datenzugriff*:
 
 1. Nutzertyp **Extern** (Intern gibt es nur mit Google Workspace).
 2. App-Name (z. B. „MailKeeper“), Support-E-Mail, Entwickler-E-Mail — das siehst nur du.
@@ -35,20 +36,22 @@ Weg, den Google langfristig vorsieht. **Dein Google-Passwort sieht MailKeeper in
    (`https://mail.google.com/`, `openid`, `email`).
 4. Testnutzer: deine eigene Gmail-Adresse eintragen.
 5. **Wichtig:** den Zustimmungsbildschirm anschließend auf **„In Produktion“** stellen
-   (*Veröffentlichungsstatus › App veröffentlichen*). Im Testmodus läuft die Anmeldung nach
-   **7 Tagen** ab, und MailKeeper müsste sich jede Woche neu anmelden. Die Warnung „nicht
-   verifizierte App“ bleibt — sie gilt für fremde Nutzer, nicht für dich als Eigentümer; du
-   kommst über **Erweitert › Weiter zu …** daran vorbei.
+   (*Zielgruppe › Veröffentlichungsstatus › App veröffentlichen*). Im Testmodus läuft die
+   Anmeldung nach **7 Tagen** ab, und MailKeeper müsste sich jede Woche neu anmelden. Die
+   Warnung „Google hat diese App nicht überprüft“ bleibt, auch für dich als Eigentümer: Geprüft
+   wird nur eine App, die den Bereich für fremde Nutzer anbietet. Du kommst über
+   **Erweitert › Weiter zu …** daran vorbei.
 
 ## 3. OAuth-Client erstellen
 
-**APIs und Dienste › Anmeldedaten › Anmeldedaten erstellen › OAuth-Client-ID**:
+**APIs und Dienste › Anmeldedaten › Anmeldedaten erstellen › OAuth-Client-ID** (in der neuen
+Oberfläche: *Google Auth Platform › Clients › Client erstellen*):
 
 - Anwendungstyp: **Desktop-App**
 - Name: frei wählbar
 
 Google zeigt danach **Client-ID** (endet auf `.apps.googleusercontent.com`) und
-**Client-Schlüssel** (beginnt mit `GOCSPX-`). Beides brauchst du gleich. Der „Schlüssel“ einer
+**Clientschlüssel** (beginnt mit `GOCSPX-`). Beides brauchst du gleich. Der „Schlüssel“ einer
 Desktop-App ist kein echtes Geheimnis — Google sagt das selbst; geschützt wird die Anmeldung
 durch PKCE. MailKeeper legt ihn trotzdem in den Schlüsselbund und nie ins Archiv.
 
@@ -58,13 +61,16 @@ Port (RFC 8252).
 
 ## 4. In MailKeeper
 
-**Einstellungen › Konten › +**, Art **Gmail**, Anmeldung **Mit Google anmelden**:
+**Einstellungen › Konten › +**, Art **Gmail**, Anmeldung **Mit Google anmelden**. Der Dialog
+nummeriert die Schritte selbst; Schritt 1 ist diese Anleitung in kurz, mit einem Link auf jede
+Seite der Google Cloud Console (unter **So geht’s**).
 
 1. Kürzel und Adresse eintragen.
-2. Client-ID und Client-Schlüssel einsetzen.
+2. Client-ID und Clientschlüssel einsetzen — danach klappt die Kurzanleitung zu.
 3. **Mit Google anmelden …** — der Browser öffnet sich, du wählst das Konto und bestätigst.
    Danach steht in der App „angemeldet als …“.
-4. **Verbinden und prüfen**, dann **Speichern**.
+4. **Verbinden und prüfen**, dann **Speichern**. Solange der Knopf ausgegraut ist, steht links
+   daneben, was noch fehlt.
 
 Ein bestehendes Gmail-Konto stellst du um, ohne das Archiv anzufassen: Konto auswählen →
 **Auf Google-Anmeldung umstellen …**. Kennung, Archiv und Einstellungen bleiben; das alte

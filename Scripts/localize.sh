@@ -62,6 +62,9 @@ source = cat.get("sourceLanguage", "de")
 languages = {lang for e in strings.values() for lang in e.get("localizations", {})} - {source}
 
 SPEC = re.compile(r"%(?:(\d+)\$)?(lld|ld|d|@|f|%)")
+# Markdown links inside a text (the Gmail guide in the account sheet): a translation has to
+# point at the same pages, or the English guide drifts the day Google moves one.
+LINK = re.compile(r"\]\((https?://[^)\s]+)\)")
 def sequence(text):
     """The argument types in the order the format consumes them."""
     out, auto = {}, 0
@@ -75,7 +78,7 @@ def sequence(text):
             out[auto] = kind
     return [out[i] for i in sorted(out)]
 
-missing, mismatched, translatable = collections.Counter(), [], 0
+missing, mismatched, relinked, translatable = collections.Counter(), [], [], 0
 for key, entry in strings.items():
     if entry.get("shouldTranslate") is False:
         continue
@@ -87,6 +90,8 @@ for key, entry in strings.items():
             continue
         if sequence(key) != sequence(unit.get("value", "")):
             mismatched.append((lang, key, unit["value"]))
+        if sorted(LINK.findall(key)) != sorted(LINK.findall(unit.get("value", ""))):
+            relinked.append((lang, key, unit["value"]))
 
 print(f"    {translatable} Texte, Quellsprache {source}")
 for lang in sorted(languages):
@@ -97,8 +102,15 @@ for lang, key, value in mismatched:
     print(f"        {key!r}")
     print(f"        {value!r}")
 
+for lang, key, value in relinked:
+    print(f"    x {lang}: andere Links als im deutschen Text")
+    print(f"        {key!r}")
+    print(f"        {value!r}")
+
 if mismatched:
     sys.exit("Platzhalter passen nicht zusammen - ein vertauschtes %lld/%@ stuerzt zur Laufzeit ab.")
+if relinked:
+    sys.exit("Links in einer Uebersetzung weichen vom deutschen Text ab.")
 if strict and any(missing.values()):
     sys.exit("Es fehlen Uebersetzungen.")
 CATALOGCHECK

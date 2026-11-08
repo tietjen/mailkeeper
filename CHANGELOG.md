@@ -3,6 +3,16 @@
 Diese Datei hält fest, was sich für Benutzerinnen und Benutzer ändert. Die Entscheidungen
 dahinter stehen in [docs/adr/](docs/adr/).
 
+## [Unveröffentlicht]
+
+- **Gmail-Konto hinzufügen:** Der Dialog sagt, was die beiden Wege kosten (App-Passwort: etwa
+  2 Minuten; Anmeldung mit Google: einmalig ein eigener Google-Client, etwa 10 Minuten), und
+  führt durch die Google-Anmeldung in vier Schritten — die Anleitung für den Client steht im
+  Dialog, mit Links direkt auf die Seiten der Google Cloud Console. Zum App-Passwort gibt es den
+  Link auf die Google-Seite, auf der es entsteht.
+- **Konto hinzufügen:** Unter „Kürzel“ steht, wofür es da ist, und neben dem ausgegrauten
+  *Verbinden und prüfen* steht, was noch fehlt.
+
 ## [0.2.0] — 2026-11-07
 
 Erster Start und Einrichtung.
