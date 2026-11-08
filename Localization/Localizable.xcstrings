@@ -1248,6 +1248,16 @@
         }
       }
     },
+    "16 Zeichen von Google": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "16 characters from Google"
+          }
+        }
+      }
+    },
     "API-Schlüssel": {
       "localizations": {
         "en": {
@@ -1339,12 +1349,12 @@
         }
       }
     },
-    "Abgerufen wird „Alle Nachrichten“; Labels werden übernommen. MailKeeper fragt Google nur nach dem Zugriff auf deine Mails.": {
+    "Abgerufen wird „Alle Nachrichten“; Labels werden übernommen.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "“All Mail” is fetched; labels are taken over. MailKeeper asks Google for access to your mail and nothing else."
+            "value": "MailKeeper fetches “All Mail”; labels are kept."
           }
         }
       }
@@ -2311,6 +2321,16 @@
         }
       }
     },
+    "Anmelden": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in"
+          }
+        }
+      }
+    },
     "Anmeldung": {
       "localizations": {
         "en": {
@@ -2467,6 +2487,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "App password"
+          }
+        }
+      }
+    },
+    "App-Passwort bei Google erzeugen ↗": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create an app password at Google ↗"
           }
         }
       }
@@ -3405,6 +3435,16 @@
         }
       }
     },
+    "Client": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Client"
+          }
+        }
+      }
+    },
     "Client-ID": {
       "localizations": {
         "en": {
@@ -3415,7 +3455,17 @@
         }
       }
     },
-    "Client-Secret": {
+    "Client-ID und Clientschlüssel einfügen – Google zeigt beide, sobald der Client erstellt ist.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste the client ID and client secret – Google shows both as soon as the client is created."
+          }
+        }
+      }
+    },
+    "Clientschlüssel": {
       "localizations": {
         "en": {
           "stringUnit": {
@@ -3431,6 +3481,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "There is nothing in the spam folder to check for that."
+          }
+        }
+      }
+    },
+    "Danach": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Then"
           }
         }
       }
@@ -3541,6 +3601,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "The chosen archive cannot be reached. Is the drive connected?"
+          }
+        }
+      }
+    },
+    "Das ist keine Client-ID – sie endet auf „.apps.googleusercontent.com“. Der Clientschlüssel gehört ins Feld darunter.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That is not a client ID – it ends in “.apps.googleusercontent.com”. The client secret goes into the field below."
           }
         }
       }
@@ -3881,6 +3951,16 @@
         }
       }
     },
+    "Der Name des Kontos in MailKeeper; er benennt die Ordner im Archiv. Kleinbuchstaben, Ziffern, „-“ und „_“ – später nicht änderbar.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The account’s name in MailKeeper; it names the account’s folders in the archive. Lowercase letters, digits, “-” and “_” – it cannot be changed later."
+          }
+        }
+      }
+    },
     "Der Verlauf in wenigen Sätzen: wer was wollte, was entschieden ist, was offen ist (⌥⇧⌘S)": {
       "localizations": {
         "en": {
@@ -3897,6 +3977,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "The first fetch is running"
+          }
+        }
+      }
+    },
+    "Der schnelle Weg, etwa 2 Minuten: In deinem Google-Konto ein App-Passwort erzeugen und unten eintragen. Voraussetzung ist die 2-Schritt-Verifizierung.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The quick way, about 2 minutes: create an app password in your Google account and enter it below. It requires 2-Step Verification."
           }
         }
       }
@@ -4623,6 +4713,16 @@
         }
       }
     },
+    "Du meldest dich im Browser bei Google an. MailKeeper bekommt ein Token, nie dein Passwort.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You sign in to Google in your browser. MailKeeper gets a token, never your password."
+          }
+        }
+      }
+    },
     "Du ordnest Mails aus deinem Archiv selbst ein; MailKeeper misst daran, wie gut Regeln und KI sie einordnen – mit und ohne Gedächtnis. Die Labels bleiben in deinem Archivordner (gold.json), ändern nichts an deinen Mails und fließen nicht ins Gedächtnis.": {
       "localizations": {
         "en": {
@@ -4649,6 +4749,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Authenticity"
+          }
+        }
+      }
+    },
+    "Eigenen Google-Client anlegen – einmalig, etwa 10 Minuten.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create your own Google client – once, about 10 minutes."
           }
         }
       }
@@ -5260,6 +5370,26 @@
         }
       }
     },
+    "Erzeugen unter Google-Konto › Sicherheit › 2-Schritt-Verifizierung › App-Passwörter. Google zeigt es nur einmal; die Leerzeichen darfst du mitkopieren.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create it under Google Account › Security › 2-Step Verification › App passwords. Google shows it only once; you may copy the spaces along with it."
+          }
+        }
+      }
+    },
+    "Es fehlt noch: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still missing: %@"
+          }
+        }
+      }
+    },
     "Es gibt keinen Cloud-Anbieter. Entweder ein Endpunkt, den du selbst betreibst (LiteLLM, Ollama, LM Studio), oder das Modell auf diesem Mac — oder gar keins.": {
       "localizations": {
         "en": {
@@ -5440,6 +5570,16 @@
         }
       }
     },
+    "Für diese Client-ID liegt auf diesem Mac kein Clientschlüssel – bitte eintragen.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There is no client secret for this client ID on this Mac – please enter it."
+          }
+        }
+      }
+    },
     "Für diese Gruppe künftig: Art festlegen, nach Tagen vom Server löschen oder in den Spam-Ordner": {
       "localizations": {
         "en": {
@@ -5466,6 +5606,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "For a number you can rely on: about 80 mails – one per sender, spread over every kind and the spam folder. MailKeeper's own classification stays hidden while you label."
+          }
+        }
+      }
+    },
+    "GOCSPX-…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GOCSPX-…"
           }
         }
       }
@@ -5647,22 +5797,12 @@
         }
       }
     },
-    "Gmail braucht ein App-Passwort (Google-Konto › Sicherheit › 2-Schritt-Verifizierung › App-Passwörter). Abgerufen wird „Alle Nachrichten“; Labels werden übernommen.": {
+    "Gmail geht auf zwei Wegen: mit App-Passwort (schnell, braucht die 2-Schritt-Verifizierung) oder mit Anmeldung über Google (braucht einmalig einen eigenen Google-Client – der Dialog führt in vier Schritten hindurch und verlinkt jede Seite bei Google). Passwörter und Anmeldungen liegen im Schlüsselbund, nie im Archiv.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gmail needs an app password (Google Account › Security › 2-Step Verification › App passwords). “All Mail” is fetched; labels are taken over."
-          }
-        }
-      }
-    },
-    "Gmail geht mit App-Passwort oder mit Anmeldung über Google. Passwörter und Anmeldungen liegen im Schlüsselbund, nie im Archiv.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gmail works with an app password or by signing in with Google. Passwords and sign-ins live in the keychain, never in the archive."
+            "value": "Gmail works two ways: with an app password (quick, needs 2-Step Verification) or by signing in with Google (needs a Google client of your own, once – the dialog walks you through it in four steps and links every page at Google). Passwords and sign-ins live in the keychain, never in the archive."
           }
         }
       }
@@ -5703,16 +5843,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Google returned no sign-in code"
-          }
-        }
-      }
-    },
-    "Google-Anmeldung": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Google sign-in"
           }
         }
       }
@@ -5975,6 +6105,16 @@
         }
       }
     },
+    "Im Browser warnt Google „Google hat diese App nicht überprüft“ – bei deinem eigenen Client normal, weiter über „Erweitert“. Google fragt nach vollem Gmail-Zugriff, weil IMAP keinen kleineren kennt; MailKeeper ändert nur etwas, wenn du eine Aktion startest.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In the browser, Google warns “Google hasn’t verified this app” – normal for your own client; continue via “Advanced”. Google asks for full Gmail access because IMAP knows no narrower one; MailKeeper only changes something when you start an action."
+          }
+        }
+      }
+    },
     "Im Finder zeigen": {
       "localizations": {
         "en": {
@@ -6021,6 +6161,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Only what lies on no server any more goes into the trash"
+          }
+        }
+      }
+    },
+    "Im Projekt die [Gmail-API aktivieren ↗](https://console.cloud.google.com/apis/library/gmail.googleapis.com).": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In the project, [enable the Gmail API ↗](https://console.cloud.google.com/apis/library/gmail.googleapis.com)."
           }
         }
       }
@@ -7289,12 +7439,12 @@
         }
       }
     },
-    "MailKeeper nutzt deinen eigenen Google-Cloud-Client (Typ „Desktop“, Gmail-API aktiviert, Zustimmungsbildschirm auf „In Produktion“ — im Testmodus läuft die Anmeldung nach 7 Tagen ab). Die Anleitung steht in docs/gmail-oauth.md. Dein Passwort sieht MailKeeper nie; im Schlüsselbund liegt nur das Google-Token.": {
+    "MailKeeper prüft die Verbindung von selbst. Ist sie in Ordnung, „Übernehmen“.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "MailKeeper uses your own Google Cloud client (type “Desktop”, Gmail API enabled, consent screen set to “In production” — in test mode the sign-in expires after 7 days). The walkthrough is in docs/gmail-oauth.md. MailKeeper never sees your password; the keychain holds only the Google token."
+            "value": "MailKeeper checks the connection by itself. If it is fine, “Apply”."
           }
         }
       }
@@ -8031,6 +8181,16 @@
         }
       }
     },
+    "Neuen Google-Client anlegen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create a new Google client"
+          }
+        }
+      }
+    },
     "Neuer Ordner …": {
       "localizations": {
         "en": {
@@ -8331,6 +8491,16 @@
         }
       }
     },
+    "Nur diese Ordner abrufen, mit Komma getrennt, z. B. „INBOX, Archiv“. Leer lassen ruft alle ab.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetch only these folders, separated by commas, for example “INBOX, Archive”. Leave empty to fetch all."
+          }
+        }
+      }
+    },
     "Nur im Archiv": {
       "localizations": {
         "en": {
@@ -8453,6 +8623,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Without the AI: only “MailKeeper today”"
+          }
+        }
+      }
+    },
+    "Ohne Passwort, aber mit Vorarbeit: Du legst einmalig einen eigenen Google-Client an, etwa 10 Minuten. Wer schnell loslegen will, nimmt das App-Passwort – umstellen geht später jederzeit.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No password, but some groundwork: you create a Google client of your own once, about 10 minutes. To get going quickly, use the app password – you can switch any time later."
           }
         }
       }
@@ -9084,6 +9264,16 @@
         }
       }
     },
+    "Schritt %lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step %lld"
+          }
+        }
+      }
+    },
     "Schützt neue Mails und andere Programme, die das Postfach lesen (z. B. Paperless).": {
       "localizations": {
         "en": {
@@ -9200,6 +9390,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Save…"
+          }
+        }
+      }
+    },
+    "So geht’s": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How to"
           }
         }
       }
@@ -9620,6 +9820,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "At the bottom the status bar: what is running, how large the archive is, and the link to an interrupted job."
+          }
+        }
+      }
+    },
+    "Unten „Verbinden und prüfen“, dann „Speichern“.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Below, “Connect and check”, then “Save”."
           }
         }
       }
@@ -10062,6 +10272,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "A warning or phishing suspicion on mail from this domain"
+          }
+        }
+      }
+    },
+    "Warum so? Vollen Gmail-Zugriff gibt Google nur Apps nach einer teuren Prüfung – oder deinem eigenen Client, der nur für dich gilt. [Ausführliche Anleitung ↗](https://github.com/tietjen/mailkeeper/blob/main/docs/gmail-oauth.md)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Why? Google grants full Gmail access only to apps that passed a costly review – or to your own client, which works only for you. [Full guide ↗](https://github.com/tietjen/mailkeeper/blob/main/docs/gmail-oauth.md)"
           }
         }
       }
@@ -10582,6 +10802,36 @@
         }
       }
     },
+    "[Neues Projekt anlegen ↗](https://console.cloud.google.com/projectcreate), Name z. B. „MailKeeper“.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[Create a new project ↗](https://console.cloud.google.com/projectcreate), named for example “MailKeeper”."
+          }
+        }
+      }
+    },
+    "[OAuth-Client erstellen ↗](https://console.cloud.google.com/apis/credentials/oauthclient): Anwendungstyp „Desktop-App“, Name beliebig. Google zeigt danach Client-ID und Clientschlüssel.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[Create an OAuth client ↗](https://console.cloud.google.com/apis/credentials/oauthclient): application type “Desktop app”, any name. Google then shows the client ID and client secret."
+          }
+        }
+      }
+    },
+    "[Zustimmungsbildschirm ↗](https://console.cloud.google.com/apis/credentials/consent) einrichten: App-Name, deine Adresse, Zielgruppe „Extern“. Danach unter [„Zielgruppe“ ↗](https://console.cloud.google.com/auth/audience) die App veröffentlichen („In Produktion“) – im Testmodus läuft die Anmeldung nach 7 Tagen ab.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up the [consent screen ↗](https://console.cloud.google.com/apis/credentials/consent): app name, your address, audience “External”. Then publish the app under [“Audience” ↗](https://console.cloud.google.com/auth/audience) (“In production”) – in testing mode the sign-in expires after 7 days."
+          }
+        }
+      }
+    },
     "abgeleitet": {
       "localizations": {
         "en": {
@@ -10824,6 +11074,16 @@
         }
       }
     },
+    "die Anmeldung bei Google": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the Google sign-in"
+          }
+        }
+      }
+    },
     "die Domain dieser Mail": {
       "localizations": {
         "en": {
@@ -10900,12 +11160,32 @@
         }
       }
     },
+    "du@gmail.com": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "you@gmail.com"
+          }
+        }
+      }
+    },
     "ein Ordner auf diesem Mac": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "a folder on this Mac"
+          }
+        }
+      }
+    },
+    "ein gültiges Kürzel": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a valid short name"
           }
         }
       }
@@ -10966,16 +11246,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "about %lld a month"
-          }
-        }
-      }
-    },
-    "falls dein Client eines hat": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "if your client has one"
           }
         }
       }
@@ -11232,6 +11502,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "empty"
+          }
+        }
+      }
+    },
+    "leer lassen = alle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "leave empty = all"
+          }
+        }
+      }
+    },
+    "leer lassen = der gespeicherte": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "leave empty = the saved one"
           }
         }
       }
@@ -11506,22 +11796,12 @@
         }
       }
     },
-    "optional, kommagetrennt": {
+    "postfach konto imap gmail proton bridge import passwort schlüsselbund spam ordner abrufen app-passwort google oauth client kürzel": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "optional, comma-separated"
-          }
-        }
-      }
-    },
-    "postfach konto imap gmail proton bridge import passwort schlüsselbund spam ordner abrufen": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "mailbox account imap gmail proton bridge import password keychain spam folder fetch sign in oauth"
+            "value": "mailbox account imap gmail proton bridge import password keychain spam folder fetch app password google oauth client short name"
           }
         }
       }

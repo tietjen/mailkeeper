@@ -127,33 +127,147 @@ struct AccountsSettings: View {
 /// The Google client of an account and the sign-in itself (7.1, ADR-0012). The client belongs to
 /// whoever runs MailKeeper: a Google Cloud project of their own, because `https://mail.google.com/`
 /// is a restricted scope. A build that ships its own verified client fills the fields itself.
+///
+/// Laid out as numbered steps with the setup guide inside the dialog (TJ, 2026-11-08: "mir ist
+/// selber nicht klar, was ich wo eingeben muss"). A pointer to a file in the repository is no
+/// help to someone who only has the app.
 struct GoogleClientFields: View {
     @Binding var clientID: String
     @Binding var clientSecret: String
     let address: String
     let signedIn: OAuthTokens?
     let working: Bool
+    /// The client id the account already has (re-signing in): the guide to making one starts
+    /// folded up, and the steps are not numbered.
+    let storedClientID: String?
+    /// Whether that client's secret is in this Mac's keychain. Not a given: the archive (with
+    /// `accounts.json`) may come from another Mac, or `mkctl` added the account without one.
+    let hasStoredSecret: Bool
+    /// What comes after the sign-in in the sheet around these fields.
+    let lastStep: LocalizedStringKey
     let signIn: () -> Void
+    @State private var guideOpen: Bool
+
+    init(clientID: Binding<String>, clientSecret: Binding<String>, address: String, signedIn: OAuthTokens?,
+         working: Bool, storedClientID: String? = nil, hasStoredSecret: Bool = false,
+         lastStep: LocalizedStringKey, signIn: @escaping () -> Void) {
+        _clientID = clientID
+        _clientSecret = clientSecret
+        self.address = address
+        self.signedIn = signedIn
+        self.working = working
+        self.storedClientID = storedClientID
+        self.hasStoredSecret = hasStoredSecret
+        self.lastStep = lastStep
+        self.signIn = signIn
+        _guideOpen = State(initialValue: storedClientID == nil)
+    }
+
+    private var knownClient: Bool { storedClientID != nil }
+
+    /// An empty secret field may stand for the stored secret only while the id is still the
+    /// stored one and that secret is really here — `OAuthTokens2Go.clientForSignIn` sends none
+    /// otherwise, and Google answers "client_secret is missing" (review: Gmail dialog, S1).
+    private var emptySecretMeansStored: Bool {
+        hasStoredSecret && clientID.trimmingCharacters(in: .whitespacesAndNewlines) == storedClientID
+    }
+
+    /// No verified client ships with MailKeeper yet, so everyone brings their own.
+    private var needsOwnClient: Bool { GoogleOAuth.builtInClient == nil }
+
+    private var plausibleID: Bool {
+        GoogleOAuth.isPlausibleClientID(clientID) || (clientID.isEmpty && GoogleOAuth.builtInClient != nil)
+    }
+
+    /// Step numbers only for someone who still has to make a client. Re-signing in with the
+    /// client the account already has is one button, not a four-step procedure.
+    private var numbered: Bool { needsOwnClient && !knownClient }
 
     var body: some View {
-        Section("Google-Anmeldung") {
+        Section {
+            if numbered {
+                LabeledContent {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Eigenen Google-Client anlegen – einmalig, etwa 10 Minuten.")
+                            .fixedSize(horizontal: false, vertical: true)
+                        DisclosureGroup("So geht’s", isExpanded: $guideOpen) { GoogleClientGuide() }
+                    }
+                } label: { Text("Schritt \(1)") }
+                LabeledContent {
+                    Text("Client-ID und Clientschlüssel einfügen – Google zeigt beide, sobald der Client erstellt ist.")
+                        .fixedSize(horizontal: false, vertical: true)
+                } label: { Text("Schritt \(2)") }
+            } else if needsOwnClient {
+                LabeledContent {
+                    DisclosureGroup("Neuen Google-Client anlegen", isExpanded: $guideOpen) { GoogleClientGuide() }
+                } label: { Text("Client") }
+            }
             TextField("Client-ID", text: $clientID, prompt: Text("…apps.googleusercontent.com"))
                 .textContentType(.none)
-            SecureField("Client-Secret", text: $clientSecret, prompt: Text("falls dein Client eines hat"))
-            HStack {
-                Button(signedIn == nil ? "Mit Google anmelden …" : "Erneut anmelden …", action: signIn)
-                    .disabled(working || !(GoogleOAuth.isPlausibleClientID(clientID)
-                                           || (clientID.isEmpty && GoogleOAuth.builtInClient != nil)))
-                if working { ProgressView().controlSize(.small) }
-                if let mail = signedIn?.email {
-                    Label("angemeldet als \(DisplayText.safe(mail))", systemImage: "checkmark.circle")
-                        .font(.caption).foregroundStyle(mail.lowercased() == address.lowercased() ? .green : .orange)
-                } else if signedIn != nil {
-                    Label("angemeldet", systemImage: "checkmark.circle").font(.caption).foregroundStyle(.green)
+                // pasted and plausible: step 1 is done, fold the guide away (it is long). Only on
+                // the change to plausible, so a guide opened again afterwards stays open.
+                .onChange(of: GoogleOAuth.isPlausibleClientID(clientID)) { _, plausible in
+                    if numbered && plausible { guideOpen = false }
                 }
+            SecureField("Clientschlüssel", text: $clientSecret,
+                        prompt: emptySecretMeansStored ? Text("leer lassen = der gespeicherte") : Text("GOCSPX-…"))
+            if !clientID.isEmpty && !plausibleID {
+                Text("Das ist keine Client-ID – sie endet auf „.apps.googleusercontent.com“. Der Clientschlüssel gehört ins Feld darunter.")
+                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            } else if knownClient && clientSecret.isEmpty && !emptySecretMeansStored && plausibleID {
+                Text("Für diese Client-ID liegt auf diesem Mac kein Clientschlüssel – bitte eintragen.")
+                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
-            Text("MailKeeper nutzt deinen eigenen Google-Cloud-Client (Typ „Desktop“, Gmail-API aktiviert, Zustimmungsbildschirm auf „In Produktion“ — im Testmodus läuft die Anmeldung nach 7 Tagen ab). Die Anleitung steht in docs/gmail-oauth.md. Dein Passwort sieht MailKeeper nie; im Schlüsselbund liegt nur das Google-Token.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            LabeledContent {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Button(signedIn == nil ? "Mit Google anmelden …" : "Erneut anmelden …", action: signIn)
+                            .disabled(working || !plausibleID)
+                        if working { ProgressView().controlSize(.small) }
+                        if let mail = signedIn?.email {
+                            Label("angemeldet als \(DisplayText.safe(mail))", systemImage: "checkmark.circle")
+                                .font(.caption).foregroundStyle(GoogleOAuth.sameMailbox(mail, address) || address.isEmpty ? .green : .orange)
+                        } else if signedIn != nil {
+                            Label("angemeldet", systemImage: "checkmark.circle").font(.caption).foregroundStyle(.green)
+                        }
+                    }
+                    Text("Im Browser warnt Google „Google hat diese App nicht überprüft“ – bei deinem eigenen Client normal, weiter über „Erweitert“. Google fragt nach vollem Gmail-Zugriff, weil IMAP keinen kleineren kennt; MailKeeper ändert nur etwas, wenn du eine Aktion startest.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            } label: { numbered ? Text("Schritt \(3)") : Text("Anmelden") }
+            LabeledContent {
+                Text(lastStep).fixedSize(horizontal: false, vertical: true)
+            } label: { numbered ? Text("Schritt \(4)") : Text("Danach") }
+        }
+    }
+}
+
+/// How to make the Google client, in the dialog itself: four steps, each linking straight to
+/// its page in the Google Cloud console. Links survive Google's menu reshuffles better than menu
+/// paths do (the consent screen became the "Google Auth Platform" in 2025): the consent screen
+/// and the client use the old `apis/credentials/…` paths, which Google redirects into the new
+/// pages; the audience page has no old path, so it links the new one. The links sit in the
+/// text (Markdown) rather than on lines of their own: the sheet has to fit a laptop screen.
+/// `Scripts/localize.sh` fails when a translation links elsewhere. The long version with the
+/// reasons is docs/gmail-oauth.md.
+struct GoogleClientGuide: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            item("a", "[Neues Projekt anlegen ↗](https://console.cloud.google.com/projectcreate), Name z. B. „MailKeeper“.")
+            item("b", "Im Projekt die [Gmail-API aktivieren ↗](https://console.cloud.google.com/apis/library/gmail.googleapis.com).")
+            item("c", "[Zustimmungsbildschirm ↗](https://console.cloud.google.com/apis/credentials/consent) einrichten: App-Name, deine Adresse, Zielgruppe „Extern“. Danach unter [„Zielgruppe“ ↗](https://console.cloud.google.com/auth/audience) die App veröffentlichen („In Produktion“) – im Testmodus läuft die Anmeldung nach 7 Tagen ab.")
+            item("d", "[OAuth-Client erstellen ↗](https://console.cloud.google.com/apis/credentials/oauthclient): Anwendungstyp „Desktop-App“, Name beliebig. Google zeigt danach Client-ID und Clientschlüssel.")
+            Text("Warum so? Vollen Gmail-Zugriff gibt Google nur Apps nach einer teuren Prüfung – oder deinem eigenen Client, der nur für dich gilt. [Ausführliche Anleitung ↗](https://github.com/tietjen/mailkeeper/blob/main/docs/gmail-oauth.md)")
+                .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        .font(.caption)
+        .padding(.top, 2)
+    }
+
+    private func item(_ mark: String, _ text: LocalizedStringKey) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(verbatim: mark).bold().foregroundStyle(.secondary)
+            Text(text).fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -171,6 +285,7 @@ struct GoogleSignInSheet: View {
     @State private var error: String?
     @State private var signingIn: Task<Void, Never>?
     @State private var check: ConnectionCheck?
+    @State private var hasStoredSecret = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -178,11 +293,15 @@ struct GoogleSignInSheet: View {
                 .font(.title3.weight(.semibold))
             Text("Konto „\(DisplayText.safe(account.displayName))“ (\(DisplayText.safe(account.username)))")
                 .font(.callout).foregroundStyle(.secondary)
+            // columns, like the "add" sheet: the step numbers sit in the label column
             Form {
                 GoogleClientFields(clientID: $clientID, clientSecret: $clientSecret, address: account.username,
-                                   signedIn: tokens, working: working) { signingIn = Task { await run() } }
+                                   signedIn: tokens, working: working, storedClientID: account.oauth?.clientID,
+                                   hasStoredSecret: hasStoredSecret,
+                                   lastStep: "MailKeeper prüft die Verbindung von selbst. Ist sie in Ordnung, „Übernehmen“.") {
+                    signingIn = Task { await run() }
+                }
             }
-            .formStyle(.grouped)
             if account.oauth == nil {
                 Text("Das App-Passwort bleibt im Schlüsselbund — MailKeeper benutzt es danach nicht mehr. Du kannst es bei Google widerrufen.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -202,6 +321,7 @@ struct GoogleSignInSheet: View {
         .frame(width: 540)
         .onAppear {
             clientID = account.oauth?.clientID ?? GoogleOAuth.builtInClient?.id ?? ""
+            hasStoredSecret = model.hasClientSecret(account)  // once, not a keychain query per render
         }
         .onDisappear { cancel() }
     }
@@ -371,22 +491,38 @@ struct AddAccountSheet: View {
                 }
                 .pickerStyle(.segmented)
                 .onChange(of: withGoogle) { reset(); tokens = nil }
+                // which way to take, before anything is typed (TJ, 2026-11-08)
+                Text(signInIntro).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Form {
                 TextField("Kürzel", text: $id, prompt: Text("z. B. gmail-privat"))
-                TextField(kind == .imap ? "Benutzer" : "Adresse", text: $user)
+                Text("Der Name des Kontos in MailKeeper; er benennt die Ordner im Archiv. Kleinbuchstaben, Ziffern, „-“ und „_“ – später nicht änderbar.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                TextField(kind == .imap ? "Benutzer" : "Adresse", text: $user,
+                          prompt: kind == .gmail ? Text("du@gmail.com") : nil)
                 if !google {
-                    SecureField(kind == .gmail ? "App-Passwort" : (kind == .protonBridge ? "Bridge-Passwort" : "Passwort"), text: $password)
+                    SecureField(passwordLabel, text: $password,
+                                prompt: kind == .gmail ? Text("16 Zeichen von Google") : nil)
+                    if kind == .gmail {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Erzeugen unter Google-Konto › Sicherheit › 2-Schritt-Verifizierung › App-Passwörter. Google zeigt es nur einmal; die Leerzeichen darfst du mitkopieren.")
+                                .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            Link("App-Passwort bei Google erzeugen ↗", destination: Self.appPasswords)
+                        }
+                        .font(.caption)
+                    }
                 }
                 if kind == .imap {
                     TextField("Server", text: $host)
                     Toggle("STARTTLS statt TLS", isOn: $starttls)
                 }
                 if kind != .gmail { TextField("Port", text: $port) }
-                TextField("Nur diese Ordner", text: $include, prompt: Text("optional, kommagetrennt"))
+                TextField("Nur diese Ordner", text: $include, prompt: Text("leer lassen = alle"))
+                    .help("Nur diese Ordner abrufen, mit Komma getrennt, z. B. „INBOX, Archiv“. Leer lassen ruft alle ab.")
                 if google {
                     GoogleClientFields(clientID: $clientID, clientSecret: $clientSecret, address: user,
-                                       signedIn: tokens, working: working) {
+                                       signedIn: tokens, working: working,
+                                       lastStep: "Unten „Verbinden und prüfen“, dann „Speichern“.") {
                         signingIn = Task { await googleSignIn() }
                     }
                 }
@@ -396,14 +532,18 @@ struct AddAccountSheet: View {
             if let check { checkResult(check) }
             if let error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
             HStack {
-                if working { ProgressView().controlSize(.small) }
+                if working {
+                    ProgressView().controlSize(.small)
+                } else if check == nil, let missing {
+                    // a greyed-out button alone does not say why (TJ, 2026-11-08)
+                    Text(missing).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
                 Spacer()
                 Button("Abbrechen") { cancelSignIn(); dismiss() }.keyboardShortcut(.cancelAction)
                 if check == nil {
                     Button("Verbinden und prüfen") { Task { await runCheck() } }
                         .keyboardShortcut(.defaultAction)
-                        .disabled(working || !AccountConfig.isValidID(id) || user.isEmpty || (kind == .imap && host.isEmpty)
-                                  || (google ? tokens == nil : password.isEmpty))
+                        .disabled(working || !blockers.isEmpty)
                 } else {
                     Button("Speichern") { save() }
                         .keyboardShortcut(.defaultAction)
@@ -420,12 +560,51 @@ struct AddAccountSheet: View {
     /// Gmail with Google sign-in (an app password stays possible; the other kinds have none).
     private var google: Bool { kind == .gmail && withGoogle }
 
+    static let appPasswords = URL(string: "https://myaccount.google.com/apppasswords")!
+
+    /// The two Gmail ways side by side: what each costs, so the choice is made knowingly.
+    private var signInIntro: LocalizedStringKey {
+        if !withGoogle {
+            return "Der schnelle Weg, etwa 2 Minuten: In deinem Google-Konto ein App-Passwort erzeugen und unten eintragen. Voraussetzung ist die 2-Schritt-Verifizierung."
+        }
+        if GoogleOAuth.builtInClient != nil {
+            return "Du meldest dich im Browser bei Google an. MailKeeper bekommt ein Token, nie dein Passwort."
+        }
+        return "Ohne Passwort, aber mit Vorarbeit: Du legst einmalig einen eigenen Google-Client an, etwa 10 Minuten. Wer schnell loslegen will, nimmt das App-Passwort – umstellen geht später jederzeit."
+    }
+
+    private var passwordLabel: LocalizedStringKey {
+        kind == .gmail ? "App-Passwort" : (kind == .protonBridge ? "Bridge-Passwort" : "Passwort")
+    }
+
+    /// What keeps "Verbinden und prüfen" greyed out. The button's `disabled` and the text next to
+    /// it both read this, so they cannot drift apart when a field is added.
+    private var blockers: [String] {
+        var parts: [String] = []
+        if id.isEmpty {
+            parts.append(String(localized: "Kürzel"))
+        } else if !AccountConfig.isValidID(id) {
+            parts.append(String(localized: "ein gültiges Kürzel"))
+        }
+        if user.isEmpty { parts.append(kind == .imap ? String(localized: "Benutzer") : String(localized: "Adresse")) }
+        if kind == .imap && host.isEmpty { parts.append(String(localized: "Server")) }
+        if google {
+            if tokens == nil { parts.append(String(localized: "die Anmeldung bei Google")) }
+        } else if password.isEmpty {
+            parts.append(kind == .gmail ? String(localized: "App-Passwort")
+                         : kind == .protonBridge ? String(localized: "Bridge-Passwort") : String(localized: "Passwort"))
+        }
+        return parts
+    }
+
+    private var missing: String? {
+        blockers.isEmpty ? nil : String(localized: "Es fehlt noch: \(blockers.formatted(.list(type: .and)))")
+    }
+
     @ViewBuilder private var hint: some View {
         switch kind {
         case .gmail:
-            Text(withGoogle
-                 ? "Abgerufen wird „Alle Nachrichten“; Labels werden übernommen. MailKeeper fragt Google nur nach dem Zugriff auf deine Mails."
-                 : "Gmail braucht ein App-Passwort (Google-Konto › Sicherheit › 2-Schritt-Verifizierung › App-Passwörter). Abgerufen wird „Alle Nachrichten“; Labels werden übernommen.")
+            Text("Abgerufen wird „Alle Nachrichten“; Labels werden übernommen.")
                 .font(.caption).foregroundStyle(.secondary)
         case .protonBridge:
             Text("Die Proton Mail Bridge muss auf diesem Mac laufen. Benutze das Passwort, das die Bridge anzeigt — nicht dein Proton-Passwort.")

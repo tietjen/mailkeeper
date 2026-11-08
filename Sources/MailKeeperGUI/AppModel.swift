@@ -1990,6 +1990,11 @@ final class AppModel {
         passwordPresent[account.id] ?? false
     }
 
+    /// Whether the Google client secret of a signed-in Gmail account is in this Mac's keychain.
+    func hasClientSecret(_ account: AccountConfig) -> Bool {
+        credentials.secretExists(key: CredentialStore.clientSecretKey(for: account))
+    }
+
     private func reloadAccounts(_ layout: ArchiveLayout) {
         accountConfigs = (try? AccountStore(layout: layout).load()) ?? []
         passwordPresent = Dictionary(uniqueKeysWithValues: accountConfigs.map { ($0.id, credentials.hasCredential(for: $0)) })

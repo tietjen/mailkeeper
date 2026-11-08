@@ -76,9 +76,9 @@ enum HelpBook {
                 String(localized: "Ein Archiv nimmt beliebig viele Konten auf. Die Konten gehören zum Archiv, das gerade offen ist – ein anderes Archiv hat seine eigenen. Hilfe › Einrichtung … führt Schritt für Schritt durch Archiv und Konten."),
                 String(localized: "Abgerufen wird nur lesend. Eine Abrufverbindung kann auf dem Server nichts verändern — das ist nicht Absicht, sondern erzwungen."),
                 String(localized: "Spam- und Papierkorb-Ordner bleiben außen vor. Den Spam-Ordner kannst du je Konto dazunehmen („Spam prüfen“); das ist die Voraussetzung dafür, dass MailKeeper dort nach fälschlich aussortierten Mails sucht."),
-                String(localized: "Gmail geht mit App-Passwort oder mit Anmeldung über Google. Passwörter und Anmeldungen liegen im Schlüsselbund, nie im Archiv."),
+                String(localized: "Gmail geht auf zwei Wegen: mit App-Passwort (schnell, braucht die 2-Schritt-Verifizierung) oder mit Anmeldung über Google (braucht einmalig einen eigenen Google-Client – der Dialog führt in vier Schritten hindurch und verlinkt jede Seite bei Google). Passwörter und Anmeldungen liegen im Schlüsselbund, nie im Archiv."),
             ],
-            keywords: String(localized: "postfach konto imap gmail proton bridge import passwort schlüsselbund spam ordner abrufen")),
+            keywords: String(localized: "postfach konto imap gmail proton bridge import passwort schlüsselbund spam ordner abrufen app-passwort google oauth client kürzel")),
         HelpChapter(
             id: "suchen", title: String(localized: "Suchen"), symbol: "magnifyingglass",
             paragraphs: [

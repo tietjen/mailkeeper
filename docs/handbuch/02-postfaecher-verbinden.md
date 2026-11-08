@@ -16,7 +16,9 @@ Jedes Konto hat ein **Kürzel**
 (Kleinbuchstaben, Ziffern, `-` und `_`, höchstens 40 Zeichen), das im Archiv die Ordner benennt — es lässt sich
 später nicht ändern, also wähle es mit Bedacht: `gmail-privat`, `arbeit`, `proton`.
 
-Passwörter, Google-Anmeldungen und das Google-Client-Secret liegen im **Schlüsselbund**, nie im
+Solange **Verbinden und prüfen** ausgegraut ist, steht links daneben, was noch fehlt.
+
+Passwörter, Google-Anmeldungen und der Google-Clientschlüssel (Client-Secret) liegen im **Schlüsselbund**, nie im
 Archiv. Der Eintrag gehört zur
 Postfach-Identität (`adresse@host:port`), nicht zum Archiv — zwei Archive desselben Postfachs
 teilen sich also einen Eintrag.
@@ -36,14 +38,19 @@ dass MailKeeper dort nach fälschlich aussortierten Mails sucht.
 
 ## Gmail
 
-Gmail geht auf zwei Wegen. Beide funktionieren, beide bleiben.
+Gmail geht auf zwei Wegen. Beide funktionieren, beide bleiben. Unter der Auswahl
+**Anmeldung** sagt der Dialog, was jeder Weg kostet: das App-Passwort etwa 2 Minuten, die
+Anmeldung mit Google einmalig etwa 10 Minuten für einen eigenen Google-Client. Wer schnell
+loslegen will, nimmt das App-Passwort; umstellen geht später jederzeit, ohne das Archiv
+anzufassen.
 
 ### App-Passwort (schnell eingerichtet)
 
 Voraussetzung ist die Zwei-Schritt-Verifizierung im Google-Konto. Dann: Google-Konto ›
-Sicherheit › 2-Schritt-Verifizierung › App-Passwörter, ein Passwort erzeugen und in MailKeeper
-unter Art **Gmail**, Anmeldung **App-Passwort** eintragen. Die Leerzeichen, die Google anzeigt,
-darfst du mitkopieren — MailKeeper entfernt sie.
+Sicherheit › 2-Schritt-Verifizierung › App-Passwörter — der Link **App-Passwort bei Google
+erzeugen** im Dialog führt direkt dorthin —, ein Passwort erzeugen und in MailKeeper unter Art
+**Gmail**, Anmeldung **App-Passwort** eintragen. Google zeigt es nur einmal. Die Leerzeichen,
+die Google anzeigt, darfst du mitkopieren — MailKeeper entfernt sie.
 
 ### Anmeldung mit Google (OAuth)
 
@@ -55,10 +62,19 @@ hat aber einen handfesten Grund: Für den IMAP-Zugriff verlangt Google den Berei
 `https://mail.google.com/`, und eine App, die den für fremde Nutzer anbietet, muss durch Googles
 Überprüfung samt jährlichem Audit.
 
-Die Schritt-für-Schritt-Anleitung steht in **[docs/gmail-oauth.md](../gmail-oauth.md)**. Kurz:
-Projekt anlegen → Gmail-API aktivieren → Zustimmungsbildschirm ausfüllen und **auf „In
-Produktion“ stellen** (im Testmodus läuft die Anmeldung nach 7 Tagen ab) → OAuth-Client vom Typ
-**Desktop-App** → Client-ID und -Schlüssel in MailKeeper eintragen → **Mit Google anmelden**.
+Der Dialog führt in vier Schritten hindurch:
+
+1. **Eigenen Google-Client anlegen.** Unter **So geht’s** stehen die Handgriffe, jeder mit einem
+   Link direkt auf die Seite der Google Cloud Console: Projekt anlegen → Gmail-API aktivieren →
+   Zustimmungsbildschirm ausfüllen und **auf „In Produktion“ stellen** (im Testmodus läuft die
+   Anmeldung nach 7 Tagen ab) → OAuth-Client vom Typ **Desktop-App** erstellen.
+2. **Client-ID und Clientschlüssel einfügen**, die Google beim Erstellen des Clients anzeigt.
+   Sobald eine gültige Client-ID drinsteht, klappt die Anleitung zu.
+3. **Mit Google anmelden …** — der Browser öffnet sich. Die Warnung „Google hat diese App nicht
+   überprüft“ ist bei deinem eigenen Client normal; über **Erweitert** geht es weiter.
+4. **Verbinden und prüfen**, dann **Speichern**.
+
+Die ausführliche Anleitung mit den Gründen steht in **[docs/gmail-oauth.md](../gmail-oauth.md)**.
 
 Ein bestehendes Gmail-Konto stellst du um, ohne das Archiv anzufassen: Konto auswählen →
 **Auf Google-Anmeldung umstellen …**. Kürzel, Archiv und Einstellungen bleiben. Der Weg zurück
