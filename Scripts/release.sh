@@ -83,7 +83,18 @@ if [[ $PUBLISH == 1 ]] && ! handbook_is_public; then
 fi
 
 say "Tests"
-swift test 2>&1 | tail -3
+# The whole output stays in a file: on a failure the failing tests are printed, not just the
+# last three lines (release run 42405298948 said "2 issues" and nothing about which).
+TEST_LOG=$(mktemp)
+if ! swift test >"$TEST_LOG" 2>&1; then
+  # `|| true`: under pipefail a grep without a match, or one cut off by head, would end the
+  # script here without the message below.
+  { grep -E '✘|error:' "$TEST_LOG" || tail -20 "$TEST_LOG"; } | head -40 >&2 || true
+  rm -f "$TEST_LOG"
+  die "Tests fehlgeschlagen"
+fi
+tail -3 "$TEST_LOG"
+rm -f "$TEST_LOG"
 
 # ---------------------------------------------------------------- 2. build
 

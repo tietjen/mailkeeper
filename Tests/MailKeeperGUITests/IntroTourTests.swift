@@ -87,7 +87,13 @@ struct IntroTourTests {
         let tour = IntroTour(defaults: freshDefaults(#function))
         tour.start()
         #expect(tour.popoverCard(.sidebar) != nil)
-        try await Task.sleep(for: .seconds(2))
+        // The fallback fires after 1.5 s. Wait for it instead of a fixed 2 s: on a hosted CI
+        // runner under the parallel suite it came later than that (release run 42405298948,
+        // 2026-11-07: both expectations below failed, the same commit passed in the CI run).
+        let deadline = ContinuousClock.now + .seconds(20)
+        while tour.popoverCard(.sidebar) != nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
         #expect(tour.popoverCard(.sidebar) == nil)
         #expect(tour.sheet.wrappedValue?.step == .sidebar)
     }
