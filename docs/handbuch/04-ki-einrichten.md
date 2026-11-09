@@ -33,7 +33,8 @@ Ergebnis der Echtheitsprüfung. **Der Inhalt von Anhängen geht nie mit.**
 Modell bleiben deutsch — darin sind sie geschrieben und gemessen —, verlangt wird aber eine
 Antwort in der Sprache der Oberfläche.
 
-**Was protokolliert wird:** `~/Library/Logs/MailKeeper/ai.jsonl` hält fest, *dass* eine Anfrage
+**Was protokolliert wird:** `ai.jsonl` im Protokollordner der App
+([Kapitel 9](09-sicherheit-und-datenschutz.md#wo-deine-daten-liegen)) hält fest, *dass* eine Anfrage
 lief — Aufgabe, Weg, Modell, Sekunden, Tokens, Ergebnis. **Nie der Prompt und nie die Antwort.**
 
 ## Einen Endpunkt einrichten

@@ -1,8 +1,9 @@
 import Foundation
 import MailKeeperKit
 
-/// `~/Library/Logs/MailKeeper/ai.jsonl` (0600): every model call with task, path, model,
-/// seconds, tokens, finish reason, attempt and outcome (ADR-0004 §5) — never prompt or answer.
+/// `Logs/MailKeeper/ai.jsonl` in the user's Library (0600): every model call with task, path,
+/// model, seconds, tokens, finish reason, attempt and outcome (ADR-0004 §5) — never prompt or
+/// answer. In the sandbox that Library is the container's (see `AuditLog`).
 public struct AICallLog: Sendable {
     public struct Entry: Codable, Sendable, Equatable {
         public var time: Double

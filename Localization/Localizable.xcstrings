@@ -772,7 +772,24 @@
         }
       }
     },
+    "%lld Mails ließen sich nicht einordnen (siehe %@).": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$lld Mails ließen sich nicht einordnen (siehe %2$@)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld mails could not be classified (see %2$@)."
+          }
+        }
+      }
+    },
     "%lld Mails ließen sich nicht einordnen (siehe ~/Library/Logs/MailKeeper/ai.jsonl).": {
+      "extractionState": "stale",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -7791,7 +7808,18 @@
         }
       }
     },
+    "Mails gehen nur an diesen Endpoint und an das Modell auf diesem Mac – an keinen Cloud-Dienst. Jeder Aufruf steht ohne Inhalt im Protokoll (%@). Die KI schlägt nur vor; löschen oder verschieben tut sie nie.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mail goes only to this endpoint and to the model on this Mac – to no cloud service. Every call is in the log without its content (%@). The AI only suggests; it never deletes or moves anything."
+          }
+        }
+      }
+    },
     "Mails gehen nur an diesen Endpoint und an das Modell auf diesem Mac – an keinen Cloud-Dienst. Jeder Aufruf steht ohne Inhalt im Protokoll (~/Library/Logs/MailKeeper/ai.jsonl). Die KI schlägt nur vor; löschen oder verschieben tut sie nie.": {
+      "extractionState": "stale",
       "localizations": {
         "en": {
           "stringUnit": {

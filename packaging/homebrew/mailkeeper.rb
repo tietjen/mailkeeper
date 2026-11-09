@@ -1,13 +1,17 @@
 # Source of truth for the cask in tietjen/homebrew-tap. After a release, copy this file over
-# with the new version and sha256 (both are in build/release/<version>/SHA256SUMS).
+# with the new version and the sha256 of the published DMG (see below).
 #
 #   brew install --cask tietjen/tap/mailkeeper
 #
 # Not in homebrew/cask (yet): that repository has notability requirements, and a tap of our own
 # can be updated from the release workflow. Nothing about this file would have to change.
 cask "mailkeeper" do
-  # Both lines are filled in from build/release/<version>/SHA256SUMS at release time. The
-  # placeholder below is deliberately not a valid hash, so a copy made by accident fails loudly.
+  # Both lines are filled in at release time, the sha256 from SHA256SUMS of the GitHub release:
+  #   gh release download v<version> -R tietjen/mailkeeper -p SHA256SUMS -O -
+  # Not from the local build/release/<version>/SHA256SUMS: the release workflow builds and
+  # notarises a DMG of its own, so the local one has another hash (0.3.1: ff9db243… local,
+  # 02caca92… published). The placeholder below is deliberately not a valid hash, so a copy
+  # made by accident fails loudly.
   version "0.1.0"
   sha256 "PLATZHALTER-aus-SHA256SUMS-eintragen"
 
@@ -25,8 +29,9 @@ cask "mailkeeper" do
   # both replace the app and fight over it; with it, Homebrew leaves the app alone and only
   # `brew upgrade --greedy` touches it.
   auto_updates true
-
-  depends_on macos: ">= :tahoe"
+  # A bare symbol means "this version or newer"; the string form ">= :tahoe" is deprecated
+  # and makes every brew command that loads the cask print a warning.
+  depends_on macos: :tahoe
 
   app "MailKeeper.app"
 

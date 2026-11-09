@@ -4,7 +4,7 @@ In der Reihenfolge, in der man es braucht. Die ersten drei Kapitel reichen, um l
 
 | | Kapitel | Worum es geht |
 |---|---|---|
-| 1 | [Das Archiv einrichten](01-archiv-einrichten.md) | Wo die Mails liegen, wie das Fenster aufgebaut ist |
+| 1 | [Das Archiv einrichten](01-archiv-einrichten.md) | Installation, wo die Mails liegen, wie das Fenster aufgebaut ist |
 | 2 | [Postfächer verbinden](02-postfaecher-verbinden.md) | IMAP, Gmail (App-Passwort oder Google-Anmeldung), Proton Bridge, Importe |
 | 3 | [Abrufen und durchsuchen](03-abrufen-und-suchen.md) | Der Abruf, die Suchsprache, Ansichten, Gruppen |
 | 4 | [Die KI-Funktionen einrichten](04-ki-einrichten.md) | Endpunkt oder Mac-Modell, was den Mac verlässt |

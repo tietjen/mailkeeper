@@ -265,7 +265,7 @@ struct ResultSheet: View {
                     }
                 }
             }
-            Text("Jede Aktion steht im Prüfprotokoll (\((AuditLog.defaultURL.path as NSString).abbreviatingWithTildeInPath)).")
+            Text("Jede Aktion steht im Prüfprotokoll (\(DisplayPath.tilde(AuditLog.defaultURL.path))).")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Spacer()

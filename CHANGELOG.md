@@ -3,6 +3,15 @@
 Diese Datei hält fest, was sich für Benutzerinnen und Benutzer ändert. Die Entscheidungen
 dahinter stehen in [docs/adr/](docs/adr/).
 
+## [Unveröffentlicht]
+
+- **Pfad der Protokolle:** *Einstellungen › KI*, das Ergebnis eines Auftrags und die Meldung zur
+  Einordnung nannten `~/Library/Logs/MailKeeper/`. Die App schreibt ihre Protokolle aber in
+  ihren Container; jetzt steht dort der echte Pfad. Ein Archiv in deinem Benutzerordner erscheint
+  mit `~` statt mit dem vollen Pfad.
+- **Handbuch und README:** Ein neuer Abschnitt sagt, wie man MailKeeper installiert — mit
+  Homebrew oder als DMG —, was bei Updates passiert und was beim Deinstallieren bleibt.
+
 ## [0.3.1] — 2026-11-09
 
 Löschen auf dem Server übersteht ein langsames Gmail.

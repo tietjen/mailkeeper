@@ -31,8 +31,9 @@ silent past the timeout, it pauses it for a minute and asks the on-device model 
 wrong answers (4xx, bad JSON, truncated) are errors, never hidden by the fallback. Connection
 errors and 429/502/503 get one retry; a timeout never (the gateway keeps generating). On-device
 means `SystemLanguageModel` only — never Private Cloud Compute. HTTP only for localhost and
-`.ziti` (ATS); non-local endpoints get a warning. `~/Library/Logs/MailKeeper/ai.jsonl` logs
-task, path, model, seconds, tokens, finish reason, attempt and outcome — no prompt, no answer.
+`.ziti` (ATS); non-local endpoints get a warning. `Logs/MailKeeper/ai.jsonl` in the user's Library
+(the container's for the sandboxed app, like the audit log, ADR-0006) logs task, path, model,
+seconds, tokens, finish reason, attempt and outcome — no prompt, no answer.
 
 *As built (5.4):* nine categories (S3). The rules run in the background for every message
 (headers in the index only, no message is read; 43k in seconds) and settle newsletters,
