@@ -28,6 +28,22 @@ APPEND, Proton rebuilds messages and ignores the APPEND date, Dovecot is textboo
    resolved, never guessed). Permanent deletion (EXPUNGE in Trash) is a separate, explicit
    choice and asks for Touch ID / password. Gmail: removing from a label is not deletion;
    restoring a still-trashed message untrashes it (same X-GM-MSGID).
+   *As built (2026-11-09, first real Gmail runs):* Gmail moved 50 messages out of All Mail in
+   1–3 s one evening and in 65 s to over 120 s the next morning; the 120 s read timeout then
+   closed the connection under a move Gmail carried out, and the job stopped. Delete connections
+   now wait 300 s like restore; Gmail accounts use batches of 20; a dropped connection
+   (`IMAPError.closed`/`.connection` — a reset socket counts as `.connection` now, no longer as a
+   protocol error) is opened again — the reconnect itself included — up to twice in a row
+   without progress per account, and the account's open items go on, claimed ones re-checked as
+   on resume. An item claimed *in this run* whose UID is gone on that re-check, seconds after
+   the drop, was moved by this delete: done with "beim unterbrochenen Lauf in den Papierkorb
+   verschoben", which "Komplett entfernen" treats like a plain done. A claim from an earlier run
+   (resumed by hand, maybe days later; the process may have died between claim and move) proves
+   less and stays "war bereits nicht mehr auf dem Server", like an unclaimed one; a hand-resumed
+   job has no archive half anyway. The re-check also merges several FETCH responses of one UID (Gmail
+   answered one message of a batch without its header; alone it answered in full), and an
+   identity without a Message-ID in the answer is compared by its bytes, never failed as "does
+   not match" for a missing header.
 4. **Archive delete:** to the archive trash (30 days), then purge; a blob is removed only when
    no message references it. *As built (review 4.7):* the writer enforces "in the trash means on
    no server" itself — `trash` leaves a message with a live server location alone (checked when

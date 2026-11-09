@@ -74,14 +74,33 @@ public enum SyncCoordinator {
 
     /// Runs a planned server-delete job (ADR-0006): one connection per account, opened with the
     /// narrow `.moveToTrash` access; everything else stays refused by the allowlist.
+    ///
+    /// Gmail can be slow: a MOVE of 50 messages out of All Mail took 1–3 s one evening and, the
+    /// next morning, over the old 120 s read timeout — the connection was closed under a move the
+    /// server then carried out (2026-11-09). Hence the restore's 300 s, batches of
+    /// `gmailBatchSize` on Gmail, and a dropped connection is opened again instead of stopping
+    /// the job.
     public static func deleteOnServer(_ jobID: UUID, writer: ArchiveWriter, accounts: [AccountConfig],
                                       credentials: CredentialStore = CredentialStore(), audit: AuditLog = AuditLog(),
                                       progress: @escaping @Sendable (ServerDeleteProgress) -> Void = { _ in }) async throws -> ActionJob {
-        let executor = ServerDeleteExecutor(writer: writer, store: ActionStore(layout: writer.layout), audit: audit)
+        var executor = ServerDeleteExecutor(writer: writer, store: ActionStore(layout: writer.layout), audit: audit)
+        executor.batchSizes = Dictionary(accounts.filter { $0.kind == .gmail }.map { ($0.id, gmailBatchSize) },
+                                         uniquingKeysWith: { a, _ in a })
         return try await executor.run(jobID, connect: { id in
             guard let account = accounts.first(where: { $0.id == id }) else { throw SyncError.unknownAccount(id) }
-            return try await connect(account, access: .moveToTrash, credentials: credentials)
-        }, progress: progress)
+            return try await connect(account, access: .moveToTrash, credentials: credentials, readTimeout: .seconds(300))
+        }, reconnectAfter: { connectionDropped($0) }, progress: progress)
+    }
+
+    static let gmailBatchSize = 20
+
+    /// The connection is gone (closed, timed out, reset) — worth opening again. A refusal, a
+    /// failed sign-in or a protocol violation is not: it would come back the same.
+    static func connectionDropped(_ error: Error) -> Bool {
+        switch error as? IMAPError {
+        case .closed?, .connection?: true
+        default: false
+        }
     }
 
     /// Runs a planned restore job (ADR-0006 §5): one connection per account with the narrow

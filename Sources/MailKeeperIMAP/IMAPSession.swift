@@ -389,8 +389,8 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         var attributes: [FetchAttribute] = [.uid, .flags, .internalDate, .rfc822Size, .bodySection(peek: true, .complete, nil)]
         if gmail { attributes += [.gmailMessageID, .gmailLabels] }
         let result = try await run(.uidFetch(try Self.uidSet(uids), attributes, []))
-        return result.fetches.compactMap { f in
-            guard let uid = f.uid, let body = f.body else { return nil }
+        return Self.mergedByUID(result.fetches).sorted { $0.key < $1.key }.compactMap { uid, f in
+            guard let body = f.body else { return nil }
             return RemoteMessage(uid: uid, flags: f.flags, labels: f.labels, internalDate: f.internalDate,
                                  providerID: f.gmailMessageID.map { "gm:\($0)" }, data: body)
         }
@@ -424,12 +424,9 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         guard !uids.isEmpty else { return [:] }
         let header = FetchAttribute.bodySection(peek: true, SectionSpecifier(kind: .headerFields(["Message-ID"])), nil)
         let result = try await run(.uidFetch(try Self.uidSet(uids), [.uid, .flags, .rfc822Size, header], []))
-        var out: [UInt32: RemoteIdentity] = [:]
-        for f in result.fetches {
-            guard let uid = f.uid else { continue }
-            out[uid] = RemoteIdentity(messageID: f.body.flatMap(MIMEParser.messageID(ofHeader:)), size: f.size, flags: f.flags)
+        return Self.mergedByUID(result.fetches).mapValues { f in
+            RemoteIdentity(messageID: f.body.flatMap(MIMEParser.messageID(ofHeader:)), size: f.size, flags: f.flags)
         }
-        return out
     }
 
     public func bodies(_ uids: [UInt32]) async throws -> [UInt32: Data] {
@@ -700,6 +697,28 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         var body: Data?
     }
 
+    /// One message can come back in more than one FETCH response — a server may split the
+    /// attributes, or add an unsolicited FLAGS update with the UID. Each response is its own
+    /// `Fetched`; merged per UID here, so a later part without the header or body never replaces
+    /// the one with it. Flags and labels are joined (a flag in any part counts — for the delete
+    /// check that is the safe side), single values keep the first one seen. Without a UID a
+    /// response cannot be placed and is dropped, as before.
+    static func mergedByUID(_ fetches: [Fetched]) -> [UInt32: Fetched] {
+        var out: [UInt32: Fetched] = [:]
+        for f in fetches {
+            guard let uid = f.uid else { continue }
+            guard var m = out[uid] else { out[uid] = f; continue }
+            for flag in f.flags where !m.flags.contains(where: { $0.caseInsensitiveCompare(flag) == .orderedSame }) { m.flags.append(flag) }
+            for label in f.labels where !m.labels.contains(label) { m.labels.append(label) }
+            m.internalDate = m.internalDate ?? f.internalDate
+            m.size = m.size ?? f.size
+            m.gmailMessageID = m.gmailMessageID ?? f.gmailMessageID
+            m.body = m.body ?? f.body
+            out[uid] = m
+        }
+        return out
+    }
+
     struct Result {
         var untagged: [ResponsePayload] = []
         var fetches: [Fetched] = []
@@ -941,9 +960,13 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
     static let maxMessageBytes = 1 << 30
 
     /// Stream errors keep their cause (parser limits, TLS, NIO); `.closed` only for a plain end.
+    /// A lost socket (reset, broken pipe, TLS cut off mid-stream) is `.connection` — the line is
+    /// gone, opening it again may help — not a protocol error, which would come back the same.
     static func mapped(_ error: Error) -> IMAPError {
         if let e = error as? IMAPError { return e }
         if let u = error as? UnexpectedResponse, u.kind == .appendNotWaitingForTaggedResponse { return .refusedBeforeData }
+        if error is IOError || error is ChannelError { return .connection(clean("\(error)")) }
+        if let tls = error as? NIOSSLError, case .uncleanShutdown = tls { return .connection(clean("\(error)")) }
         return .protocolError(clean("\(error)"))
     }
 

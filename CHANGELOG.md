@@ -3,6 +3,22 @@
 Diese Datei hält fest, was sich für Benutzerinnen und Benutzer ändert. Die Entscheidungen
 dahinter stehen in [docs/adr/](docs/adr/).
 
+## [Unveröffentlicht]
+
+- **Löschen auf dem Server, langsames Gmail:** Antwortete Gmail beim Verschieben in den
+  Papierkorb länger als zwei Minuten, brach der Auftrag mit „Verbindung geschlossen oder
+  Zeitüberschreitung“ ab und musste von Hand fortgesetzt werden. MailKeeper wartet jetzt bis zu
+  fünf Minuten, nimmt bei Gmail kleinere Stapel und verbindet sich nach einem Abbruch bis zu
+  zweimal von selbst neu. Hält ein Auftrag trotzdem an, sagt die Meldung, dass sich der Rest
+  fortsetzen lässt.
+- **Nach einem Abbruch:** Mails, die der Server beim Abbruch schon verschoben hatte, hießen
+  danach „war bereits nicht mehr auf dem Server“. Verbindet sich MailKeeper neu, heißen sie jetzt
+  „beim unterbrochenen Lauf in den Papierkorb verschoben“, und **Komplett entfernen** nimmt auch
+  ihre Archivkopie.
+- **„Stimmt nicht mit dem Archiv überein“ ohne Grund:** Gmail lieferte in einem Stapel für eine
+  Mail die Kopfzeile nicht mit; MailKeeper hielt sie deshalb für eine andere Mail. Jetzt werden
+  Teilantworten zusammengeführt, und fehlt die Message-ID, entscheidet der Vergleich der Bytes.
+
 ## [0.3.0] — 2026-11-08
 
 Aufräumen: Server und Archiv auf einen Blick, Mails komplett entfernen.

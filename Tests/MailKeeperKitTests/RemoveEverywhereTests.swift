@@ -37,6 +37,8 @@ struct RemoveEverywhereTests {
             item(2, "<c>", "sc", state: .skipped, reason: "Schonfrist", server: true),
             item(3, "<d>", "sd", state: .done, reason: ServerDeleteExecutor.alreadyGone, server: true),
             item(4, nil, "se", state: .failed, server: true),  // no Message-ID: the blob ties it
+            // moved by this delete, confirmed after a dropped connection: goes like a plain done
+            item(5, "<g>", "sg", state: .done, reason: ServerDeleteExecutor.movedBeforeInterruption, server: true),
         ])
         let archive = ActionJob(kind: .archiveDelete, title: "t", query: nil, graceDays: nil, items: [
             item(0, "<a>", "other-blob", server: false),  // same mail, another blob: the Message-ID ties it
@@ -45,9 +47,10 @@ struct RemoveEverywhereTests {
             item(3, "<d>", "sd", server: false),
             item(4, nil, "se", server: false),
             item(5, "<f>", "sf", server: false),  // only in the archive: goes
+            item(6, "<g>", "sg", server: false),
         ])
         let half = archive.archiveHalf(after: server)
-        #expect(half.items.map(\.state) == [.planned, .skipped, .skipped, .skipped, .skipped, .planned])
+        #expect(half.items.map(\.state) == [.planned, .skipped, .skipped, .skipped, .skipped, .planned, .planned])
         #expect(half.items[1].reason == ArchiveReader.stillOnServer && half.items[3].reason == ActionJob.notThereAnyMore)
         #expect(half.id == archive.id)
     }
