@@ -1517,6 +1517,12 @@ final class AppModel {
                 problem = String(localized: "Abgebrochen. Erledigtes bleibt erledigt; der Rest lässt sich fortsetzen.")
             } catch {
                 problem = "\(error)"
+                // the job is stored: say that it goes on from where it stopped (seen: Gmail too
+                // slow for the read timeout — "Verbindung geschlossen …" alone sounded final)
+                if let layout = try? ArchiveLayout.open(at: root, create: false),
+                   let stopped = try? ActionStore(layout: layout).load(job.id), !stopped.isFinished {
+                    problem = String(localized: "\(problem ?? "")\n\nErledigtes bleibt erledigt. Die übrigen \(stopped.open.count) Mails lassen sich unten über „Unterbrochener Auftrag … fortsetzen“ weiterbearbeiten.")
+                }
             }
             if followUp != nil, followUpResult == nil, problem != nil {  // the archive half never ran
                 problem = (problem ?? "") + "\n\n" + String(localized: "Der Archiv-Schritt ist nicht gelaufen: Die Mails liegen weiter im Archiv. Was vom Server weg ist, nimmt danach „Aus dem Archiv löschen“.")

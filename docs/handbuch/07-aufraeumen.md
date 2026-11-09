@@ -180,6 +180,17 @@ Jede Aktion lässt sich **anhalten** (× in der Statusleiste) — Erledigtes ble
 Rest wird fortgesetzt. Nach einem Absturz steht in der Statusleiste „Unterbrochener Auftrag …
 fortsetzen“.
 
+**Reißt beim Löschen auf dem Server die Verbindung ab**, verbindet sich MailKeeper bis zu
+zweimal neu und macht dort weiter. Das passiert etwa, wenn Gmail sehr langsam antwortet.
+MailKeeper wartet bis zu fünf Minuten auf eine Antwort, und bei Gmail sind die Stapel kleiner
+(20 statt 50 Mails). Erst wenn auch das nicht reicht, hält der Auftrag an: Die Meldung nennt die
+übrigen Mails, und „Unterbrochener Auftrag … fortsetzen“ macht weiter. Hatte der Server Mails
+schon verschoben, als die Verbindung abriss, stehen sie nach dem Neuverbinden im Ergebnis als
+„beim unterbrochenen Lauf in den Papierkorb verschoben“. Sie zählen als erledigt, auch für
+**Komplett entfernen**. Setzt du einen angehaltenen Auftrag später von Hand fort, heißen solche
+Mails weiter „war bereits nicht mehr auf dem Server“, und der Archiv-Schritt läuft dann nicht
+mit. Die Mails nimmt danach **Aus dem Archiv löschen**.
+
 Das Ergebnis-Blatt zeigt Erledigt / Fehlgeschlagen / Übersprungen / Offen mit Gründen, und
 **„Fehlgeschlagene erneut versuchen …“**. Jede Aktion steht mit Metadaten im Prüfprotokoll
 `~/Library/Logs/MailKeeper/audit.jsonl`.

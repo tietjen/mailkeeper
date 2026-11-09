@@ -43,16 +43,32 @@ public struct ServerDeleteProgress: Sendable, Equatable {
 /// (a different message under that UID, or a flag set since planning, stops it), mark claimed,
 /// move to \Trash, verify the UIDs are gone, then record the location as gone in the archive
 /// (journalled) and in the audit log. Resumable: claimed items from an interrupted run are
-/// checked again; cancelling stops after the current batch.
+/// checked again; cancelling stops after the current batch. A connection that drops mid-run
+/// (`reconnectAfter` says which errors mean that) is opened again, up to `maxReconnects` times
+/// per account, and the account's open items go on from there — the same re-check as a resume.
 public struct ServerDeleteExecutor: Sendable {
     /// Done, but not by this delete: the UID was no longer there — deleted, or moved to another
     /// folder since the last fetch (then the mail still lives on the server).
     public static let alreadyGone = String(localized: "war bereits nicht mehr auf dem Server")
+    /// Done by this delete, confirmed late: claimed in this run, the connection dropped before
+    /// the server's answer, and on the re-check after reconnecting the UID is gone — seconds
+    /// later, on the connection this run opened again. Unlike `alreadyGone`, "Komplett entfernen"
+    /// takes the archive copy of these too. A claim from an earlier run (resumed by hand, maybe
+    /// days later; the process may have died between claim and move) proves less: a UID gone
+    /// then stays `alreadyGone`.
+    public static let movedBeforeInterruption = String(localized: "beim unterbrochenen Lauf in den Papierkorb verschoben")
 
     public let writer: ArchiveWriter
     public let store: ActionStore
     public let audit: AuditLog
     public var batchSize = 50
+    /// Smaller batches for some accounts (account id → size): Gmail answers a MOVE of 50
+    /// messages out of All Mail in 1–3 s on a good day and in over two minutes on a bad one.
+    public var batchSizes: [String: Int] = [:]
+    public var maxReconnects = 2
+    /// Lets a server finish what it was doing when the connection dropped (a MOVE it already
+    /// started) before the re-check looks.
+    public var reconnectPause: Duration = .seconds(5)
 
     public init(writer: ArchiveWriter, store: ActionStore, audit: AuditLog) {
         self.writer = writer
@@ -61,23 +77,42 @@ public struct ServerDeleteExecutor: Sendable {
     }
 
     public func run(_ jobID: UUID, connect: @Sendable (String) async throws -> any ServerTrashActions,
+                    reconnectAfter: @Sendable (Error) -> Bool = { _ in false },
                     progress: @escaping @Sendable (ServerDeleteProgress) -> Void = { _ in }) async throws -> ActionJob {
         var job = try store.load(jobID)
         guard job.kind == .serverDelete, !job.cancelled else { return job }
         var p = ServerDeleteProgress(total: job.open.count)
         progress(p)
-        let byAccount = Dictionary(grouping: job.open.filter { $0.location != nil }, by: { $0.location!.account })
-        for account in byAccount.keys.sorted() {
-            try Task.checkCancellation()
-            p.account = account
-            progress(p)
-            let server = try await connect(account)
-            do {
-                try await run(account: account, items: byAccount[account]!, server: server, job: &job, progress: &p, notify: progress)
-                await server.close()
-            } catch {
-                await server.close()
-                throw error
+        let accounts = Set(job.open.compactMap { $0.location?.account })
+        var claimedThisRun: Set<Int> = []
+        for account in accounts.sorted() {
+            var reconnects = 0  // drops in a row without progress
+            attempts: while true {
+                try Task.checkCancellation()
+                // what is still open for this account — after a dropped connection, the rest
+                let items = job.open.filter { $0.location?.account == account }
+                guard !items.isEmpty else { break }
+                p.account = account
+                progress(p)
+                do {
+                    // opening it again can fail the same way (the network is still away)
+                    let server = try await connect(account)
+                    do {
+                        try await run(account: account, items: items, server: server, job: &job, claimed: &claimedThisRun,
+                                      progress: &p, notify: progress)
+                        await server.close()
+                    } catch {
+                        await server.close()
+                        throw error
+                    }
+                    break attempts
+                } catch {
+                    // a long job may drop now and then: the budget is for drops without progress
+                    if job.open.filter({ $0.location?.account == account }).count < items.count { reconnects = 0 }
+                    guard !(error is CancellationError), reconnects < maxReconnects, reconnectAfter(error) else { throw error }
+                    reconnects += 1
+                    try await Task.sleep(for: reconnectPause)
+                }
             }
         }
         p.account = nil
@@ -86,6 +121,7 @@ public struct ServerDeleteExecutor: Sendable {
     }
 
     private func run(account: String, items accountItems: [ActionItem], server: any ServerTrashActions, job: inout ActionJob,
+                     claimed: inout Set<Int>,
                      progress p: inout ServerDeleteProgress, notify progress: @Sendable (ServerDeleteProgress) -> Void) async throws {
             guard let _ = try await server.trashMailbox() else {
                 for item in accountItems {
@@ -109,17 +145,18 @@ public struct ServerDeleteExecutor: Sendable {
                 for item in stale {
                     try finish(&job, item.id, .failed, String(localized: "Ordner wurde auf dem Server neu nummeriert (UIDVALIDITY) – erst neu abrufen"), &p)
                 }
-                for start in stride(from: 0, to: current.count, by: batchSize) {
+                let size = max(1, batchSizes[account] ?? batchSize)
+                for start in stride(from: 0, to: current.count, by: size) {
                     try Task.checkCancellation()
-                    try await batch(Array(current[start..<min(start + batchSize, current.count)]), validity: validity,
-                                    server: server, job: &job, progress: &p)
+                    try await batch(Array(current[start..<min(start + size, current.count)]), validity: validity,
+                                    server: server, job: &job, claimed: &claimed, progress: &p)
                     progress(p)
                 }
             }
     }
 
     private func batch(_ items: [ActionItem], validity: UInt32, server: any ServerTrashActions,
-                       job: inout ActionJob, progress p: inout ServerDeleteProgress) async throws {
+                       job: inout ActionJob, claimed: inout Set<Int>, progress p: inout ServerDeleteProgress) async throws {
         // 1. the archive copy must be intact before the server copy may go
         var candidates: [ActionItem] = []
         for item in items {
@@ -133,20 +170,30 @@ public struct ServerDeleteExecutor: Sendable {
         // 2. is it still the same message, and still unflagged?
         let uids = candidates.map { $0.location!.uid }
         let remote = try await server.identities(uids)
-        let needBodies = candidates.filter { $0.messageID == nil && remote[$0.location!.uid] != nil }.map { $0.location!.uid }
+        // Compared by bytes: mail without a Message-ID, and mail whose header did not come back
+        // in this answer (seen on Gmail inside a batch — alone, the same UID answers in full).
+        let needBodies = candidates.filter { item in
+            remote[item.location!.uid].map { item.messageID == nil || $0.messageID == nil } ?? false
+        }.map { $0.location!.uid }
         let bodies = needBodies.isEmpty ? [:] : try await server.bodies(needBodies)
         var alreadyGone: [ActionItem] = []
+        var movedEarlier: [ActionItem] = []
         var go: [ActionItem] = []
         for item in candidates {
             let uid = item.location!.uid
-            guard let r = remote[uid] else { alreadyGone.append(item); continue }
+            guard let r = remote[uid] else {
+                // claimed in this run = this delete sent the move, the connection dropped before
+                // the answer; an older claim (resumed by hand) proves less
+                if item.state == .claimed && claimed.contains(item.id) { movedEarlier.append(item) } else { alreadyGone.append(item) }
+                continue
+            }
             if r.flags.contains(where: { $0.lowercased() == "\\flagged" }) {
                 try finish(&job, item.id, .skipped, String(localized: "inzwischen markiert"), &p)
                 continue
             }
             let same: Bool
-            if let expected = item.messageID {
-                same = r.messageID == expected && (r.size == nil || r.size == item.size)
+            if let expected = item.messageID, let got = r.messageID {
+                same = got == expected && (r.size == nil || r.size == item.size)
             } else {
                 same = bodies[uid].map { sha256Hex($0) == item.sha256 } ?? false
             }
@@ -155,7 +202,11 @@ public struct ServerDeleteExecutor: Sendable {
             }
         }
         // 3. claim, act, verify
-        for item in go { try store.record(job: job.id, item: item.id, state: .claimed) }
+        for item in go {
+            try store.record(job: job.id, item: item.id, state: .claimed)
+            job.items[item.id].state = .claimed  // a reconnect in this run re-checks it as claimed
+            claimed.insert(item.id)
+        }
         var refusal: String?
         if !go.isEmpty {
             do { try await server.moveToTrash(go.map { $0.location!.uid }) } catch let r as ServerRefusal { refusal = r.message }
@@ -166,6 +217,10 @@ public struct ServerDeleteExecutor: Sendable {
         for item in alreadyGone {
             gone.insert(item.location!.uid)
             try finish(&job, item.id, .done, ServerDeleteExecutor.alreadyGone, &p)
+        }
+        for item in movedEarlier {
+            gone.insert(item.location!.uid)
+            try finish(&job, item.id, .done, ServerDeleteExecutor.movedBeforeInterruption, &p)
         }
         for item in go {
             if stillThere.contains(item.location!.uid) {

@@ -192,6 +192,44 @@ struct ReadOnlyGuardTests {
         struct PayloadTooLarge: Error {}
         #expect(IMAPSession.mapped(PayloadTooLarge()) == .protocolError("PayloadTooLarge()"))
         #expect(IMAPSession.mapped(IMAPError.closed) == .closed)
+        // a lost socket is a connection problem, worth opening again — not a protocol error
+        guard case .connection = IMAPSession.mapped(IOError(errnoCode: ECONNRESET, reason: "read")) else {
+            Issue.record("ECONNRESET should map to .connection"); return
+        }
+        guard case .connection = IMAPSession.mapped(ChannelError.ioOnClosedChannel) else {
+            Issue.record("a closed channel should map to .connection"); return
+        }
+    }
+
+    @Test("2026-11-09: only a dropped connection is opened again by a server delete")
+    func whatCountsAsADroppedConnection() {
+        #expect(SyncCoordinator.connectionDropped(IMAPError.closed))
+        #expect(SyncCoordinator.connectionDropped(IMAPError.connection("reset")))
+        #expect(!SyncCoordinator.connectionDropped(IMAPError.protocolError("x")))
+        #expect(!SyncCoordinator.connectionDropped(IMAPError.authentication("nein")))
+        #expect(!SyncCoordinator.connectionDropped(IMAPError.command("UID MOVE", "NO")))
+        #expect(!SyncCoordinator.connectionDropped(CancellationError()))
+        #expect(SyncCoordinator.gmailBatchSize < 50)
+    }
+
+    /// Gmail, 2026-11-09: inside a batch, one message's identity came back without its header;
+    /// alone the same UID answered in full. Parts of one message are merged, never replaced.
+    @Test func fetchResponsesOfOneMessageAreMerged() {
+        let header = Data("Message-ID: <a@t.test>\r\n\r\n".utf8)
+        let parts: [IMAPSession.Fetched] = [
+            .init(uid: 7, flags: ["\\Seen"], size: 1234, body: header),
+            .init(uid: 8, flags: [], size: 99, body: Data("Message-ID: <b@t.test>\r\n\r\n".utf8)),
+            .init(uid: 7, flags: ["\\Flagged", "\\seen"], labels: ["Work"]),  // a later part without header
+            .init(uid: nil, flags: ["\\Deleted"]),                               // cannot be placed: dropped
+            .init(uid: 9, flags: ["\\Seen"]),                                    // the header comes second
+            .init(uid: 9, size: 5, gmailMessageID: 42, body: header),
+        ]
+        let merged = IMAPSession.mergedByUID(parts)
+        #expect(merged.count == 3)
+        #expect(merged[7]?.body == header && merged[7]?.size == 1234)
+        #expect(merged[7]?.flags == ["\\Seen", "\\Flagged"] && merged[7]?.labels == ["Work"])
+        #expect(merged[8]?.size == 99)
+        #expect(merged[9]?.body == header && merged[9]?.flags == ["\\Seen"] && merged[9]?.gmailMessageID == 42)
     }
 
     @Test func serverTextIsCleaned() {

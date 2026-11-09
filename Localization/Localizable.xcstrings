@@ -60,6 +60,22 @@
         }
       }
     },
+    "%@\n\nErledigtes bleibt erledigt. Die übrigen %lld Mails lassen sich unten über „Unterbrochener Auftrag … fortsetzen“ weiterbearbeiten.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$@\n\nErledigtes bleibt erledigt. Die übrigen %2$lld Mails lassen sich unten über „Unterbrochener Auftrag … fortsetzen“ weiterbearbeiten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@\n\nWhat is done stays done. The remaining %2$lld mails can be finished with “Interrupted job … resume” at the bottom."
+          }
+        }
+      }
+    },
     "%@ (%lld)": {
       "localizations": {
         "de": {
@@ -11226,6 +11242,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "automatic reply (Auto-Submitted)"
+          }
+        }
+      }
+    },
+    "beim unterbrochenen Lauf in den Papierkorb verschoben": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "moved to the trash during the interrupted run"
           }
         }
       }
