@@ -3,7 +3,9 @@
 Diese Datei hält fest, was sich für Benutzerinnen und Benutzer ändert. Die Entscheidungen
 dahinter stehen in [docs/adr/](docs/adr/).
 
-## [Unveröffentlicht]
+## [0.3.1] — 2026-11-09
+
+Löschen auf dem Server übersteht ein langsames Gmail.
 
 - **Löschen auf dem Server, langsames Gmail:** Antwortete Gmail beim Verschieben in den
   Papierkorb länger als zwei Minuten, brach der Auftrag mit „Verbindung geschlossen oder
