@@ -20,6 +20,10 @@ permissions: {}
 
 jobs:
   gate:
+    # Only on the GitHub mirror. Gitea runs .github/workflows as well, has none of the Apple
+    # secrets, and its gate failed on every tag — main turned red after each release. There
+    # the runner skips the gate before any step runs, and build (needs: gate) with it.
+    if: github.server_url == 'https://github.com'
     runs-on: ubuntu-latest
     permissions:
       contents: read
