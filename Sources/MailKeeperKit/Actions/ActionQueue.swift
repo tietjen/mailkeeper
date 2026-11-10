@@ -310,8 +310,10 @@ public struct ActionStore: Sendable {
     }
 }
 
-/// `~/Library/Logs/MailKeeper/audit.jsonl` (0600): what MailKeeper did, metadata only — no
-/// subject, no sender, no content (ADR-0006).
+/// `Logs/MailKeeper/audit.jsonl` in the user's Library (0600): what MailKeeper did, metadata
+/// only — no subject, no sender, no content (ADR-0006). In the sandbox that Library is the
+/// container's: the release app writes to `~/Library/Containers/de.paranoidsecurity.MailKeeper/
+/// Data/Library/Logs/MailKeeper/`, mkctl and "MailKeeper Dev" to `~/Library/Logs/MailKeeper/`.
 public struct AuditLog: Sendable {
     public struct Entry: Codable, Sendable, Equatable {
         public var time: Double

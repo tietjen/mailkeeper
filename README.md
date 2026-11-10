@@ -11,6 +11,24 @@ Principles: archive first, server second · plan → execute → verify for ever
 the model suggests, the user decides · mail content is untrusted data · the archive stays
 readable without the app (raw `.eml` + SQLite index).
 
+## Install
+
+macOS 26 (Tahoe) or later. With [Homebrew](https://brew.sh):
+
+```bash
+brew install --cask tietjen/tap/mailkeeper
+```
+
+Or download the DMG from the [latest release](https://github.com/tietjen/mailkeeper/releases/latest)
+and drag MailKeeper into *Applications*. The app is signed with a Developer ID and notarised by
+Apple. It updates itself (Sparkle, EdDSA-signed) once you allow it to look for updates; it asks
+on its second start. Uninstalling — `brew uninstall --cask mailkeeper` or moving the app to the
+trash — leaves the archive in the app's container alone, on purpose: after a clean-up it is often
+the only copy of the mail.
+
+The first start sets up an archive and your mail accounts; the
+[handbook](docs/handbuch/01-archiv-einrichten.md) walks through it.
+
 ## Development
 
 Requirements: macOS 26+, Xcode 26+ (Swift 6). No external dependencies in the core.

@@ -148,6 +148,8 @@ mkctl unsubscribe 'ist:liste' --limit 30
 ```
 
 `--about <text>` setzt das Thema einer Notiz, `--account <id>` ihren Bereich.
+`mkctl rules suggest` liest das Prüfprotokoll von `mkctl` (`~/Library/Logs/MailKeeper/`), nicht
+das der App aus ihrem Container ([Kapitel 9](09-sicherheit-und-datenschutz.md#wo-deine-daten-liegen)).
 `mkctl unsubscribe --dkim` zeigt zusätzlich, was der Absender signiert hat.
 
 ## Messen

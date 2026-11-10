@@ -320,7 +320,7 @@ welche Beispiele, welches Absenderprofil. Jeder Eintrag lässt sich dort direkt 
 | **Schlüsselbund** | Passwörter, Refresh-Tokens und API-Schlüssel liegen im Schlüsselbund, nie im Archiv. Schlüssel ist die Postfach-Identität, damit zwei Archive desselben Postfachs sich einen Eintrag teilen. |
 | **ATS** | MailKeeper selbst lässt HTTP nur für `localhost`, `127.0.0.1`, `::1`, `*.localhost` und `*.ziti` zu und lehnt beim Sichern alles andere ab; Apples Transportsicherheit erlaubt darüber hinaus Klartext ins lokale Netz. Bei einem nicht-lokalen Endpunkt warnt MailKeeper. |
 | **PDF-Text** | Text aus Anhängen wird in einem eigenen XPC-Dienst gewonnen, der in der Sandbox sitzt, kein Netz hat und keine Dateien sieht (ADR-0009) — PDF-Parser sind historisch eine beliebte Angriffsfläche. |
-| **Protokolle** | `~/Library/Logs/MailKeeper/audit.jsonl` (Aktionen) und `ai.jsonl` (KI-Aufrufe) enthalten nur Metadaten — keine Inhalte, keine Prompts, keine Antworten. |
+| **Protokolle** | `audit.jsonl` (Aktionen) und `ai.jsonl` (KI-Aufrufe) enthalten nur Metadaten — keine Inhalte, keine Prompts, keine Antworten. Sie liegen unter `Library/Logs/MailKeeper/` des Benutzers, bei der App in der Sandbox also im Container (`~/Library/Containers/de.paranoidsecurity.MailKeeper/Data/Library/Logs/MailKeeper/`), bei `mkctl` und „MailKeeper Dev“ in `~/Library/Logs/MailKeeper/`. |
 
 ## Wo was liegt
 

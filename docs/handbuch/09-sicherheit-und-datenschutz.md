@@ -34,8 +34,19 @@ MailKeeper ohne jede KI.
 └── archive.json · .lock · tmp/   Kennung, Sperre, Arbeitsdateien
 ```
 
-Dazu: `~/Library/Logs/MailKeeper/audit.jsonl` (Aktionen) und `ai.jsonl` (KI-Aufrufe) —
-**beide nur mit Metadaten**, keine Inhalte, keine Prompts, keine Antworten.
+Dazu zwei Protokolle, **beide nur mit Metadaten**, keine Inhalte, keine Prompts, keine Antworten:
+`audit.jsonl` (Aktionen) und `ai.jsonl` (KI-Aufrufe). Die App läuft in der Sandbox, beide liegen
+deshalb in ihrem Container:
+
+```
+~/Library/Containers/de.paranoidsecurity.MailKeeper/Data/Library/Logs/MailKeeper/
+```
+
+Nicht unter `~/Library/Logs/MailKeeper/`: Dorthin schreiben nur die Kommandozeile `mkctl` und der
+Entwicklungs-Build „MailKeeper Dev“, die ohne Sandbox laufen. Die Protokolle von App und `mkctl`
+sind also getrennt: `mkctl rules suggest` sieht nicht, was die App gelöscht hat, und die App nicht,
+was `mkctl` getan hat. Den Pfad zum Prüfprotokoll nennt MailKeeper auch selbst, unten im Ergebnis
+jedes Auftrags.
 
 Und der **Schlüsselbund**: Passwörter, Google-Refresh-Tokens, das Google-Client-Secret,
 API-Schlüssel. Nie im Archiv.

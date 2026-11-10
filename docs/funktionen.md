@@ -149,8 +149,9 @@ Jede Kopfzeile ist ein Menü: „Alle Mails mit …“, „Zur Suche hinzufügen
 
 ## Aktionen
 
-Alle gehen über **Plan → Ausführen → Prüfen**, mit Protokoll in
-`~/Library/Logs/MailKeeper/audit.jsonl`.
+Alle gehen über **Plan → Ausführen → Prüfen**, mit Protokoll in `audit.jsonl`: bei der App
+`~/Library/Containers/de.paranoidsecurity.MailKeeper/Data/Library/Logs/MailKeeper/`, bei `mkctl`
+`~/Library/Logs/MailKeeper/`.
 
 | Aktion | Start | Was sie tut | Grenze |
 |---|---|---|---|

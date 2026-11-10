@@ -358,7 +358,7 @@ final class AppModel {
     var currentArchiveName: String { archiveName(archiveRoot?.path) }
 
     /// "~/Documents/MailArchivTest"
-    func abbreviated(_ path: String) -> String { (path as NSString).abbreviatingWithTildeInPath }
+    func abbreviated(_ path: String) -> String { DisplayPath.tilde(path) }
 
     private func remember(_ url: URL) {
         let bookmark = try? url.bookmarkData(options: [.withSecurityScope])
@@ -2248,7 +2248,7 @@ final class AppModel {
             } catch {
                 problem = "\(error)"
             }
-            let message = problem ?? (failed > 0 ? String(localized: "\(failed) Mails ließen sich nicht einordnen (siehe ~/Library/Logs/MailKeeper/ai.jsonl).") : nil)
+            let message = problem ?? (failed > 0 ? String(localized: "\(failed) Mails ließen sich nicht einordnen (siehe \(DisplayPath.tilde(AICallLog.defaultURL.path))).") : nil)
             await MainActor.run {
                 guard let self else { return }
                 self.actionRunning = false

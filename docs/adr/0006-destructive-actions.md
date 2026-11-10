@@ -19,7 +19,9 @@ APPEND, Proton rebuilds messages and ignores the APPEND date, Dovecot is textboo
    - *Execute*: batched, resumable, progress, stop after the current item; each item moves
      planned → claimed → done/failed and is journalled before and after.
    - *Verify*: re-read the server/archive state; failures stay visible with a retry.
-   - *Audit*: `~/Library/Logs/MailKeeper/audit.jsonl`, metadata only.
+   - *Audit*: `Logs/MailKeeper/audit.jsonl` in the user's Library, metadata only. *As built:* the
+     sandboxed app's Library is its container (`~/Library/Containers/de.paranoidsecurity.MailKeeper/
+     Data/Library/Logs/MailKeeper/`); `~/Library/Logs/MailKeeper/` is mkctl's and the dev build's.
 2. **Server delete preconditions** (all must hold): a verified blob exists; the location still
    matches (UIDVALIDITY unchanged, Message-ID re-fetched for that UID right before acting —
    claim, then act); the message is older than the account's **grace period** (default 30

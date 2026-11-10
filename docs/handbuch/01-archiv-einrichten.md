@@ -4,6 +4,27 @@ Ein **Archiv** ist ein Ordner, in dem MailKeeper alles ablegt: die Mails selbst,
 und einen Suchindex. Du kannst mehrere Archive haben — eines für privat, eines für die Arbeit,
 eines auf einer externen Platte.
 
+## MailKeeper installieren
+
+MailKeeper braucht macOS 26 (Tahoe) oder neuer. Am einfachsten geht es mit
+[Homebrew](https://brew.sh):
+
+```bash
+brew install --cask tietjen/tap/mailkeeper
+```
+
+Ohne Homebrew lädst du die DMG vom
+[neuesten Release](https://github.com/tietjen/mailkeeper/releases/latest) und ziehst MailKeeper
+in den Ordner *Programme*. Die App ist mit einer Developer ID signiert und von Apple notarisiert.
+Beim ersten Öffnen fragt macOS nur einmal nach, ob du die aus dem Internet geladene App öffnen
+willst.
+
+**Updates** holt MailKeeper selbst, sobald du es erlaubst — die App fragt beim zweiten Start.
+Ein `brew upgrade` lässt sie deshalb in Ruhe. **Deinstallieren** geht mit
+`brew uninstall --cask mailkeeper` oder indem du die App in den Papierkorb legst. Archiv,
+Einstellungen und Protokolle im Container der App bleiben dabei liegen, mit Absicht: Nach dem
+Aufräumen ist das Archiv oft die einzige Kopie deiner Mails.
+
 ## Der erste Start
 
 MailKeeper legt beim ersten Start **nichts** an — kein Archiv, keinen Ordner. Wer die App nur

@@ -93,7 +93,7 @@ struct AISettings: View {
                     }
                     .keyboardShortcut(.defaultAction)
                 }
-                Text("Mails gehen nur an diesen Endpoint und an das Modell auf diesem Mac – an keinen Cloud-Dienst. Jeder Aufruf steht ohne Inhalt im Protokoll (~/Library/Logs/MailKeeper/ai.jsonl). Die KI schlägt nur vor; löschen oder verschieben tut sie nie.")
+                Text("Mails gehen nur an diesen Endpoint und an das Modell auf diesem Mac – an keinen Cloud-Dienst. Jeder Aufruf steht ohne Inhalt im Protokoll (\(DisplayPath.tilde(AICallLog.defaultURL.path))). Die KI schlägt nur vor; löschen oder verschieben tut sie nie.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

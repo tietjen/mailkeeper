@@ -193,7 +193,8 @@ mit. Die Mails nimmt danach **Aus dem Archiv löschen**.
 
 Das Ergebnis-Blatt zeigt Erledigt / Fehlgeschlagen / Übersprungen / Offen mit Gründen, und
 **„Fehlgeschlagene erneut versuchen …“**. Jede Aktion steht mit Metadaten im Prüfprotokoll
-`~/Library/Logs/MailKeeper/audit.jsonl`.
+`audit.jsonl`. Wo es liegt, steht unten im Ergebnis-Blatt und in
+[Kapitel 9](09-sicherheit-und-datenschutz.md#wo-deine-daten-liegen).
 
 ## Weiter
 

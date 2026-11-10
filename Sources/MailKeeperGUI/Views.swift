@@ -727,7 +727,7 @@ struct StatusBar: View {
             }
             Spacer()
             if let root = model.archiveRoot {
-                Text(root.path(percentEncoded: false))
+                Text(model.abbreviated(root.path(percentEncoded: false)))
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .foregroundStyle(.secondary)
