@@ -438,6 +438,26 @@ struct AttachmentTests {
     }
     #endif
 
+    #if canImport(UniformTypeIdentifiers)
+    /// Whatever UTType calls risky, the lists call risky too — Linux judges by the lists (review S1).
+    @Test func riskyByTableCoversUTType() {
+        let extensions = ["exe", "dll", "class", "ipa", "war", "o", "xlsb", "sparseimage", "sparsebundle", "cdr", "dvdr",
+                          "toast", "dmgpart", "afploc", "ftploc", "mailloc", "php3", "php4", "phtml", "pm", "pyc", "rbw",
+                          "tcsh", "make", "tsx", "py", "sh", "js", "html", "svg", "webloc", "dmg", "pkg", "app", "jar",
+                          "command", "docm", "xlsm", "pdf", "docx", "xlsx", "pptx", "odt", "jpg", "png", "heic", "txt",
+                          "csv", "ics", "zip", "eml", "vcf", "md"]
+        for ext in extensions where AttachmentSafety.isRisky(filename: "a.\(ext)", mimeType: "application/octet-stream") {
+            #expect(AttachmentSafety.isRiskyByTable(filename: "a.\(ext)", mimeType: "application/octet-stream"), "\(ext)")
+        }
+        let types = ["text/html", "image/svg+xml", "application/x-sh", "text/x-python-script", "text/x-perl-script",
+                     "text/php", "text/x-php-script", "text/x-ruby-script", "application/javascript", "application/x-msdownload",
+                     "application/x-apple-diskimage", "application/java-archive", "application/pdf", "image/jpeg", "text/plain"]
+        for type in types where AttachmentSafety.isRisky(filename: "anhang", mimeType: type) {
+            #expect(AttachmentSafety.isRiskyByTable(filename: "anhang", mimeType: type), "\(type)")
+        }
+    }
+    #endif
+
     @Test func mimeTableMatchesUTType() {
         #expect(MIMETypes.preferredExtension(for: "image/jpeg") == "jpeg")
         #expect(MIMETypes.preferredExtension(for: "application/pdf") == "pdf")

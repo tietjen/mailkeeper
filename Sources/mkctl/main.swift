@@ -1,3 +1,7 @@
+#if canImport(Glibc)
+// Before Foundation: Glibc's `stdout` is a mutable global that Swift 6 refuses otherwise.
+@preconcurrency import Glibc
+#endif
 import Foundation
 import MailKeeperAI
 import MailKeeperIMAP
@@ -6,11 +10,7 @@ import MailKeeperKit
 // mkctl — command line access to a MailKeeper archive (imports, search, maintenance).
 // No dependencies; arguments are parsed by hand.
 
-// Glibc's `stdout` is a mutable global that Swift 6 refuses to read, hence fflush(nil) (all
-// streams) below. On Linux progress lines are flushed one by one, the rest at exit.
-#if !canImport(Glibc)
 setvbuf(stdout, nil, _IOLBF, 0)
-#endif
 
 let usage = """
 usage: mkctl [--archive <dir>] <command>
@@ -110,6 +110,19 @@ func clean(_ s: String?) -> String {
     return String(String.UnicodeScalarView(DisplayText.safe(s).unicodeScalars.filter { c in
         c == "\n" || c == "\t" || !(c.value < 0x20 || c.value == 0x7F || (0x80...0x9F).contains(c.value))
     }))
+}
+
+/// The KI endpoint's key, or nil. Keychain errors stay quiet as before (the request goes without
+/// a key and the endpoint says so), but a missing secret store is not "no key" (Linux).
+func storedSecret(_ key: String?, in credentials: CredentialStore = CredentialStore()) throws -> String? {
+    guard let key else { return nil }
+    do {
+        return try credentials.secret(key: key)
+    } catch AccountError.noSecretStore {
+        throw AccountError.noSecretStore
+    } catch {
+        return nil
+    }
 }
 
 /// Password without echo, or from stdin with --password-stdin (never as an argument).
@@ -342,7 +355,7 @@ func summarize(_ p: ImportProgress, start: Date) {
         let writer = try ArchiveWriter(layout: layout)
         let done = try await SyncCoordinator.deleteOnServer(job.id, writer: writer, accounts: accounts) { p in
             print("\r\(p.account ?? "") done \(p.done) · failed \(p.failed) · skipped \(p.skipped) of \(p.total)", terminator: "")
-            fflush(nil)
+            fflush(stdout)
         }
         print("")
         print("done \(done.count(.done)) · failed \(done.count(.failed)) · skipped \(done.count(.skipped)) — job \(done.id.uuidString)")
@@ -367,7 +380,7 @@ func summarize(_ p: ImportProgress, start: Date) {
         let writer = try ArchiveWriter(layout: layout)
         let done = try await SyncCoordinator.restoreOnServer(job.id, writer: writer, accounts: accounts) { p in
             print("\r\(p.account ?? "") done \(p.done) · failed \(p.failed) of \(p.total)", terminator: "")
-            fflush(nil)
+            fflush(stdout)
         }
         print("")
         print("done \(done.count(.done)) · failed \(done.count(.failed)) · skipped \(done.count(.skipped)) — job \(done.id.uuidString)")
@@ -390,7 +403,7 @@ func summarize(_ p: ImportProgress, start: Date) {
         let items = try ArchiveReader(layout: layout).exportItems(MessageFilter(text: all ? nil : query + " "))
         let report = try await ArchiveExporter(blobs: layout.blobs).export(items, format: eml != nil ? .eml : .mbox, to: destination) { done, total in
             print("\r\(done)/\(total)", terminator: "")
-            fflush(nil)
+            fflush(stdout)
         }
         print("")
         print("exported \(report.exported) (\(bytes(report.bytes))) to \(destination.path)")
@@ -409,7 +422,7 @@ func summarize(_ p: ImportProgress, start: Date) {
         if ai {
             let config = AIConfigStore(layout: layout).load()
             guard config.enabled else { throw CLIError(description: "KI ist aus: mkctl ai config --on --endpoint <url>") }
-            let key = config.secretKey.flatMap { try? CredentialStore().secret(key: $0) }
+            let key = try storedSecret(config.secretKey)
             let classifier = MailClassifier(router: AIRouter(config: config, apiKey: key))
             let memory = try MemoryRetriever(reader: reader, embedModel: config.endpoint != nil ? config.model(for: .embed) : nil)
             let query = args.joined(separator: " ")
@@ -437,7 +450,7 @@ func summarize(_ p: ImportProgress, start: Date) {
         let layout = try ArchiveLayout.open(at: root, create: false)
         let config = AIConfigStore(layout: layout).load()
         guard config.enabled, config.endpoint != nil else { throw CLIError(description: "KI mit Endpoint nötig: mkctl ai config --on --endpoint <url>") }
-        let key = config.secretKey.flatMap { try? CredentialStore().secret(key: $0) }
+        let key = try storedSecret(config.secretKey)
         let router = AIRouter(config: config, apiKey: key)
         let reader = try ArchiveReader(layout: layout)
         let limit = Int(option("--limit") ?? "20") ?? 20
@@ -445,7 +458,7 @@ func summarize(_ p: ImportProgress, start: Date) {
             let indexer = EmbeddingIndexer(router: router, writer: try ArchiveWriter(layout: layout))
             let added = try await indexer.run { p in
                 print("\r\(p.done)/\(p.total)", terminator: "")
-                fflush(nil)
+                fflush(stdout)
             }
             print("")
             let decided = try await indexer.decideOpenBySimilarity()
@@ -529,7 +542,7 @@ func summarize(_ p: ImportProgress, start: Date) {
             var reports = [try GoldArchive.todayReport(reader: reader, labels: labels)]
             let config = AIConfigStore(layout: layout).load()
             if !args.contains("--no-ai"), config.enabled {
-                let key = config.secretKey.flatMap { try? CredentialStore().secret(key: $0) }
+                let key = try storedSecret(config.secretKey)
                 let runner = GoldRunner(classifier: MailClassifier(router: AIRouter(config: config, apiKey: key)))
                 let model = config.endpoint != nil ? config.model(for: .classify) : "apple-on-device"
                 let memory = try MemoryRetriever(reader: reader, embedModel: config.endpoint != nil ? config.model(for: .embed) : nil)
@@ -617,7 +630,7 @@ func summarize(_ p: ImportProgress, start: Date) {
         let layout = try ArchiveLayout.open(at: root, create: false)
         let config = AIConfigStore(layout: layout).load()
         guard config.enabled else { throw CLIError(description: "KI ist aus: mkctl ai config --on --endpoint <url>") }
-        let key = config.secretKey.flatMap { try? CredentialStore().secret(key: $0) }
+        let key = try storedSecret(config.secretKey)
         let reader = try ArchiveReader(layout: layout)
         let ids = thread ? try reader.thread(of: id).map(\.id) : [id]
         let input = try MailSummarizer.messages(ids, reader: reader)
@@ -634,7 +647,7 @@ func summarize(_ p: ImportProgress, start: Date) {
         let layout = try ArchiveLayout.open(at: root, create: false)
         let config = AIConfigStore(layout: layout).load()
         guard config.enabled else { throw CLIError(description: "KI ist aus: mkctl ai config --on --endpoint <url>") }
-        let key = config.secretKey.flatMap { try? CredentialStore().secret(key: $0) }
+        let key = try storedSecret(config.secretKey)
         let reader = try ArchiveReader(layout: layout)
         let accounts = try reader.accounts()
         let context = QueryContext(accounts: accounts.map(\.id), folders: Array(Set(accounts.flatMap { $0.mailboxes.map(\.name) })).sorted(),
@@ -675,7 +688,7 @@ func summarize(_ p: ImportProgress, start: Date) {
         case "status", nil:
             print("KI: \(config.enabled ? "an" : "aus")")
             print("Endpoint: \(config.endpoint?.absoluteString ?? "—")\(config.endpoint.map { AIConfig.isLocal($0) ? "" : "  (nicht lokal!)" } ?? "")")
-            print("Schlüssel: \(config.secretKey.map { credentials.secretExists(key: $0) ? "im Schlüsselbund" : "keiner" } ?? "—")")
+            print("Schlüssel: \(try config.secretKey.map { try credentials.secretExists(key: $0) ? "im Schlüsselbund" : "keiner" } ?? "—")")
             for task in AITask.allCases where task != .test { print("Modell \(task.rawValue): \(config.model(for: task))") }
             print("Modell auf diesem Mac: \(config.onDevice ? "als Ersatz" : "aus") (\(OnDeviceProvider.availability.reason))")
         case "key":
@@ -692,7 +705,7 @@ func summarize(_ p: ImportProgress, start: Date) {
         case "test":
             var probe = config
             probe.enabled = true
-            let key = config.secretKey.flatMap { try? credentials.secret(key: $0) }
+            let key = try storedSecret(config.secretKey, in: credentials)
             let report = await AIRouter(config: probe, apiKey: key).test()
             for line in report.lines { print("\(line.ok ? "✓" : "✗") \(line.title): \(clean(line.detail))") }
         default:
@@ -806,7 +819,7 @@ func summarize(_ p: ImportProgress, start: Date) {
             print("Konto „\(id)“ angelegt. Abrufen mit: mkctl sync \(id)")
         case "list":
             for a in try store.load() {
-                let how = a.oauth == nil
+                let how = try a.oauth == nil
                     ? (credentials.exists(for: a) ? "Passwort ✓" : "kein Passwort")
                     : (credentials.hasCredential(for: a) ? "Google-Anmeldung ✓" : "Google-Anmeldung fehlt")
                 print("\(a.id)  \(a.kind.rawValue)  \(clean(a.username)) @ \(a.host):\(a.port)  [\(a.policy.mode.rawValue)\(a.policy.include.map { " nur: " + $0.joined(separator: ", ") } ?? "")]  \(how)")

@@ -34,15 +34,20 @@ few BSD calls (`readpassphrase`, `renamex_np`, `sin_len`).
      `as CFString` bridge is Apple's, so the name goes through `CFStringCreateWithCString`.
      Both platforms answer the same.
    - **Secrets** go through `SecretBackend`. macOS: the keychain, unchanged. Linux has no store
-     by default: asking for a secret throws `noSecretStore` instead of answering "none". The
-     server brings its own store (mailkeeper-server, Phase 1).
+     by default: asking for a secret — or whether one exists — throws `noSecretStore` instead of
+     answering "none". `exists` may throw for any backend: "unknown" must not read as "absent",
+     or a revoke of a good Google grant would follow (7.1 B1). The server brings its own store
+     (mailkeeper-server, Phase 1).
    - **Vector math:** plain loops beside the Accelerate calls; a test holds them against
      Accelerate on macOS.
-   - **Attachment types:** a MIME table with macOS's own answers (a test compares it with
-     UTType). No quarantine on Linux; "never overwrite" is `link` + `unlink`.
+   - **Attachment types:** a MIME table with macOS's own answers, and the extension and MIME
+     lists hold what UTType calls risky; two tests on macOS compare both with UTType. No
+     quarantine on Linux; "never overwrite" is `link` + `unlink` (fails closed on file systems
+     without hard links).
    - **KI requests:** a data task with its own delegate counts each chunk and cancels past the
-     limit, as `bytes(for:)` does on macOS (review 5.9 C4). The Apple model reports
-     "nicht verfügbar".
+     limit, as `bytes(for:)` does on macOS (review 5.9 C4). A declared length past the limit
+     cancels the task itself — the `.cancel` disposition does not stop the transfer in
+     swift-corelibs-foundation. The Apple model reports "nicht verfügbar".
    - **Texts:** Linux has no `String(localized:)`; a stand-in returns the source text (German).
 4. **CI keeps it that way.** `ci.yml` has a `linux` job (`swift:6.4-noble`): build and all
    tests of Kit, IMAP and AI. It runs on Gitea's Linux runner (x86_64, like the cluster) and on
@@ -54,7 +59,13 @@ few BSD calls (`readpassphrase`, `renamex_np`, `sin_len`).
   Apple-only belongs in the app or behind a seam like `SecretBackend`.
 - On Linux, tests skip what only macOS has (keychain, quarantine, the Apple model) and, because
   CI containers run as root, the part of a test that relies on a read-only file.
-- mkctl on Linux takes passwords only with `--password-stdin` (no `readpassphrase`).
+- **URLSession delegates on Linux see only the completion-handler forms.** An `async` delegate
+  method compiles, satisfies nothing, and the default applies — the one-click unsubscribe
+  followed redirects that way (review B2). Use the completion-handler form; on macOS it is the
+  same method. Loopback tests (a real server, not a URLProtocol stub) cover redirects and
+  declared lengths.
+- mkctl on Linux takes passwords only with `--password-stdin` (no `readpassphrase`); `stdout`
+  needs `@preconcurrency import Glibc` before Foundation.
 - The batch similarity search (`nearestBatch`) runs as plain loops on Linux. Fast enough for a
   test-sized archive; a server that classifies tens of thousands of mails at once would need
   BLAS (OpenBLAS) — decided when the server does that.

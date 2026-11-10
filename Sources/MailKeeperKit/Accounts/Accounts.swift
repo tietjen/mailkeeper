@@ -182,8 +182,9 @@ public struct AccountStore: Sendable {
 public protocol SecretBackend: Sendable {
     func write(_ secret: Data, key: String, label: String, description: String) throws
     func read(key: String) throws -> Data?
-    /// Without reading the secret itself (the keychain asks no question for that).
-    func exists(key: String) -> Bool
+    /// Without reading the secret itself (the keychain asks no question for that). Throws when it
+    /// cannot tell — "unknown" must not read as "none" (a revoke would follow, 7.1 B1).
+    func exists(key: String) throws -> Bool
     func delete(key: String) throws
 }
 
@@ -223,8 +224,8 @@ public struct CredentialStore: Sendable {
 
     /// Whether an entry exists — attributes only, so no keychain prompt even for entries
     /// another program created (the ACL guards the secret, not the attributes).
-    public func exists(for account: AccountConfig) -> Bool {
-        secretExists(key: Self.key(for: account))
+    public func exists(for account: AccountConfig) throws -> Bool {
+        try secretExists(key: Self.key(for: account))
     }
 
     public func delete(for account: AccountConfig) throws {
@@ -259,13 +260,13 @@ public struct CredentialStore: Sendable {
     /// Whether a sign-in for this mailbox is stored — asked before a discarded token is handed
     /// back to Google: a revoke takes the whole grant, so one must not be sent while a good
     /// sign-in is in the keychain (Nachprüfung 7.1 B1).
-    public func hasRefreshToken(for account: AccountConfig) -> Bool {
-        secretExists(key: Self.refreshTokenKey(for: account))
+    public func hasRefreshToken(for account: AccountConfig) throws -> Bool {
+        try secretExists(key: Self.refreshTokenKey(for: account))
     }
 
     /// Whether the account can sign in at all: a password, or a refresh token for an OAuth account.
-    public func hasCredential(for account: AccountConfig) -> Bool {
-        account.oauth == nil ? exists(for: account) : secretExists(key: Self.refreshTokenKey(for: account))
+    public func hasCredential(for account: AccountConfig) throws -> Bool {
+        try account.oauth == nil ? exists(for: account) : secretExists(key: Self.refreshTokenKey(for: account))
     }
 
     // MARK: Other secrets (the KI endpoint's API key)
@@ -278,8 +279,8 @@ public struct CredentialStore: Sendable {
         try backend.read(key: key).map { String(decoding: $0, as: UTF8.self) }
     }
 
-    public func secretExists(key: String) -> Bool {
-        backend.exists(key: key)
+    public func secretExists(key: String) throws -> Bool {
+        try backend.exists(key: key)
     }
 
     public func deleteSecret(key: String) throws {
@@ -320,7 +321,7 @@ struct KeychainBackend: SecretBackend {
         return data
     }
 
-    func exists(key: String) -> Bool {
+    func exists(key: String) throws -> Bool {
         var q = query(key)
         q[kSecReturnAttributes as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -340,6 +341,6 @@ struct KeychainBackend: SecretBackend {
 struct NoSecretBackend: SecretBackend {
     func write(_ secret: Data, key: String, label: String, description: String) throws { throw AccountError.noSecretStore }
     func read(key: String) throws -> Data? { throw AccountError.noSecretStore }
-    func exists(key: String) -> Bool { false }
+    func exists(key: String) throws -> Bool { throw AccountError.noSecretStore }
     func delete(key: String) throws {}
 }

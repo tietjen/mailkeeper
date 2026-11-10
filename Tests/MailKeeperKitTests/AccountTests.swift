@@ -40,9 +40,9 @@ struct AccountTests {
         let account = AccountConfig.imap(id: "t", username: "probe-\(UUID().uuidString)", host: "imap.example.test")
         defer { try? store.delete(for: account) }
         #expect(try store.password(for: account) == nil)
-        #expect(!store.exists(for: account))
+        #expect(try !store.exists(for: account))
         try store.save("erstes", for: account)
-        #expect(store.exists(for: account))
+        #expect(try store.exists(for: account))
         #expect(try store.password(for: account) == "erstes")
         try store.save("zweites", for: account)
         #expect(try store.password(for: account) == "zweites")
@@ -56,7 +56,8 @@ struct AccountTests {
         let account = AccountConfig.imap(id: "t", username: "u", host: "imap.example.test")
         #expect(throws: AccountError.noSecretStore) { try store.save("x", for: account) }
         #expect(throws: AccountError.noSecretStore) { _ = try store.password(for: account) }
-        #expect(!store.exists(for: account) && !store.hasCredential(for: account))
+        #expect(throws: AccountError.noSecretStore) { _ = try store.exists(for: account) }  // unknown, not "none"
+        #expect(throws: AccountError.noSecretStore) { _ = try store.hasCredential(for: account) }
     }
     #endif
 
@@ -68,7 +69,7 @@ struct AccountTests {
         try store.saveRefreshToken("rt", for: account)
         #expect(try store.password(for: account) == "erstes" && store.exists(for: account))
         #expect(try store.secret(key: CredentialStore.key(for: account)) == "erstes")
-        #expect(store.hasRefreshToken(for: account))
+        #expect(try store.hasRefreshToken(for: account))
         try store.delete(for: account)  // takes the refresh token along
         #expect(try store.password(for: account) == nil && !store.hasRefreshToken(for: account))
     }

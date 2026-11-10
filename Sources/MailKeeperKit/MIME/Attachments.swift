@@ -57,17 +57,21 @@ public enum AttachmentSafety {
         "exe", "com", "bat", "cmd", "msi", "msp", "scr", "pif", "cpl", "ps1", "psm1", "lnk", "reg",
         "scpt", "scptd", "applescript", "workflow", "action", "terminal", "dylib", "so", "kext",
         "prefpane", "plugin", "osax", "dmg", "iso", "img",
+        // what UTType counts as programs, scripts and disk images — named here so Linux, which
+        // has no UTType, judges them the same (review S1)
+        "dll", "class", "ipa", "war", "o", "php3", "php4", "phtml", "pm", "pyc", "rbw", "tcsh", "make", "tsx",
+        "sparseimage", "sparsebundle", "cdr", "dvdr", "toast", "dmgpart",
         // system configuration and automation that installs or runs things
         "mobileconfig", "provisionprofile", "shortcut", "wflow",
         // macro documents
-        "docm", "dotm", "xlsm", "xltm", "pptm", "potm", "ppsm",
+        "docm", "dotm", "xlsm", "xltm", "pptm", "potm", "ppsm", "xlsb",
     ]).union(webExtensions)
 
     /// Web content and link files: opened in a browser they run script, redirect, or ask for
     /// logins (the most common phishing attachment). Shown as text, saved, never opened.
     static let webExtensions: Set<String> = [
         "html", "htm", "xhtml", "shtml", "svg", "svgz", "webarchive", "mht", "mhtml",
-        "url", "webloc", "inetloc", "fileloc",
+        "url", "webloc", "inetloc", "fileloc", "afploc", "ftploc", "mailloc",
     ]
 
     /// Programs, scripts, installers, disk images, configuration profiles, macro documents,
@@ -84,8 +88,15 @@ public enum AttachmentSafety {
                 || t.conforms(to: .svg) || t.conforms(to: .internetLocation)
         } || isWebContent(filename: filename, mimeType: mimeType)
         #else
-        return MIMETypes.isRisky(mimeType) || isWebContent(filename: filename, mimeType: mimeType)
+        return isRiskyByTable(filename: filename, mimeType: mimeType)
         #endif
+    }
+
+    /// The verdict without UTType — extension lists and MIME table only. Linux decides by this;
+    /// on macOS a test checks it calls risky whatever UTType does.
+    static func isRiskyByTable(filename: String, mimeType: String) -> Bool {
+        let ext = (filename as NSString).pathExtension.lowercased()
+        return riskyExtensions.contains(ext) || MIMETypes.isRisky(mimeType) || MIMETypes.isWebContent(mimeType)
     }
 
     /// Previewed as plain text instead of Quick Look (whose web generator may load remote
@@ -248,6 +259,13 @@ enum MIMETypes {
         "application/zip": "zip", "application/gzip": "gz", "application/x-7z-compressed": "7z",
         "message/rfc822": "eml", "audio/mpeg": "mp3", "video/mp4": "mp4", "video/quicktime": "mov",
         "text/vcard": "vcf", "text/x-vcard": "vcf",
+        "audio/wav": "wav", "audio/x-wav": "wav", "audio/mp4": "mp4", "audio/x-m4a": "m4a", "audio/aac": "aac",
+        "audio/ogg": "ogg", "audio/flac": "flac", "text/markdown": "md", "image/heif": "heif",
+        "image/vnd.microsoft.icon": "ico", "image/jpg": "jpeg", "application/x-zip-compressed": "zip",
+        "application/x-rar-compressed": "rar", "application/x-tar": "tar", "application/x-bzip2": "bz2",
+        "application/epub+zip": "epub", "video/mpeg": "mpg", "video/x-msvideo": "avi", "video/webm": "webm",
+        "application/vnd.visio": "vsd", "text/tab-separated-values": "tsv", "application/x-x509-ca-cert": "cer",
+        "application/postscript": "ps", "application/xhtml+xml": "xhtml", "text/x-vcalendar": "vcs",
     ]
 
     static let webTypes: Set<String> = [
@@ -262,8 +280,9 @@ enum MIMETypes {
         "application/x-msi", "application/x-ms-installer", "application/vnd.ms-cab-compressed",
         "application/x-sh", "application/x-shellscript", "text/x-shellscript", "application/x-csh",
         "application/javascript", "text/javascript", "application/x-javascript", "application/ecmascript",
-        "application/x-python", "text/x-python", "application/x-perl", "text/x-perl", "application/x-ruby",
-        "application/x-php", "application/hta", "application/x-bat", "application/java-archive",
+        "application/x-python", "text/x-python", "text/x-python-script", "application/x-perl", "text/x-perl",
+        "text/x-perl-script", "application/x-ruby", "text/x-ruby-script", "application/x-php", "text/php",
+        "text/x-php-script", "application/hta", "application/x-bat", "application/java-archive",
         "application/x-apple-diskimage", "application/x-iso9660-image", "application/vnd.apple.installer+xml",
         "application/x-apple-aspen-config", "application/x-xar",
     ]

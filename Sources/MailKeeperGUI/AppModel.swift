@@ -2103,15 +2103,15 @@ final class AppModel {
 
     /// Whether the Google client secret of a signed-in Gmail account is in this Mac's keychain.
     func hasClientSecret(_ account: AccountConfig) -> Bool {
-        credentials.secretExists(key: CredentialStore.clientSecretKey(for: account))
+        (try? credentials.secretExists(key: CredentialStore.clientSecretKey(for: account))) ?? false  // the keychain does not throw
     }
 
     private func reloadAccounts(_ layout: ArchiveLayout) {
         accountConfigs = (try? AccountStore(layout: layout).load()) ?? []
-        passwordPresent = Dictionary(uniqueKeysWithValues: accountConfigs.map { ($0.id, credentials.hasCredential(for: $0)) })
+        passwordPresent = Dictionary(uniqueKeysWithValues: accountConfigs.map { ($0.id, (try? credentials.hasCredential(for: $0)) ?? false) })
         aiConfig = AIConfigStore(layout: layout).load()
         (trashDays, trashSettingsUnreadable) = { let l = ArchiveSettingsStore(layout: layout).load(); return (l.settings.trashDays, l.unreadable) }()
-        aiKeyStored = aiConfig.secretKey.map(credentials.secretExists) ?? false
+        aiKeyStored = aiConfig.secretKey.map { (try? credentials.secretExists(key: $0)) ?? false } ?? false  // the keychain does not throw
         aiRouterCache = nil
     }
 
@@ -2150,7 +2150,7 @@ final class AppModel {
         }
         try AIConfigStore(layout: layout).save(config)
         aiConfig = config
-        aiKeyStored = config.secretKey.map(credentials.secretExists) ?? false
+        aiKeyStored = config.secretKey.map { (try? credentials.secretExists(key: $0)) ?? false } ?? false
         aiRouterCache = nil
     }
 

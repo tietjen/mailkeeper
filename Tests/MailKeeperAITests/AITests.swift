@@ -361,6 +361,25 @@ struct RouterReviewTests {
         #expect(await router.endpointPaused)
     }
 
+    @Test("Review B1: a Content-Length past the limit is refused at once, the body is not read")
+    func anOversizedLengthIsRefusedAtOnce() async throws {
+        let sent = Mutex(0)
+        let server = try LoopbackHTTPServer { _, send in
+            guard send(Data("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 500000000000\r\n\r\n".utf8)) else { return }
+            let chunk = Data(repeating: 0x20, count: 64 << 10)
+            for _ in 0..<4096 {  // 256 MiB at most, so a client that keeps reading ends too
+                guard send(chunk) else { return }
+                sent.withLock { $0 += chunk.count }
+            }
+        }
+        defer { server.stop() }
+        let provider = OpenAICompatibleProvider(baseURL: URL(string: "http://127.0.0.1:\(server.port)/v1")!, apiKey: nil, timeout: 5)
+        await #expect(throws: AIError.badAnswer(String(localized: "Antwort zu groß"))) {
+            _ = try await provider.chat(ChatRequest(task: .classify, system: "s", user: "u"), model: "m", attempt: 1)
+        }
+        #expect(sent.withLock { $0 } < 64 << 20, "the client kept reading")
+    }
+
     @Test("C4: an oversized answer is refused while it arrives")
     func anOversizedAnswerIsRefused() async throws {
         let base = URL(string: "http://litellm.example.ziti:4000/v1")!

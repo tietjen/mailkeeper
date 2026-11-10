@@ -314,7 +314,10 @@ final class BoundedDownload: NSObject, URLSessionDataDelegate, Sendable {
             $0.response = response
             if refuse { $0.tooLarge = true }
         }
-        completionHandler(refuse ? .cancel : .allow)
+        // `.cancel` does not end the transfer in swift-corelibs-foundation: the body kept coming
+        // and the task never completed (review B1). Allow, then cancel the task itself.
+        completionHandler(.allow)
+        if refuse { dataTask.cancel() }
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
