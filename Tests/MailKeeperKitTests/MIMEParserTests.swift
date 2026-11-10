@@ -462,9 +462,12 @@ struct AttachmentTests {
         #expect(MIMETypes.preferredExtension(for: "image/jpeg") == "jpeg")
         #expect(MIMETypes.preferredExtension(for: "application/pdf") == "pdf")
         #if canImport(UniformTypeIdentifiers)
-        // The Linux table holds macOS's answers; this keeps the two from drifting apart.
+        // The Linux table holds macOS's answers; this keeps the two from drifting apart. Only
+        // where this Mac knows the type: installed apps declare some (application/vnd.visio has
+        // an answer on one Mac and none on the CI runner).
         for (mime, ext) in MIMETypes.extensions {
-            #expect(UTType(mimeType: mime)?.preferredFilenameExtension == ext, "\(mime)")
+            guard let known = UTType(mimeType: mime)?.preferredFilenameExtension else { continue }
+            #expect(known == ext, "\(mime)")
         }
         #endif
     }
