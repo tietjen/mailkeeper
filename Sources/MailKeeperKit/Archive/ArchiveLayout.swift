@@ -1,4 +1,6 @@
+#if canImport(DiskArbitration)
 import DiskArbitration
+#endif
 import Foundation
 
 /// The on-disk archive (ADR-0001):
@@ -72,7 +74,9 @@ public struct ArchiveLayout: Sendable {
     /// Whether the archive's volume is encrypted (FileVault/APFS encryption). nil = unknown.
     /// DiskArbitration knows FileVault on Apple-silicon internal storage, where
     /// `volumeIsEncryptedKey` says false; it only answers for the mount point, hence statfs.
+    /// On Linux unknown (nil): encryption at rest is the volume's business there (Longhorn, LUKS).
     public var volumeIsEncrypted: Bool? {
+        #if canImport(DiskArbitration)
         var st = statfs()
         if statfs(root.path, &st) == 0 {
             let mountPoint = withUnsafeBytes(of: st.f_mntonname) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
@@ -85,6 +89,9 @@ public struct ArchiveLayout: Sendable {
         }
         // Without DiskArbitration only a "yes" is trustworthy (see above).
         return (try? root.resourceValues(forKeys: [.volumeIsEncryptedKey]))?.volumeIsEncrypted == true ? true : nil
+        #else
+        return nil
+        #endif
     }
 }
 

@@ -1,5 +1,12 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto  // swift-crypto, same API (Package.swift)
+#endif
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking  // URLSession on Linux
+#endif
 
 /// Google sign-in for Gmail's IMAP (ADR-0012): the authorization code flow with PKCE and a
 /// loopback redirect, as RFC 8252 asks of a native app. MailKeeper never sees the password;
@@ -251,9 +258,15 @@ public extension GoogleOAuth {
 
     static func randomURLSafe(_ bytes: Int) -> String {
         var random = [UInt8](repeating: 0, count: bytes)
+        #if canImport(Security)
         if SecRandomCopyBytes(kSecRandomDefault, bytes, &random) != errSecSuccess {
             random = (0..<bytes).map { _ in UInt8.random(in: .min ... .max) }
         }
+        #else
+        // SystemRandomNumberGenerator is the system's CSPRNG (getrandom on Linux).
+        var generator = SystemRandomNumberGenerator()
+        random = (0..<bytes).map { _ in UInt8.random(in: .min ... .max, using: &generator) }
+        #endif
         return base64URL(Data(random))
     }
 
@@ -368,13 +381,15 @@ final class LoopbackReceiver: @unchecked Sendable {
 
     init(state: String) throws {
         expected = state
-        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        let fd = socket(AF_INET, socketStream, 0)
         guard fd >= 0 else { throw OAuthError.listener(Self.reason()) }
         var address = sockaddr_in()
         address.sin_family = sa_family_t(AF_INET)
         address.sin_port = 0  // the kernel picks a free one
         address.sin_addr.s_addr = INADDR_LOOPBACK.bigEndian
-        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        #if !canImport(Glibc)
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)  // BSD only
+        #endif
         let bound = withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
         }
@@ -464,7 +479,11 @@ final class LoopbackReceiver: @unchecked Sendable {
     /// socket is closed from `stop()`.
     private func accept() {
         while true {
+            #if canImport(Glibc)
+            let connection = Glibc.accept(socketFD, nil, nil)
+            #else
             let connection = Darwin.accept(socketFD, nil, nil)
+            #endif
             guard connection >= 0 else { return }  // closed: stop() had its say
             var timeout = timeval(tv_sec: 10, tv_usec: 0)
             setsockopt(connection, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))

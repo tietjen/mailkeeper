@@ -1,10 +1,13 @@
 import Foundation
 
+#if canImport(ObjectiveC)
 /// The XPC interface of the PDF text service (ADR-0009). Only bytes in, text and a status out.
+/// macOS only — XPC needs the Objective-C runtime; the queue below takes any extractor.
 @objc public protocol AttachmentTextService {
     /// `reply(status, text, detail)`; status is an `AttachmentText.Status` raw value.
     func extractText(fromPDF pdf: Data, reply: @escaping (String, String, String?) -> Void)
 }
+#endif
 
 /// Text of a message's PDF attachments and how extracting it went.
 public struct AttachmentText: Sendable, Equatable {

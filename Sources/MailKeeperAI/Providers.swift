@@ -1,5 +1,10 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking  // URLSession on Linux
+#endif
+#if canImport(FoundationModels)
 import FoundationModels
+#endif
 import MailKeeperKit
 import Synchronization
 
@@ -215,6 +220,13 @@ public struct OpenAICompatibleProvider: ChatProvider {
         var data = Data()
         let response: URLResponse
         do {
+            #if canImport(FoundationNetworking)
+            do {
+                (data, response) = try await BoundedDownload.fetch(req, configuration: session.configuration, limit: limit)
+            } catch is BoundedDownload.TooLarge {
+                throw tooLarge
+            }
+            #else
             let (stream, head) = try await session.bytes(for: req)
             response = head
             if head.expectedContentLength > Int64(limit) { throw tooLarge }
@@ -223,6 +235,7 @@ public struct OpenAICompatibleProvider: ChatProvider {
                 data.append(byte)
                 if data.count > limit { throw tooLarge }
             }
+            #endif
         } catch let error as URLError {
             if error.code == .timedOut { throw AIError.timeout(timeout) }
             if error.code == .cancelled { throw CancellationError() }
@@ -257,6 +270,78 @@ public struct OpenAICompatibleProvider: ChatProvider {
     }
 }
 
+#if canImport(FoundationNetworking)
+/// Linux: URLSession has no `bytes(for:)`. A data task with its own delegate counts every chunk
+/// as it arrives and cancels past `limit` — the limit holds while receiving, as on macOS
+/// (review 5.9 C4). `data(for:)` would not do: it buffers everything first, and with a
+/// URLProtocol it hands back only the first chunk (swift-corelibs-foundation).
+final class BoundedDownload: NSObject, URLSessionDataDelegate, Sendable {
+    struct TooLarge: Error {}
+
+    private struct State {
+        var data = Data()
+        var response: URLResponse?
+        var tooLarge = false
+        var continuation: CheckedContinuation<(Data, URLResponse), Error>?
+    }
+
+    private let limit: Int
+    private let state = Mutex(State())
+
+    private init(limit: Int) {
+        self.limit = limit
+    }
+
+    static func fetch(_ request: URLRequest, configuration: URLSessionConfiguration, limit: Int) async throws -> (Data, URLResponse) {
+        let receiver = BoundedDownload(limit: limit)
+        let session = URLSession(configuration: configuration, delegate: receiver, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }  // the session holds its delegate until then
+        let task = session.dataTask(with: request)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                receiver.state.withLock { $0.continuation = continuation }
+                task.resume()
+            }
+        } onCancel: {
+            task.cancel()  // ends in didCompleteWithError with URLError.cancelled
+        }
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                    completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void) {
+        let refuse = response.expectedContentLength > Int64(limit)
+        state.withLock {
+            $0.response = response
+            if refuse { $0.tooLarge = true }
+        }
+        completionHandler(refuse ? .cancel : .allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        let over = state.withLock { s -> Bool in
+            guard !s.tooLarge else { return false }
+            s.data.append(data)
+            guard s.data.count > limit else { return false }
+            s.tooLarge = true
+            s.data = Data()
+            return true
+        }
+        if over { dataTask.cancel() }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        let (continuation, result) = state.withLock { s -> (CheckedContinuation<(Data, URLResponse), Error>?, Result<(Data, URLResponse), Error>) in
+            defer { s.continuation = nil }
+            if s.tooLarge { return (s.continuation, .failure(TooLarge())) }
+            if let error { return (s.continuation, .failure(error)) }
+            guard let response = s.response ?? task.response else { return (s.continuation, .failure(URLError(.badServerResponse))) }
+            return (s.continuation, .success((s.data, response)))
+        }
+        continuation?.resume(with: result)
+    }
+}
+#endif
+
 // MARK: - Apple on-device
 
 /// Apple's on-device model (never Private Cloud Compute: ADR-0004, local only). A fresh session
@@ -271,6 +356,9 @@ public struct OnDeviceProvider: ChatProvider {
     }
 
     public static var availability: (available: Bool, reason: String) {
+        #if !canImport(FoundationModels)
+        return (false, String(localized: "nicht verfügbar"))  // no Apple model off macOS
+        #else
         switch SystemLanguageModel.default.availability {
         case .available: return (true, String(localized: "verfügbar"))
         case .unavailable(.deviceNotEligible): return (false, String(localized: "dieser Mac unterstützt Apple Intelligence nicht"))
@@ -278,10 +366,14 @@ public struct OnDeviceProvider: ChatProvider {
         case .unavailable(.modelNotReady): return (false, String(localized: "das Modell wird noch geladen"))
         case .unavailable: return (false, String(localized: "nicht verfügbar"))
         }
+        #endif
     }
 
     public func chat(_ request: ChatRequest, model: String, attempt: Int) async throws -> ChatResult {
         guard Self.availability.available else { throw AIError.unavailable(Self.availability.reason) }
+        #if !canImport(FoundationModels)
+        throw AIError.unavailable(Self.availability.reason)
+        #else
         let start = ContinuousClock.now
         let system = request.system, user = request.user, schema = request.schema
         let text: String = try await withHardTimeout(timeout) {
@@ -307,6 +399,7 @@ public struct OnDeviceProvider: ChatProvider {
         }
         return ChatResult(text: text, path: .onDevice, model: "apple-on-device", seconds: (ContinuousClock.now - start).seconds,
                           finishReason: nil, promptTokens: nil, completionTokens: nil, attempt: attempt)
+        #endif
     }
 }
 

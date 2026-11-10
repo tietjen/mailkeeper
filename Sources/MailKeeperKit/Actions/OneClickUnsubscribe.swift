@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking  // URLSession on Linux
+#endif
 
 /// RFC 8058 one-click: one POST `List-Unsubscribe=One-Click` to the https target — no cookies, no
 /// cache, no redirects (a redirect comes back as the answer; the caller opens the page instead),
@@ -42,7 +45,7 @@ public enum PublicHost {
     public static func resolvesPublicly(_ host: String) async -> Bool? {
         await Task.detached(priority: .userInitiated) { () -> Bool? in
             var hints = addrinfo()
-            hints.ai_socktype = SOCK_STREAM
+            hints.ai_socktype = socketStream
             var result: UnsafeMutablePointer<addrinfo>?
             guard getaddrinfo(host, "443", &hints, &result) == 0, let first = result else { return nil }
             defer { freeaddrinfo(first) }

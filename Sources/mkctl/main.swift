@@ -6,7 +6,11 @@ import MailKeeperKit
 // mkctl — command line access to a MailKeeper archive (imports, search, maintenance).
 // No dependencies; arguments are parsed by hand.
 
+// Glibc's `stdout` is a mutable global that Swift 6 refuses to read, hence fflush(nil) (all
+// streams) below. On Linux progress lines are flushed one by one, the rest at exit.
+#if !canImport(Glibc)
 setvbuf(stdout, nil, _IOLBF, 0)
+#endif
 
 let usage = """
 usage: mkctl [--archive <dir>] <command>
@@ -115,12 +119,17 @@ func clean(_ s: String?) -> String {
         guard let line = readLine(strippingNewline: true), !line.isEmpty else { throw CLIError(description: "no password on stdin") }
         return line
     }
+    #if canImport(Glibc)
+    // No readpassphrase on Linux; a server takes secrets from stdin, never from a prompt.
+    throw CLIError(description: "no password prompt on Linux: pass it with --password-stdin")
+    #else
     var buffer = [CChar](repeating: 0, count: 1024)
     guard let p = readpassphrase(prompt, &buffer, buffer.count, 0) else { throw CLIError(description: "no password") }
     let password = String(cString: p)
     _ = buffer.withUnsafeMutableBytes { memset_s($0.baseAddress, $0.count, 0, $0.count) }
     guard !password.isEmpty else { throw CLIError(description: "empty password") }
     return password
+    #endif
 }
 
 /// Signs in with Google in the user's browser (7.1): prints the address as well, in case the
@@ -333,7 +342,7 @@ func summarize(_ p: ImportProgress, start: Date) {
         let writer = try ArchiveWriter(layout: layout)
         let done = try await SyncCoordinator.deleteOnServer(job.id, writer: writer, accounts: accounts) { p in
             print("\r\(p.account ?? "") done \(p.done) · failed \(p.failed) · skipped \(p.skipped) of \(p.total)", terminator: "")
-            fflush(stdout)
+            fflush(nil)
         }
         print("")
         print("done \(done.count(.done)) · failed \(done.count(.failed)) · skipped \(done.count(.skipped)) — job \(done.id.uuidString)")
@@ -358,7 +367,7 @@ func summarize(_ p: ImportProgress, start: Date) {
         let writer = try ArchiveWriter(layout: layout)
         let done = try await SyncCoordinator.restoreOnServer(job.id, writer: writer, accounts: accounts) { p in
             print("\r\(p.account ?? "") done \(p.done) · failed \(p.failed) of \(p.total)", terminator: "")
-            fflush(stdout)
+            fflush(nil)
         }
         print("")
         print("done \(done.count(.done)) · failed \(done.count(.failed)) · skipped \(done.count(.skipped)) — job \(done.id.uuidString)")
@@ -381,7 +390,7 @@ func summarize(_ p: ImportProgress, start: Date) {
         let items = try ArchiveReader(layout: layout).exportItems(MessageFilter(text: all ? nil : query + " "))
         let report = try await ArchiveExporter(blobs: layout.blobs).export(items, format: eml != nil ? .eml : .mbox, to: destination) { done, total in
             print("\r\(done)/\(total)", terminator: "")
-            fflush(stdout)
+            fflush(nil)
         }
         print("")
         print("exported \(report.exported) (\(bytes(report.bytes))) to \(destination.path)")
@@ -436,7 +445,7 @@ func summarize(_ p: ImportProgress, start: Date) {
             let indexer = EmbeddingIndexer(router: router, writer: try ArchiveWriter(layout: layout))
             let added = try await indexer.run { p in
                 print("\r\(p.done)/\(p.total)", terminator: "")
-                fflush(stdout)
+                fflush(nil)
             }
             print("")
             let decided = try await indexer.decideOpenBySimilarity()

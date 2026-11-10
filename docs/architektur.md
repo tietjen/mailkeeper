@@ -2,7 +2,7 @@
 
 Dieser Text erklärt, **was** MailKeeper tut, **wie** es das tut und **warum** es so gebaut ist.
 Er richtet sich an alle, die mehr wissen wollen als die Bedienung hergibt — die Entscheidungen
-dahinter stehen ausführlich in den [Architekturentscheidungen](adr/) (ADR-0001 bis ADR-0012),
+dahinter stehen ausführlich in den [Architekturentscheidungen](adr/) (ADR-0001 bis ADR-0014),
 auf die hier verwiesen wird.
 
 Für die Bedienung gibt es das [Handbuch](handbuch/), für jede einzelne Funktion die
@@ -53,6 +53,13 @@ flowchart TB
 Archivformat, MIME-Zerlegung, Index, Suche, Aktionen. Alles andere baut darauf auf. Dass der
 Kern modellfrei und netzfrei ist, hält ihn prüfbar — und `mkctl` kann dasselbe Archiv bedienen
 wie die App.
+
+**Auch auf Linux.** Kern, IMAP, KI und `mkctl` bauen auch auf Linux — dort laufen sie als
+Server, der die Postfächer einer Familie auf dem Homelab archiviert (ADR-0014). Dieselbe
+Suchsprache, dasselbe Archivformat. Wo macOS etwas mitbringt, das Linux fehlt, steht der
+Ersatz direkt daneben: SHA-256 aus swift-crypto, das SQLite des Systems, eine MIME-Tabelle statt
+UTType. Zugangsdaten gehen über eine Schnittstelle, hinter der auf macOS der Schlüsselbund
+steht. Der Linux-Job der CI hält das so.
 
 ## Das Archiv
 

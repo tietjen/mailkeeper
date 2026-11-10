@@ -1,5 +1,8 @@
 import Foundation
 import Testing
+#if canImport(UniformTypeIdentifiers)
+import UniformTypeIdentifiers
+#endif
 @testable import MailKeeperKit
 
 /// Synthetic messages only — this repository is public.
@@ -410,6 +413,7 @@ struct AttachmentTests {
         #expect(AttachmentSafety.textPreview(Data("<b>\u{202E}hi\u{0007}</b>\n".utf8)) == "<b>hi</b>\n")
     }
 
+    #if os(macOS)
     @Test func writtenAttachmentsAreQuarantinedAndPrivate() throws {
         let url = tempDir().appending(path: "tool.command")
         try AttachmentSafety.writeQuarantined(Data("#!/bin/sh\necho hi\n".utf8), to: url)
@@ -423,6 +427,26 @@ struct AttachmentTests {
         #expect(fields.count >= 4)
         #expect(UInt32(fields.first ?? "", radix: 16).map { $0 & 0x1 != 0 } == true)
         #expect(posixMode(url) == 0o600)
+    }
+    #else
+    /// Linux has no quarantine; private and complete still hold.
+    @Test func writtenAttachmentsArePrivate() throws {
+        let url = tempDir().appending(path: "tool.command")
+        try AttachmentSafety.writeQuarantined(Data("#!/bin/sh\necho hi\n".utf8), to: url)
+        #expect(try Data(contentsOf: url) == Data("#!/bin/sh\necho hi\n".utf8))
+        #expect(posixMode(url) == 0o600)
+    }
+    #endif
+
+    @Test func mimeTableMatchesUTType() {
+        #expect(MIMETypes.preferredExtension(for: "image/jpeg") == "jpeg")
+        #expect(MIMETypes.preferredExtension(for: "application/pdf") == "pdf")
+        #if canImport(UniformTypeIdentifiers)
+        // The Linux table holds macOS's answers; this keeps the two from drifting apart.
+        for (mime, ext) in MIMETypes.extensions {
+            #expect(UTType(mimeType: mime)?.preferredFilenameExtension == ext, "\(mime)")
+        }
+        #endif
     }
 
     @Test func displayTextDropsBidiControls() {
