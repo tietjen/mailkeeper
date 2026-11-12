@@ -27,7 +27,10 @@ FROM ubuntu:24.04@sha256:2198e4c65076e9cb0b3d695219df667c0e3b0072da64ca3c2648aca
 RUN apt-get update -qq \
  && apt-get install -y -qq --no-install-recommends libsqlite3-0 libcurl4t64 ca-certificates tzdata >/dev/null \
  && rm -rf /var/lib/apt/lists/* \
- && useradd --system --uid 10001 --gid 0 --home-dir /data --no-create-home --shell /usr/sbin/nologin mailkeeper
+ && useradd --system --uid 10001 --gid 0 --home-dir /data --no-create-home --shell /usr/sbin/nologin mailkeeper \
+ && install -d -o 10001 -g 0 -m 0700 /data
+# /data is the volume in a deployment; it must be writable for uid 10001 there (fsGroup). The
+# folder here only makes a plain `docker run` without a volume work.
 COPY --from=build /out/ /usr/local/bin/
 USER 10001
 ENTRYPOINT ["/usr/local/bin/mailkeeperd"]

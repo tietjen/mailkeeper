@@ -36,7 +36,8 @@ public struct FileSecretBackend: SecretBackend {
         var data = try Data(contentsOf: url)
         // Secret files often end in a newline (echo, editors); a password does not.
         while data.last == 0x0A || data.last == 0x0D { data.removeLast() }
-        return data
+        // An empty file is no password: no login with "" (fail2ban counts that too).
+        return data.isEmpty ? nil : data
     }
 
     public func exists(key: String) throws -> Bool {

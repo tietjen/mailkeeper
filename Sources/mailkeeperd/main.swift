@@ -19,7 +19,7 @@ let usage = """
 usage: mailkeeperd [--config <file>] [--once | --check-config | --secret-names]
 
   --config <file>   the configuration (default /etc/mailkeeper/config.json)
-  --once            one run over all accounts, then exit
+  --once            one run over all accounts, then exit (1 if any account failed)
   --check-config    read and check the configuration, then exit
   --secret-names    the secret file name each account reads its password from
 
@@ -63,8 +63,8 @@ default:
     print("mailkeeperd: \(config.people.count) Personen, \(accountCount) Konten"
           + (once ? ", ein Lauf" : ", alle \(config.intervalSeconds) s"))
     repeat {
-        await daemon.runOnce()
-        if once { break }
+        let clean = await daemon.runOnce()
+        if once { exit(clean ? 0 : 1) }  // a smoke test or a job sees whether every account got through
         try? await Task.sleep(for: .seconds(config.intervalSeconds))
     } while true
 }
