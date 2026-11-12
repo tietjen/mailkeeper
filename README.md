@@ -46,7 +46,16 @@ so the macOS `.build` stays untouched):
 
 ```bash
 docker run --rm -v "$PWD":/src -w /src swift:6.4-noble \
-  bash -c 'apt-get update -qq && apt-get install -y -qq libsqlite3-dev >/dev/null && swift test --scratch-path /tmp/build'
+  bash -c 'apt-get update -qq && apt-get install -y -qq libsqlite3-dev >/dev/null && swift test --scratch-path /tmp/build --force-resolved-versions'
+```
+
+`mailkeeperd` is the server built on it: it fetches the configured mailboxes into one archive per
+person, over and over, and only reads from mail servers ([ADR-0015](docs/adr/0015-mailkeeperd.md)).
+Its image comes from `packaging/server/Dockerfile`:
+
+```bash
+docker build -f packaging/server/Dockerfile -t mailkeeperd .
+docker run --rm -v ./config.json:/etc/mailkeeper/config.json:ro mailkeeperd --check-config
 ```
 
 `mkctl` works on the same archive format as the app:

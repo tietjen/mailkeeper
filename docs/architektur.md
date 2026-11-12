@@ -59,7 +59,9 @@ Server, der die Postfächer einer Familie auf dem Homelab archiviert (ADR-0014).
 Suchsprache, dasselbe Archivformat. Wo macOS etwas mitbringt, das Linux fehlt, steht der
 Ersatz direkt daneben: SHA-256 aus swift-crypto, das SQLite des Systems, eine MIME-Tabelle statt
 UTType. Zugangsdaten gehen über eine Schnittstelle, hinter der auf macOS der Schlüsselbund
-steht. Der Linux-Job der CI hält das so.
+steht. Der Linux-Job der CI hält das so. Der Server selbst heißt `mailkeeperd` (ADR-0015): eine Schleife, die die
+konfigurierten Postfächer immer wieder in ein Archiv je Person abruft — nur lesend, mit denselben
+Verbindungen wie die App. Seine Passwörter liest er aus Dateien eines Kubernetes-Secrets.
 
 ## Das Archiv
 

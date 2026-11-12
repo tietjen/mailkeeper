@@ -2,13 +2,15 @@
 // MailKeeper — local mail archive for macOS. See docs/adr/ for the architecture.
 // Spikes/ hold independent throwaway packages and are not part of this build.
 //
-// On Linux only the shared core builds — Kit, IMAP, AI and mkctl, the base of the server
-// (mailkeeper-server, Phase 0). The app, the PDF service and Sparkle are macOS-only.
+// On Linux only the shared core builds — Kit, IMAP, AI, mkctl and the server mailkeeperd
+// (mailkeeper-server). The app, the PDF service and Sparkle are macOS-only.
 import PackageDescription
 
 var products: [Product] = [
     .library(name: "MailKeeperKit", targets: ["MailKeeperKit"]),
     .executable(name: "mkctl", targets: ["mkctl"]),
+    // mailkeeper-server: fetches the configured mailboxes into one archive per person.
+    .executable(name: "mailkeeperd", targets: ["mailkeeperd"]),
 ]
 
 var dependencies: [Package.Dependency] = [
@@ -41,8 +43,13 @@ var targets: [Target] = [
     // ADR-0004: language models (OpenAI-compatible endpoint, Apple on-device). Kit stays model-free.
     .target(name: "MailKeeperAI", dependencies: ["MailKeeperKit"]),
     .executableTarget(name: "mkctl", dependencies: ["MailKeeperKit", "MailKeeperIMAP", "MailKeeperAI"]),
+    // The server (mailkeeper-server): configuration, the fetch loop, its status. A library, so
+    // the tests reach it; mailkeeperd is only the command line around it.
+    .target(name: "MailKeeperServer", dependencies: ["MailKeeperKit", "MailKeeperIMAP"]),
+    .executableTarget(name: "mailkeeperd", dependencies: ["MailKeeperKit", "MailKeeperServer"]),
     .testTarget(name: "MailKeeperKitTests", dependencies: ["MailKeeperKit"]),
     .testTarget(name: "MailKeeperIMAPTests", dependencies: ["MailKeeperIMAP", "MailKeeperKit"]),
+    .testTarget(name: "MailKeeperServerTests", dependencies: ["MailKeeperServer", "MailKeeperKit"]),
     // The gold mails are read through #filePath, not through Bundle.module — declaring
     // them excluded keeps SwiftPM from warning about "unhandled files" on every build.
     .testTarget(name: "MailKeeperAITests", dependencies: ["MailKeeperAI", "MailKeeperKit"],
