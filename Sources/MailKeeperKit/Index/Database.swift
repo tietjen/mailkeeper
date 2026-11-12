@@ -1,5 +1,9 @@
 import Foundation
+#if canImport(SQLite3)
 import SQLite3
+#else
+import CSQLite  // Linux: the system SQLite (Package.swift)
+#endif
 
 public struct SQLiteError: Error, CustomStringConvertible, Sendable {
     public let code: Int32
@@ -65,6 +69,7 @@ public final class Database {
     private let handle: OpaquePointer
     private var cache: [String: OpaquePointer] = [:]
     public let path: String
+    static let minimumVersion: Int32 = 3_043_000
 
     /// `wal: false` uses a rollback journal (the index rebuild builds its fresh file that way,
     /// so no -wal/-shm files exist when it is swapped in).
@@ -76,6 +81,12 @@ public final class Database {
             let msg = h.map { String(cString: sqlite3_errmsg($0)) } ?? "cannot open"
             if let h { sqlite3_close_v2(h) }
             throw SQLiteError(code: rc, message: msg, sql: nil)
+        }
+        // The schema uses FTS5 `contentless_delete` (3.43+). macOS brings a newer SQLite; on Linux
+        // it is the distribution's — an older one must fail here, not halfway through a migration.
+        guard sqlite3_libversion_number() >= Self.minimumVersion else {
+            sqlite3_close_v2(h)
+            throw SQLiteError(code: SQLITE_MISUSE, message: "SQLite \(String(cString: sqlite3_libversion())) is too old, 3.43 or newer is needed", sql: nil)
         }
         handle = h
         self.path = path

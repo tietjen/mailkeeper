@@ -18,6 +18,29 @@ struct EmbeddingTests {
         #expect(batch[1]?.map(\.id) == [2, 3] && batch[3]?.map(\.id) == [2, 1])  // never itself
     }
 
+    /// The loops that stand in for Accelerate on Linux score like the index does — on macOS that
+    /// is Accelerate against the loops; on Linux both sides are the loops (a smoke test there).
+    @Test func portableVectorMathScoresLikeTheIndex() {
+        let dim = 37, rows = 40
+        let matrix = (0..<(rows * dim)).map { Float(($0 * 7919) % 101 - 50) / 50 }
+        let query = (0..<dim).map { Float(($0 * 31) % 17 - 8) / 8 }
+        let index = VectorIndex(ids: (1...Int64(rows)).map { $0 }, dim: dim, matrix: matrix)
+
+        let single = matrix.withUnsafeBufferPointer { VectorMath.products($0, rows: rows, with: query) }
+        for hit in index.nearest(to: query, k: rows) {
+            #expect(abs(hit.score - single[Int(hit.id) - 1]) < 1e-3, "row \(hit.id)")
+        }
+
+        let pairs = matrix.withUnsafeBufferPointer { m in VectorMath.products(m, rows: rows, with: m, rows: rows, dim: dim) }
+        let batch = index.nearestBatch(index, k: rows - 1, block: 7)
+        for (query, hits) in batch {
+            for hit in hits {
+                #expect(abs(hit.score - pairs[Int(query - 1) * rows + Int(hit.id - 1)]) < 1e-3, "\(query)·\(hit.id)")
+            }
+        }
+        #expect(abs(VectorMath.normalized([3, 4]).reduce(0) { $0 + $1 * $1 } - 1) < 1e-6)
+    }
+
     @Test func similarMailsDecideOnlyWhenTheyClearlyAgree() {
         let n = { (c: MailCategory, s: Float) in (category: c, score: s, domain: Optional("news.example")) }
         let decide = { (v: [(category: MailCategory, score: Float, domain: String?)]) in SimilarVote.decide(v, domain: "other.example") }

@@ -31,13 +31,22 @@ The first start sets up an archive and your mail accounts; the
 
 ## Development
 
-Requirements: macOS 26+, Xcode 26+ (Swift 6). No external dependencies in the core.
+Requirements: macOS 26+, Xcode 26+ (Swift 6). No external dependencies in the core on macOS.
 
 ```bash
 swift test                                   # MailKeeperKit tests (synthetic data only)
 swift build -c release --product mkctl       # command line tool
 Scripts/build-app.sh                         # signed, sandboxed build/MailKeeper.app
 Scripts/build-app.sh --dev                   # unsandboxed "MailKeeper Dev" for development
+```
+
+The shared core — MailKeeperKit, IMAP, AI and `mkctl` — also builds on Linux, for the server
+([ADR-0014](docs/adr/0014-core-on-linux.md)). In the image CI uses (its own build folder,
+so the macOS `.build` stays untouched):
+
+```bash
+docker run --rm -v "$PWD":/src -w /src swift:6.4-noble \
+  bash -c 'apt-get update -qq && apt-get install -y -qq libsqlite3-dev >/dev/null && swift test --scratch-path /tmp/build'
 ```
 
 `mkctl` works on the same archive format as the app:

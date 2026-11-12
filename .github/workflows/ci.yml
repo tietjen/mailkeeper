@@ -1,7 +1,7 @@
 name: CI
 
-# Gitea is the origin; this runs on the public GitHub mirror, because macOS runners only
-# exist there (the homelab's Gitea runners are Linux).
+# Runs on Gitea (the origin; macOS job on macmini01, Linux job on the Linux runner) and on the
+# public GitHub mirror.
 on:
   push:
     branches: [main]
@@ -65,3 +65,43 @@ jobs:
               sys.exit("tote Links:\n" + "\n".join(bad))
           print("alle internen Links zeigen auf vorhandene Dateien")
           PY
+
+  # The shared core — Kit, IMAP, AI and mkctl — also builds for the server
+  # (mailkeeper-server, Phase 0). On Gitea this is the Linux runner (x86_64, like the
+  # cluster); on the GitHub mirror an Ubuntu runner. Same image on both.
+  linux:
+    runs-on: ubuntu-latest
+    # Pinned by digest (swift:6.4-noble, multi-arch index); bump together with the Swift version.
+    container: swift:6.4-noble@sha256:bca121f6eb59fd80340d1296887b2698ed8f3eb9eca7d80c181f8af769dc7ee0
+    timeout-minutes: 30
+    steps:
+      # Not actions/checkout: on Gitea's runner it needs Node inside the job container, and
+      # the Swift image has none. git is there; the token reads this repository only.
+      - name: Quelltext holen
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          git config --global --add safe.directory "$PWD"
+          git init -q .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          AUTH="$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          echo "::add-mask::$AUTH"
+          git -c http.extraHeader="Authorization: Basic $AUTH" fetch -q --depth=1 origin "$GITHUB_SHA"
+          git checkout -q FETCH_HEAD
+          git log -1 --format='%h %s'
+
+      # The index needs SQLite with FTS5, 3.43 or newer: noble has 3.45 (Database checks).
+      - name: SQLite-Header
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq libsqlite3-dev >/dev/null
+
+      - name: Bauen
+        run: |
+          swift --version
+          swift build --build-tests
+
+      # Linux skips what only macOS has: keychain, quarantine, the Apple model. A test that
+      # makes a file read-only also skips its last part, because the container runs as root.
+      - name: Tests
+        run: swift test

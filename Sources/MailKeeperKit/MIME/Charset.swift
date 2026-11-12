@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 /// Bytes → String for a declared MIME charset, with the fallbacks real mail needs:
@@ -12,8 +13,10 @@ enum Charset {
         case "iso-8859-1", "iso8859-1", "latin1", "latin-1", "l1", "windows-1252", "cp1252", "x-cp1252":
             return windows1252(data)
         default:
-            let cfe = CFStringConvertIANACharSetNameToEncoding(cs as CFString)
-            if cfe != kCFStringEncodingInvalidId {
+            // CFString from a C string, not `as CFString`: that bridge exists only on Apple
+            // platforms; the lookup itself answers the same on Linux.
+            if let name = CFStringCreateWithCString(nil, cs, CFStringBuiltInEncodings.UTF8.rawValue),
+               case let cfe = CFStringConvertIANACharSetNameToEncoding(name), cfe != kCFStringEncodingInvalidId {
                 let enc = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(cfe))
                 if let s = String(data: data, encoding: enc) { return s }
             }

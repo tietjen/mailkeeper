@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(FoundationModels)
 import FoundationModels
+#endif
 
 /// The shape of a structured answer, for both providers: JSON Schema for the OpenAI-compatible
 /// endpoint (`response_format`), a dynamic generation schema for Apple's on-device model.
@@ -55,6 +57,7 @@ public indirect enum AISchema: Sendable, Equatable {
         return "value"
     }
 
+    #if canImport(FoundationModels)
     func dynamic() -> DynamicGenerationSchema {
         switch self {
         case .object(let name, let properties):
@@ -68,4 +71,5 @@ public indirect enum AISchema: Sendable, Equatable {
         case .boolean: return DynamicGenerationSchema(type: Bool.self)
         }
     }
+    #endif
 }

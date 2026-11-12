@@ -1,4 +1,6 @@
+#if canImport(Accelerate)
 import Accelerate
+#endif
 import Foundation
 
 /// What a message's vector is made of: subject, sender, attachment names and the snippet — all
@@ -154,7 +156,11 @@ public struct VectorIndex: Sendable {
         guard count > 0, query.count == dim else { return [] }
         var scores = [Float](repeating: 0, count: count)
         matrix.withUnsafeBufferPointer { m in
+            #if canImport(Accelerate)
             cblas_sgemv(CblasRowMajor, CblasNoTrans, Int32(count), Int32(dim), 1, m.baseAddress, Int32(dim), query, 1, 0, &scores, 1)
+            #else
+            scores = VectorMath.products(m, rows: count, with: query)
+            #endif
         }
         var hits: [(Int64, Float)] = []
         hits.reserveCapacity(min(count, 4 * k))
@@ -173,8 +179,13 @@ public struct VectorIndex: Sendable {
             var scores = [Float](repeating: 0, count: rows * count)
             queries.matrix.withUnsafeBufferPointer { q in
                 matrix.withUnsafeBufferPointer { m in
+                    #if canImport(Accelerate)
                     cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans, Int32(rows), Int32(count), Int32(dim), 1,
                                 q.baseAddress! + start * dim, Int32(dim), m.baseAddress, Int32(dim), 0, &scores, Int32(count))
+                    #else
+                    scores = VectorMath.products(UnsafeBufferPointer(rebasing: q[(start * dim)..<((start + rows) * dim)]),
+                                                 rows: rows, with: m, rows: count, dim: dim)
+                    #endif
                 }
             }
             for r in 0..<rows {
@@ -195,11 +206,43 @@ public struct VectorIndex: Sendable {
 
 public enum VectorMath {
     public static func normalized(_ v: [Float]) -> [Float] {
+        #if canImport(Accelerate)
         var norm: Float = 0
         vDSP_svesq(v, 1, &norm, vDSP_Length(v.count))
+        #else
+        var norm = v.reduce(0) { $0 + $1 * $1 }
+        #endif
         norm = norm.squareRoot()
         guard norm > 0 else { return v }
         return v.map { $0 / norm }
+    }
+
+    // Portable stand-ins for the two BLAS calls — Linux has no Accelerate. Compiled everywhere,
+    // so a test can hold them against Accelerate on macOS. Plain loops; the compiler vectorises
+    // the inner one.
+
+    /// `m` (rows × dim, row-major) times `v`: one dot product per row (sgemv).
+    static func products(_ m: UnsafeBufferPointer<Float>, rows: Int, with v: [Float]) -> [Float] {
+        let dim = v.count
+        return (0..<rows).map { r in
+            var sum: Float = 0
+            for j in 0..<dim { sum += m[r * dim + j] * v[j] }
+            return sum
+        }
+    }
+
+    /// Every row of `a` against every row of `b`, row-major `aRows × bRows` (sgemm with b transposed).
+    static func products(_ a: UnsafeBufferPointer<Float>, rows aRows: Int, with b: UnsafeBufferPointer<Float>,
+                         rows bRows: Int, dim: Int) -> [Float] {
+        var out = [Float](repeating: 0, count: aRows * bRows)
+        for r in 0..<aRows {
+            for c in 0..<bRows {
+                var sum: Float = 0
+                for j in 0..<dim { sum += a[r * dim + j] * b[c * dim + j] }
+                out[r * bRows + c] = sum
+            }
+        }
+        return out
     }
 
     static func encode(_ v: [Float]) -> Data {

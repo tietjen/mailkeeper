@@ -1,5 +1,8 @@
 import Foundation
 import Testing
+#if canImport(UniformTypeIdentifiers)
+import UniformTypeIdentifiers
+#endif
 @testable import MailKeeperKit
 
 /// Synthetic messages only — this repository is public.
@@ -410,6 +413,7 @@ struct AttachmentTests {
         #expect(AttachmentSafety.textPreview(Data("<b>\u{202E}hi\u{0007}</b>\n".utf8)) == "<b>hi</b>\n")
     }
 
+    #if os(macOS)
     @Test func writtenAttachmentsAreQuarantinedAndPrivate() throws {
         let url = tempDir().appending(path: "tool.command")
         try AttachmentSafety.writeQuarantined(Data("#!/bin/sh\necho hi\n".utf8), to: url)
@@ -423,6 +427,49 @@ struct AttachmentTests {
         #expect(fields.count >= 4)
         #expect(UInt32(fields.first ?? "", radix: 16).map { $0 & 0x1 != 0 } == true)
         #expect(posixMode(url) == 0o600)
+    }
+    #else
+    /// Linux has no quarantine; private and complete still hold.
+    @Test func writtenAttachmentsArePrivate() throws {
+        let url = tempDir().appending(path: "tool.command")
+        try AttachmentSafety.writeQuarantined(Data("#!/bin/sh\necho hi\n".utf8), to: url)
+        #expect(try Data(contentsOf: url) == Data("#!/bin/sh\necho hi\n".utf8))
+        #expect(posixMode(url) == 0o600)
+    }
+    #endif
+
+    #if canImport(UniformTypeIdentifiers)
+    /// Whatever UTType calls risky, the lists call risky too — Linux judges by the lists (review S1).
+    @Test func riskyByTableCoversUTType() {
+        let extensions = ["exe", "dll", "class", "ipa", "war", "o", "xlsb", "sparseimage", "sparsebundle", "cdr", "dvdr",
+                          "toast", "dmgpart", "afploc", "ftploc", "mailloc", "php3", "php4", "phtml", "pm", "pyc", "rbw",
+                          "tcsh", "make", "tsx", "py", "sh", "js", "html", "svg", "webloc", "dmg", "pkg", "app", "jar",
+                          "command", "docm", "xlsm", "pdf", "docx", "xlsx", "pptx", "odt", "jpg", "png", "heic", "txt",
+                          "csv", "ics", "zip", "eml", "vcf", "md"]
+        for ext in extensions where AttachmentSafety.isRisky(filename: "a.\(ext)", mimeType: "application/octet-stream") {
+            #expect(AttachmentSafety.isRiskyByTable(filename: "a.\(ext)", mimeType: "application/octet-stream"), "\(ext)")
+        }
+        let types = ["text/html", "image/svg+xml", "application/x-sh", "text/x-python-script", "text/x-perl-script",
+                     "text/php", "text/x-php-script", "text/x-ruby-script", "application/javascript", "application/x-msdownload",
+                     "application/x-apple-diskimage", "application/java-archive", "application/pdf", "image/jpeg", "text/plain"]
+        for type in types where AttachmentSafety.isRisky(filename: "anhang", mimeType: type) {
+            #expect(AttachmentSafety.isRiskyByTable(filename: "anhang", mimeType: type), "\(type)")
+        }
+    }
+    #endif
+
+    @Test func mimeTableMatchesUTType() {
+        #expect(MIMETypes.preferredExtension(for: "image/jpeg") == "jpeg")
+        #expect(MIMETypes.preferredExtension(for: "application/pdf") == "pdf")
+        #if canImport(UniformTypeIdentifiers)
+        // The Linux table holds macOS's answers; this keeps the two from drifting apart. Only
+        // where this Mac knows the type: installed apps declare some (application/vnd.visio has
+        // an answer on one Mac and none on the CI runner).
+        for (mime, ext) in MIMETypes.extensions {
+            guard let known = UTType(mimeType: mime)?.preferredFilenameExtension else { continue }
+            #expect(known == ext, "\(mime)")
+        }
+        #endif
     }
 
     @Test func displayTextDropsBidiControls() {

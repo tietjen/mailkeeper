@@ -40,6 +40,8 @@ struct GoldLabelTests {
             .write(to: store.labelsURL)
         #expect(throws: ArchiveError.self) { _ = try store.load() }
         try store.appendRun(["mode": "a"])
+        // root writes through 0400 — CI's Linux containers run as root; macOS covers this part.
+        guard getuid() != 0 else { return }
         let before = try Data(contentsOf: store.runsURL)
         chmod(store.runsURL.path, 0o400)
         defer { chmod(store.runsURL.path, 0o600) }

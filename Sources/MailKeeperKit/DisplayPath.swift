@@ -24,7 +24,7 @@ public enum DisplayPath {
         let home: String? = buffer.withUnsafeMutableBufferPointer { buf in
             var entry = passwd()
             var found: UnsafeMutablePointer<passwd>?
-            guard getpwuid_r(getuid(), &entry, buf.baseAddress, buf.count, &found) == 0,
+            guard getpwuid_r(getuid(), &entry, buf.baseAddress!, buf.count, &found) == 0,  // non-optional on Linux
                   found != nil, let dir = entry.pw_dir else { return nil }
             return String(cString: dir)
         }

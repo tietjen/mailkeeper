@@ -1,26 +1,26 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking  // URLSession on Linux
+#endif
 
 /// RFC 8058 one-click: one POST `List-Unsubscribe=One-Click` to the https target — no cookies, no
 /// cache, no redirects (a redirect comes back as the answer; the caller opens the page instead),
 /// 20 s at most, a plain user agent.
 public enum OneClickUnsubscribe {
+    /// The completion-handler form, not the async one: swift-corelibs-foundation knows only this
+    /// one and follows redirects past an async method it does not see (review B2). On macOS
+    /// both are the same Objective-C method.
     final class NoRedirects: NSObject, URLSessionTaskDelegate {
         func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                        newRequest request: URLRequest) async -> URLRequest? { nil }
+                        newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+            completionHandler(nil)
+        }
     }
 
     /// The HTTP status. `protocolClasses` only for tests.
     public static func post(_ url: URL, protocolClasses: [AnyClass]? = nil) async throws -> Int {
         guard url.scheme?.lowercased() == "https" else { throw URLError(.unsupportedURL) }
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.httpCookieAcceptPolicy = .never
-        configuration.httpShouldSetCookies = false
-        configuration.httpCookieStorage = nil
-        configuration.urlCache = nil
-        configuration.timeoutIntervalForRequest = 20
-        configuration.timeoutIntervalForResource = 20
-        if let protocolClasses { configuration.protocolClasses = protocolClasses }
-        let session = URLSession(configuration: configuration, delegate: NoRedirects(), delegateQueue: nil)
+        let session = makeSession(protocolClasses: protocolClasses)
         defer { session.finishTasksAndInvalidate() }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -29,6 +29,20 @@ public enum OneClickUnsubscribe {
         request.httpBody = Data("List-Unsubscribe=One-Click".utf8)
         let (_, response) = try await session.data(for: request)
         return (response as? HTTPURLResponse)?.statusCode ?? 0
+    }
+
+    /// No cookies, no cache, no redirects, 20 s. Separate so a test can hold it against a real
+    /// server on loopback (`post` takes https only).
+    static func makeSession(protocolClasses: [AnyClass]?) -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpCookieAcceptPolicy = .never
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieStorage = nil
+        configuration.urlCache = nil
+        configuration.timeoutIntervalForRequest = 20
+        configuration.timeoutIntervalForResource = 20
+        if let protocolClasses { configuration.protocolClasses = protocolClasses }
+        return URLSession(configuration: configuration, delegate: NoRedirects(), delegateQueue: nil)
     }
 }
 
@@ -42,7 +56,7 @@ public enum PublicHost {
     public static func resolvesPublicly(_ host: String) async -> Bool? {
         await Task.detached(priority: .userInitiated) { () -> Bool? in
             var hints = addrinfo()
-            hints.ai_socktype = SOCK_STREAM
+            hints.ai_socktype = socketStream
             var result: UnsafeMutablePointer<addrinfo>?
             guard getaddrinfo(host, "443", &hints, &result) == 0, let first = result else { return nil }
             defer { freeaddrinfo(first) }

@@ -1,6 +1,8 @@
+#if canImport(UniformTypeIdentifiers)
 import CoreServices
-import Foundation
 import UniformTypeIdentifiers
+#endif
+import Foundation
 
 public extension MIMEPart {
     /// The descendant at `path` (child indices from this part).
@@ -37,7 +39,7 @@ public enum AttachmentSafety {
         name = name.replacingOccurrences(of: ":", with: "_")  // Finder's path separator
         while name.hasPrefix(".") || name.hasPrefix(" ") { name.removeFirst() }  // no hidden files
 
-        let typeExtension = UTType(mimeType: mimeType)?.preferredFilenameExtension
+        let typeExtension = MIMETypes.preferredExtension(for: mimeType)
         var ext = (name as NSString).pathExtension
         var base = ext.isEmpty ? name : (name as NSString).deletingPathExtension
         base = base.trimmingCharacters(in: .whitespaces)
@@ -55,17 +57,21 @@ public enum AttachmentSafety {
         "exe", "com", "bat", "cmd", "msi", "msp", "scr", "pif", "cpl", "ps1", "psm1", "lnk", "reg",
         "scpt", "scptd", "applescript", "workflow", "action", "terminal", "dylib", "so", "kext",
         "prefpane", "plugin", "osax", "dmg", "iso", "img",
+        // what UTType counts as programs, scripts and disk images — named here so Linux, which
+        // has no UTType, judges them the same (review S1)
+        "dll", "class", "ipa", "war", "o", "php3", "php4", "phtml", "pm", "pyc", "rbw", "tcsh", "make", "tsx",
+        "sparseimage", "sparsebundle", "cdr", "dvdr", "toast", "dmgpart",
         // system configuration and automation that installs or runs things
         "mobileconfig", "provisionprofile", "shortcut", "wflow",
         // macro documents
-        "docm", "dotm", "xlsm", "xltm", "pptm", "potm", "ppsm",
+        "docm", "dotm", "xlsm", "xltm", "pptm", "potm", "ppsm", "xlsb",
     ]).union(webExtensions)
 
     /// Web content and link files: opened in a browser they run script, redirect, or ask for
     /// logins (the most common phishing attachment). Shown as text, saved, never opened.
     static let webExtensions: Set<String> = [
         "html", "htm", "xhtml", "shtml", "svg", "svgz", "webarchive", "mht", "mhtml",
-        "url", "webloc", "inetloc", "fileloc",
+        "url", "webloc", "inetloc", "fileloc", "afploc", "ftploc", "mailloc",
     ]
 
     /// Programs, scripts, installers, disk images, configuration profiles, macro documents,
@@ -73,6 +79,7 @@ public enum AttachmentSafety {
     public static func isRisky(filename: String, mimeType: String) -> Bool {
         let ext = (filename as NSString).pathExtension.lowercased()
         if riskyExtensions.contains(ext) { return true }
+        #if canImport(UniformTypeIdentifiers)
         let types = [UTType(filenameExtension: ext), UTType(mimeType: mimeType)].compactMap { $0 }
         return types.contains { t in
             t.conforms(to: .executable) || t.conforms(to: .application) || t.conforms(to: .applicationBundle)
@@ -80,6 +87,16 @@ public enum AttachmentSafety {
                 || t.conforms(to: .diskImage) || t.conforms(to: .html) || t.conforms(to: .webArchive)
                 || t.conforms(to: .svg) || t.conforms(to: .internetLocation)
         } || isWebContent(filename: filename, mimeType: mimeType)
+        #else
+        return isRiskyByTable(filename: filename, mimeType: mimeType)
+        #endif
+    }
+
+    /// The verdict without UTType — extension lists and MIME table only. Linux decides by this;
+    /// on macOS a test checks it calls risky whatever UTType does.
+    static func isRiskyByTable(filename: String, mimeType: String) -> Bool {
+        let ext = (filename as NSString).pathExtension.lowercased()
+        return riskyExtensions.contains(ext) || MIMETypes.isRisky(mimeType) || MIMETypes.isWebContent(mimeType)
     }
 
     /// Previewed as plain text instead of Quick Look (whose web generator may load remote
@@ -87,8 +104,12 @@ public enum AttachmentSafety {
     public static func isWebContent(filename: String, mimeType: String) -> Bool {
         let ext = (filename as NSString).pathExtension.lowercased()
         if webExtensions.contains(ext) { return true }
+        #if canImport(UniformTypeIdentifiers)
         let types = [UTType(filenameExtension: ext), UTType(mimeType: mimeType)].compactMap { $0 }
         return types.contains { $0.conforms(to: .html) || $0.conforms(to: .webArchive) || $0.conforms(to: .svg) || $0.conforms(to: .internetLocation) }
+        #else
+        return MIMETypes.isWebContent(mimeType)
+        #endif
     }
 
     /// Writes attachment bytes (0600) quarantined as a mail attachment, so Gatekeeper checks
@@ -99,6 +120,7 @@ public enum AttachmentSafety {
     public static func writeQuarantined(_ data: Data, to url: URL, replace: Bool = true) throws {
         let staging = url.deletingLastPathComponent().appending(path: ".mailkeeper-\(UUID().uuidString).part")
         try writeDurably(data, to: staging)
+        #if canImport(UniformTypeIdentifiers)
         do {
             var values = URLResourceValues()
             values.quarantineProperties = [
@@ -115,6 +137,16 @@ public enum AttachmentSafety {
             unlink(staging.path)
             throw error
         }
+        #else
+        // Linux has no quarantine; private (writeDurably: 0600) and atomic stay. Without
+        // renamex_np, "never overwrite" is link + unlink: link fails if the name exists.
+        let moved = replace ? rename(staging.path, url.path) : link(staging.path, url.path)
+        let failure = errno
+        if !replace || moved != 0 { unlink(staging.path) }
+        guard moved == 0 else {
+            throw CocoaError(failure == EEXIST ? .fileWriteFileExists : .fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path])
+        }
+        #endif
     }
 
     /// Source text of an attachment for a safe text view: at most `limit` bytes, UTF-8 or
@@ -189,5 +221,76 @@ public enum DisplayText {
         case .control, .privateUse, .unassigned, .surrogate: return true
         default: return false
         }
+    }
+}
+
+/// MIME type → file name extension and risk, where UTType answers on macOS. The table holds
+/// what macOS answers for the types mail carries (checked against UTType on macOS 27), so a
+/// file gets the same name on both; risk is judged by the types that run, install or render.
+enum MIMETypes {
+    static func preferredExtension(for mimeType: String) -> String? {
+        #if canImport(UniformTypeIdentifiers)
+        UTType(mimeType: mimeType)?.preferredFilenameExtension
+        #else
+        extensions[essence(mimeType)]
+        #endif
+    }
+
+    /// "Text/HTML; charset=utf-8" → "text/html".
+    static func essence(_ mimeType: String) -> String {
+        String(mimeType.split(separator: ";").first ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+    }
+
+    static let extensions: [String: String] = [
+        "application/pdf": "pdf",
+        "application/msword": "doc",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+        "application/vnd.ms-excel": "xls",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+        "application/vnd.ms-powerpoint": "ppt",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+        "application/vnd.oasis.opendocument.text": "odt",
+        "application/vnd.oasis.opendocument.spreadsheet": "ods",
+        "application/vnd.oasis.opendocument.presentation": "odp",
+        "text/rtf": "rtf", "text/plain": "txt", "text/csv": "csv", "text/calendar": "ics", "text/html": "html",
+        "application/xml": "xml", "text/xml": "xml", "application/json": "json",
+        "image/jpeg": "jpeg", "image/png": "png", "image/gif": "gif", "image/heic": "heic", "image/tiff": "tiff",
+        "image/webp": "webp", "image/svg+xml": "svg", "image/bmp": "bmp",
+        "application/zip": "zip", "application/gzip": "gz", "application/x-7z-compressed": "7z",
+        "message/rfc822": "eml", "audio/mpeg": "mp3", "video/mp4": "mp4", "video/quicktime": "mov",
+        "text/vcard": "vcf", "text/x-vcard": "vcf",
+        "audio/wav": "wav", "audio/x-wav": "wav", "audio/mp4": "mp4", "audio/x-m4a": "m4a", "audio/aac": "aac",
+        "audio/ogg": "ogg", "audio/flac": "flac", "text/markdown": "md", "image/heif": "heif",
+        "image/vnd.microsoft.icon": "ico", "image/jpg": "jpeg", "application/x-zip-compressed": "zip",
+        "application/x-rar-compressed": "rar", "application/x-tar": "tar", "application/x-bzip2": "bz2",
+        "application/epub+zip": "epub", "video/mpeg": "mpg", "video/x-msvideo": "avi", "video/webm": "webm",
+        "application/vnd.visio": "vsd", "text/tab-separated-values": "tsv", "application/x-x509-ca-cert": "cer",
+        "application/postscript": "ps", "application/xhtml+xml": "xhtml", "text/x-vcalendar": "vcs",
+    ]
+
+    static let webTypes: Set<String> = [
+        "text/html", "application/xhtml+xml", "image/svg+xml", "application/x-webarchive",
+        "application/x-mswinurl", "message/external-body",
+    ]
+
+    /// Programs, scripts, installers, disk images, configuration profiles, macro documents.
+    static let riskyTypes: Set<String> = [
+        "application/x-msdownload", "application/x-msdos-program", "application/x-dosexec", "application/x-executable",
+        "application/x-mach-binary", "application/x-elf", "application/x-sharedlib", "application/vnd.microsoft.portable-executable",
+        "application/x-msi", "application/x-ms-installer", "application/vnd.ms-cab-compressed",
+        "application/x-sh", "application/x-shellscript", "text/x-shellscript", "application/x-csh",
+        "application/javascript", "text/javascript", "application/x-javascript", "application/ecmascript",
+        "application/x-python", "text/x-python", "text/x-python-script", "application/x-perl", "text/x-perl",
+        "text/x-perl-script", "application/x-ruby", "text/x-ruby-script", "application/x-php", "text/php",
+        "text/x-php-script", "application/hta", "application/x-bat", "application/java-archive",
+        "application/x-apple-diskimage", "application/x-iso9660-image", "application/vnd.apple.installer+xml",
+        "application/x-apple-aspen-config", "application/x-xar",
+    ]
+
+    static func isWebContent(_ mimeType: String) -> Bool { webTypes.contains(essence(mimeType)) }
+
+    static func isRisky(_ mimeType: String) -> Bool {
+        let type = essence(mimeType)
+        return riskyTypes.contains(type) || type.contains("macroenabled")
     }
 }

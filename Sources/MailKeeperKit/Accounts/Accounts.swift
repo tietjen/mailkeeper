@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 /// A mail account the archive syncs from. Stored in `<archive>/accounts.json` — never a
 /// password (that lives in the keychain, see `CredentialStore`).
@@ -101,7 +103,10 @@ public enum AccountError: Error, CustomStringConvertible, Equatable {
     case invalidID(String)
     case duplicate(String)
     case unknown(String)
-    case keychain(OSStatus)
+    /// An `OSStatus` from the keychain (macOS).
+    case keychain(Int32)
+    /// No place for secrets is set up (Linux, until the server brings its own store).
+    case noSecretStore
 
     public var description: String {
         switch self {
@@ -109,7 +114,12 @@ public enum AccountError: Error, CustomStringConvertible, Equatable {
         case .duplicate(let id): String(localized: "Ein Konto „\(id)“ gibt es schon")
         case .unknown(let id): String(localized: "Kein Konto „\(id)“")
         case .keychain(let s):
+            #if canImport(Security)
             String(localized: "Schlüsselbund-Fehler \(s): \(SecCopyErrorMessageString(s, nil) as String? ?? "")")
+            #else
+            "keychain error \(s)"
+            #endif
+        case .noSecretStore: "no secret store is set up on this system"
         }
     }
 }
@@ -168,63 +178,58 @@ public struct AccountStore: Sendable {
     }
 }
 
-/// Account passwords in the login keychain, created by the running program (ADR-0003: the
-/// data protection keychain needs a provisioning profile; reading items another program
-/// created raises a prompt). Keyed by mailbox identity, so two archives share one entry.
+/// Where `CredentialStore` keeps its secrets: four operations on a string key.
+public protocol SecretBackend: Sendable {
+    func write(_ secret: Data, key: String, label: String, description: String) throws
+    func read(key: String) throws -> Data?
+    /// Without reading the secret itself (the keychain asks no question for that). Throws when it
+    /// cannot tell — "unknown" must not read as "none" (a revoke would follow, 7.1 B1).
+    func exists(key: String) throws -> Bool
+    func delete(key: String) throws
+}
+
+/// Account passwords, refresh tokens and API keys, keyed by mailbox identity, so two archives
+/// share one entry. On macOS in the login keychain; on Linux there is no store unless one is
+/// passed in — the server brings its own (mailkeeper-server, Phase 1).
 public struct CredentialStore: Sendable {
     public let service: String
+    let backend: any SecretBackend
 
     public init(service: String = "de.paranoidsecurity.MailKeeper") {
         self.service = service
+        #if canImport(Security)
+        backend = KeychainBackend(service: service)
+        #else
+        backend = NoSecretBackend()
+        #endif
+    }
+
+    public init(service: String = "de.paranoidsecurity.MailKeeper", backend: any SecretBackend) {
+        self.service = service
+        self.backend = backend
     }
 
     public static func key(for account: AccountConfig) -> String {
         "\(account.username)@\(account.host):\(account.port)"
     }
 
-    private func query(_ account: AccountConfig) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: service,
-         kSecAttrAccount as String: Self.key(for: account)]
-    }
-
     public func save(_ password: String, for account: AccountConfig) throws {
-        let secret = Data(account.normalizedPassword(password).utf8)
-        let update = SecItemUpdate(query(account) as CFDictionary, [kSecValueData as String: secret] as CFDictionary)
-        if update == errSecSuccess { return }
-        guard update == errSecItemNotFound else { throw AccountError.keychain(update) }
-        var add = query(account)
-        add[kSecValueData as String] = secret
-        add[kSecAttrLabel as String] = "MailKeeper – \(account.displayName)"
-        add[kSecAttrDescription as String] = "IMAP-Zugang (MailKeeper)"
-        let status = SecItemAdd(add as CFDictionary, nil)
-        guard status == errSecSuccess else { throw AccountError.keychain(status) }
+        try backend.write(Data(account.normalizedPassword(password).utf8), key: Self.key(for: account),
+                          label: "MailKeeper – \(account.displayName)", description: "IMAP-Zugang (MailKeeper)")
     }
 
     public func password(for account: AccountConfig) throws -> String? {
-        var q = query(account)
-        q[kSecReturnData as String] = true
-        q[kSecMatchLimit as String] = kSecMatchLimitOne
-        var out: CFTypeRef?
-        let status = SecItemCopyMatching(q as CFDictionary, &out)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = out as? Data else { throw AccountError.keychain(status) }
-        return String(decoding: data, as: UTF8.self)
+        try secret(key: Self.key(for: account))
     }
 
     /// Whether an entry exists — attributes only, so no keychain prompt even for entries
     /// another program created (the ACL guards the secret, not the attributes).
-    public func exists(for account: AccountConfig) -> Bool {
-        var q = query(account)
-        q[kSecReturnAttributes as String] = true
-        q[kSecMatchLimit as String] = kSecMatchLimitOne
-        var out: CFTypeRef?
-        return SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess
+    public func exists(for account: AccountConfig) throws -> Bool {
+        try secretExists(key: Self.key(for: account))
     }
 
     public func delete(for account: AccountConfig) throws {
-        let status = SecItemDelete(query(account) as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else { throw AccountError.keychain(status) }
+        try deleteSecret(key: Self.key(for: account))
         try deleteSecret(key: Self.refreshTokenKey(for: account))
         try deleteSecret(key: Self.clientSecretKey(for: account))
     }
@@ -255,55 +260,87 @@ public struct CredentialStore: Sendable {
     /// Whether a sign-in for this mailbox is stored — asked before a discarded token is handed
     /// back to Google: a revoke takes the whole grant, so one must not be sent while a good
     /// sign-in is in the keychain (Nachprüfung 7.1 B1).
-    public func hasRefreshToken(for account: AccountConfig) -> Bool {
-        secretExists(key: Self.refreshTokenKey(for: account))
+    public func hasRefreshToken(for account: AccountConfig) throws -> Bool {
+        try secretExists(key: Self.refreshTokenKey(for: account))
     }
 
     /// Whether the account can sign in at all: a password, or a refresh token for an OAuth account.
-    public func hasCredential(for account: AccountConfig) -> Bool {
-        account.oauth == nil ? exists(for: account) : secretExists(key: Self.refreshTokenKey(for: account))
+    public func hasCredential(for account: AccountConfig) throws -> Bool {
+        try account.oauth == nil ? exists(for: account) : secretExists(key: Self.refreshTokenKey(for: account))
     }
 
     // MARK: Other secrets (the KI endpoint's API key)
 
-    private func query(key: String) -> [String: Any] {
+    public func saveSecret(_ secret: String, key: String, label: String, description: String) throws {
+        try backend.write(Data(secret.utf8), key: key, label: label, description: description)
+    }
+
+    public func secret(key: String) throws -> String? {
+        try backend.read(key: key).map { String(decoding: $0, as: UTF8.self) }
+    }
+
+    public func secretExists(key: String) throws -> Bool {
+        try backend.exists(key: key)
+    }
+
+    public func deleteSecret(key: String) throws {
+        try backend.delete(key: key)
+    }
+}
+
+#if canImport(Security)
+/// The login keychain, items created by the running program (ADR-0003: the data protection
+/// keychain needs a provisioning profile; reading items another program created raises a prompt).
+struct KeychainBackend: SecretBackend {
+    let service: String
+
+    private func query(_ key: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: key]
     }
 
-    public func saveSecret(_ secret: String, key: String, label: String, description: String) throws {
-        let data = Data(secret.utf8)
-        let update = SecItemUpdate(query(key: key) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+    func write(_ secret: Data, key: String, label: String, description: String) throws {
+        let update = SecItemUpdate(query(key) as CFDictionary, [kSecValueData as String: secret] as CFDictionary)
         if update == errSecSuccess { return }
         guard update == errSecItemNotFound else { throw AccountError.keychain(update) }
-        var add = query(key: key)
-        add[kSecValueData as String] = data
+        var add = query(key)
+        add[kSecValueData as String] = secret
         add[kSecAttrLabel as String] = label
         add[kSecAttrDescription as String] = description
         let status = SecItemAdd(add as CFDictionary, nil)
         guard status == errSecSuccess else { throw AccountError.keychain(status) }
     }
 
-    public func secret(key: String) throws -> String? {
-        var q = query(key: key)
+    func read(key: String) throws -> Data? {
+        var q = query(key)
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
         let status = SecItemCopyMatching(q as CFDictionary, &out)
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = out as? Data else { throw AccountError.keychain(status) }
-        return String(decoding: data, as: UTF8.self)
+        return data
     }
 
-    public func secretExists(key: String) -> Bool {
-        var q = query(key: key)
+    func exists(key: String) throws -> Bool {
+        var q = query(key)
         q[kSecReturnAttributes as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
         return SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess
     }
 
-    public func deleteSecret(key: String) throws {
-        let status = SecItemDelete(query(key: key) as CFDictionary)
+    func delete(key: String) throws {
+        let status = SecItemDelete(query(key) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw AccountError.keychain(status) }
     }
+}
+#endif
+
+/// No store set up: nothing is kept, and asking for a secret says so instead of answering
+/// "none" — a sync must not run as if the account had no password.
+struct NoSecretBackend: SecretBackend {
+    func write(_ secret: Data, key: String, label: String, description: String) throws { throw AccountError.noSecretStore }
+    func read(key: String) throws -> Data? { throw AccountError.noSecretStore }
+    func exists(key: String) throws -> Bool { throw AccountError.noSecretStore }
+    func delete(key: String) throws {}
 }

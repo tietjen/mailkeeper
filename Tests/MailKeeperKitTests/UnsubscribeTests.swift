@@ -1,10 +1,31 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking  // URLSession on Linux
+#endif
 import Synchronization
 import Testing
 @testable import MailKeeperKit
 
 @Suite("Abmelden mit Prüfung (6.5c)")
 struct UnsubscribeTests {
+    @Test("Review B2: a redirect is not followed, on Linux too — the 302 comes back as the answer")
+    func redirectsAreNotFollowed() async throws {
+        let server = try LoopbackHTTPServer { line, send in
+            _ = send(Data((line.contains("/first")
+                ? "HTTP/1.1 302 Found\r\nLocation: /internal\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                : "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok").utf8))
+        }
+        defer { server.stop() }
+        let session = OneClickUnsubscribe.makeSession(protocolClasses: nil)
+        defer { session.finishTasksAndInvalidate() }
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(server.port)/first")!)
+        request.httpMethod = "POST"
+        request.httpBody = Data("List-Unsubscribe=One-Click".utf8)
+        let (_, response) = try await session.data(for: request)
+        #expect((response as? HTTPURLResponse)?.statusCode == 302)
+        #expect(server.requests.count == 1, "\(server.requests)")
+    }
+
     static let signedHeaders = "DKIM-Signature: v=1; a=rsa-sha256; d=shop.example; s=s1;\n h=from:to:subject:list-unsubscribe:list-unsubscribe-post; bh=x; b=y\n"
 
     /// `top`: lines put above everything (as on the way: a replayed mail gets them on top).

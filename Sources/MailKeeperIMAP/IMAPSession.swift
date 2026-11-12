@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto  // swift-crypto, same API (Package.swift)
+#endif
 import Foundation
 import MailKeeperKit
 import NIOCore
