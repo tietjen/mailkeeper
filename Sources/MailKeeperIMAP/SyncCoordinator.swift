@@ -152,6 +152,12 @@ public enum SyncCoordinator {
         }, progress: progress)
     }
 
+    /// The certificate fingerprint of an account's server after STARTTLS — no login, so a
+    /// certificate is confirmed before it sees a password (mailkeeper-server).
+    public static func certificateFingerprint(for account: AccountConfig) async throws -> String {
+        try await IMAPSession.certificateFingerprint(of: IMAPEndpoint(account))
+    }
+
     /// Connects with a credential the caller just obtained (setup: a typed password, or the
     /// token of a sign-in that has not been saved yet) and reports mailboxes and, for a bridge
     /// in learn mode, the certificate fingerprint to confirm.

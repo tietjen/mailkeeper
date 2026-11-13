@@ -75,6 +75,37 @@ struct AccountTests {
     }
 }
 
+@Suite("Secrets aus Dateien (mailkeeper-server)")
+struct FileSecretTests {
+    @Test func namesAreKubernetesSecretKeys() {
+        #expect(FileSecretBackend.fileName(for: "jan@example.org@mail.example.org:993") == "jan_example.org_mail.example.org_993")
+        #expect(FileSecretBackend.fileName(for: "oauth-refresh:a@b:1") == "oauth-refresh_a_b_1")
+        #expect(FileSecretBackend.fileName(for: "ä/../x") == "__.._x")  // one name, no path out of the folder
+        #expect(FileSecretBackend.fileName(for: "..") == "_.." && FileSecretBackend.fileName(for: "") == "_")
+    }
+
+    @Test func readsTrimsAndRefusesToWrite() throws {
+        let dir = tempDir()
+        let account = AccountConfig.imap(id: "p", username: "jan@example.org", host: "mail.example.org")
+        let file = dir.appending(path: FileSecretBackend.fileName(for: CredentialStore.key(for: account)))
+        try Data("geheim \n".utf8).write(to: file)
+        let store = CredentialStore(backend: FileSecretBackend(directory: dir))
+        #expect(try store.password(for: account) == "geheim ")  // newline off, the space is the password's
+        #expect(try store.exists(for: account))
+        let other = AccountConfig.imap(id: "q", username: "x@example.org", host: "mail.example.org")
+        #expect(try store.password(for: other) == nil && !store.exists(for: other))
+        #expect(throws: AccountError.readOnlySecretStore) { try store.save("x", for: other) }
+        #expect(throws: AccountError.readOnlySecretStore) { try store.delete(for: account) }
+    }
+
+    @Test func aMissingFolderIsAnErrorNotNoPassword() {
+        let store = CredentialStore(backend: FileSecretBackend(directory: tempDir().appending(path: "fehlt")))
+        let account = AccountConfig.imap(id: "p", username: "u", host: "h")
+        #expect(throws: AccountError.noSecretStore) { _ = try store.password(for: account) }
+        #expect(throws: AccountError.noSecretStore) { _ = try store.exists(for: account) }
+    }
+}
+
 final class MemorySecrets: SecretBackend, @unchecked Sendable {
     private let lock = NSLock()
     private var items: [String: Data] = [:]

@@ -1,0 +1,6 @@
+# Only what packaging/server/Dockerfile needs: the package and its sources and tests.
+*
+!Package.swift
+!Package.resolved
+!Sources/
+!Tests/

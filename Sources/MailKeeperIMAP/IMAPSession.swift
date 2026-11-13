@@ -175,6 +175,29 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         return session
     }
 
+    /// The leaf certificate's fingerprint after STARTTLS, without logging in: a certificate to
+    /// confirm must not see the password before it is confirmed (mailkeeper-server, review S2).
+    public static func certificateFingerprint(of endpoint: IMAPEndpoint, readTimeout: TimeAmount = .seconds(30)) async throws -> String {
+        let session: IMAPSession
+        do {
+            session = try await open(endpoint, access: .readOnly, readTimeout: readTimeout)
+        } catch let error as IMAPError {
+            throw error
+        } catch {
+            throw IMAPError.connection(Self.clean("\(error)"))
+        }
+        do {
+            try await session.startTLS(pinned: nil, verifyChain: false)
+            let fingerprint = await session.certificateFingerprint
+            await session.close()
+            guard let fingerprint, !fingerprint.isEmpty else { throw IMAPError.connection("TLS: kein Zertifikat") }
+            return fingerprint
+        } catch {
+            await session.close()
+            throw error
+        }
+    }
+
     private static func open(_ endpoint: IMAPEndpoint, access: IMAPAccess, readTimeout: TimeAmount) async throws -> IMAPSession {
         let implicitTLS = endpoint.security == .tls
         var tls = TLSConfiguration.makeClientConfiguration()
@@ -263,7 +286,8 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
                         SHA256.hash(data: Data((try? cert.toDERBytes()) ?? [])).map { String(format: "%02x", $0) }.joined()
                     } ?? ""
                     seen.set(fp)
-                    promise.succeed(expected == nil || expected == fp ? .certificateVerified : .failed)
+                    // No certificate is no match, also in learn mode (review S3: "" == "" must not pass).
+                    promise.succeed(!fp.isEmpty && (expected == nil || expected == fp) ? .certificateVerified : .failed)
                 }
             } else {
                 handler = try NIOSSLClientHandler(context: context, serverHostname: host)

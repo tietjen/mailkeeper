@@ -96,12 +96,83 @@ jobs:
           apt-get update -qq
           apt-get install -y -qq libsqlite3-dev >/dev/null
 
+      # --force-resolved-versions: exactly the pins of Package.resolved. Linux's manifest lacks
+      # Sparkle, so without it SwiftPM would resolve anew after every manifest change.
       - name: Bauen
         run: |
           swift --version
-          swift build --build-tests
+          swift build --build-tests --force-resolved-versions
 
       # Linux skips what only macOS has: keychain, quarantine, the Apple model. A test that
       # makes a file read-only also skips its last part, because the container runs as root.
       - name: Tests
-        run: swift test
+        run: swift test --force-resolved-versions
+
+  # The server image (mailkeeper-server, packaging/server/Dockerfile) — only on Gitea and only
+  # from main: the GitHub mirror has neither the registry nor its token. Built by the host's
+  # Docker daemon, pushed by crane from the job container (Ziti DNS reaches the registry), as in
+  # tj/kastelain. The digest is pinned in homelab-gitops by a PR, not here: the manifests there
+  # name people and addresses and stay out of this public repository.
+  image:
+    needs: linux
+    # Named positively: only this Gitea, only main, only push or a manual run. Any other forge or
+    # mirror — GitHub included — never builds or pushes (review S9).
+    if: github.server_url == 'https://git.dev.paranoidsecurity.de' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fixed versions with checksums: both run as root next to the host's Docker socket, crane
+      # with the registry token. crane's sum is from its release's checksums.txt, docker's was
+      # computed on download (download.docker.com publishes none for the static builds).
+      - name: crane und docker-CLI holen (statisch, geprüft)
+        env:
+          CRANE_SHA256: 0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9ec4cda0   # v0.22.1
+          DOCKER_SHA256: 4f798b3ee1e0140eab5bf30b0edc4e84f4cdb53255a429dc3bbae9524845d640  # 27.5.1
+        run: |
+          set -e
+          arch=$(uname -m)
+          [ "$arch" = x86_64 ] || { echo "Image nur auf dem executor-Runner (amd64), nicht auf $arch"; exit 1; }
+          cd /tmp
+          curl -fsSL -o crane.tgz "https://github.com/google/go-containerregistry/releases/download/v0.22.1/go-containerregistry_Linux_x86_64.tar.gz"
+          curl -fsSL -o docker.tgz "https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz"
+          printf '%s  crane.tgz\n%s  docker.tgz\n' "$CRANE_SHA256" "$DOCKER_SHA256" | sha256sum -c -
+          tar -xzf crane.tgz -C /usr/local/bin crane
+          tar -xzf docker.tgz -C /usr/local/bin --strip-components=1 docker/docker
+          rm -f crane.tgz docker.tgz
+          crane version && docker version --format '{{.Client.Version}}'
+
+      - name: "Registry erreichbar (executor über Ziti-DNS)"
+        run: |
+          getent hosts git.dev.paranoidsecurity.de || { echo "FEHLER: Registry-FQDN nicht auflösbar" >&2; exit 1; }
+          curl -sS -o /dev/null -w "  /v2/ -> HTTP %{http_code} (401 = erreichbar)\n" https://git.dev.paranoidsecurity.de/v2/
+
+      - name: "Image bauen und pushen (Host-Daemon, crane)"
+        env:
+          REGISTRY: git.dev.paranoidsecurity.de
+          REPO: tj/mailkeeperd
+          PKGTOKEN: ${{ secrets.PKGTOKEN }}
+          ACTOR: ${{ github.actor }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -e
+          [ -n "$PKGTOKEN" ] || { echo "::error::Repo-Secret PKGTOKEN fehlt (Paket-Token mit write:package)"; exit 1; }
+          umask 077
+          # Token file, tar and the local image go, whatever happens (cancel, failed save).
+          trap 'rm -rf /tmp/regcfg /tmp/mailkeeperd.tar; docker rmi "mailkeeperd-ci:${SHA}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p /tmp/regcfg
+          AUTH=$(printf '%s:%s' "$ACTOR" "$PKGTOKEN" | base64 -w0)
+          echo "::add-mask::$AUTH"
+          printf '{"auths":{"%s":{"auth":"%s"}}}' "$REGISTRY" "$AUTH" > /tmp/regcfg/config.json
+          SHORT="${SHA:0:7}"
+          docker build --platform linux/amd64 -f packaging/server/Dockerfile -t "mailkeeperd-ci:${SHA}" .
+          docker save "mailkeeperd-ci:${SHA}" -o /tmp/mailkeeperd.tar
+          # Only crane needs the registry login; docker build does not see it.
+          DOCKER_CONFIG=/tmp/regcfg crane push /tmp/mailkeeperd.tar "${REGISTRY}/${REPO}:${SHORT}"
+          DOCKER_CONFIG=/tmp/regcfg crane tag "${REGISTRY}/${REPO}:${SHORT}" latest
+          # The digest from the registry, not computed here: what counts is what lies there.
+          DIGEST="$(DOCKER_CONFIG=/tmp/regcfg crane digest "${REGISTRY}/${REPO}:${SHORT}")"
+          case "$DIGEST" in sha256:*) : ;; *) echo "FEHLER: unplausibler Digest '${DIGEST}'" >&2; exit 1 ;; esac
+          echo "gepusht: ${REGISTRY}/${REPO}:${SHORT} (+ latest) — ${DIGEST}"
+          echo "Pin in homelab-gitops: apps/mailkeeper/base/kustomization.yaml → digest: ${DIGEST}"

@@ -107,6 +107,8 @@ public enum AccountError: Error, CustomStringConvertible, Equatable {
     case keychain(Int32)
     /// No place for secrets is set up (Linux, until the server brings its own store).
     case noSecretStore
+    /// The store only reads — a server's secrets come from GitOps, not from what it runs.
+    case readOnlySecretStore
 
     public var description: String {
         switch self {
@@ -120,6 +122,7 @@ public enum AccountError: Error, CustomStringConvertible, Equatable {
             "keychain error \(s)"
             #endif
         case .noSecretStore: "no secret store is set up on this system"
+        case .readOnlySecretStore: "the secret store is read-only — secrets are set where it is deployed"
         }
     }
 }
