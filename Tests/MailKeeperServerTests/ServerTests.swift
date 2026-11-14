@@ -152,7 +152,7 @@ struct DaemonTests {
         var status = ServerStatus()
         status.record("jan/parasec", at: Date(), newMessages: 1, error: nil)
         status.record("jan/frueher", at: Date(timeIntervalSince1970: 0), newMessages: 1, error: nil)
-        status.keep(only: ["jan/parasec"])
+        status.keep(only: ["jan/parasec"], exports: [])
         #expect(Array(status.accounts.keys) == ["jan/parasec"])
     }
 

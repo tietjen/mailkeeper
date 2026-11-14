@@ -19,7 +19,7 @@ let usage = """
 usage: mailkeeperd [--config <file>] [--once | --check-config | --secret-names]
 
   --config <file>   the configuration (default /etc/mailkeeper/config.json)
-  --once            one run over all accounts, then exit (1 if any account failed)
+  --once            one run over all accounts, then exit (1 if any account or export failed)
   --check-config    read and check the configuration, then exit
   --secret-names    the secret file name each account reads its password from
 
@@ -46,10 +46,13 @@ do {
     exit(2)
 }
 let accountCount = config.people.reduce(0) { $0 + $1.accounts.count }
+let exportNote = config.paperless.map { p in
+    ", Paperless \(p.mode.rawValue) für " + config.people.filter { $0.paperless != nil }.map(\.id).joined(separator: ", ")
+} ?? ""
 
 switch args.first {
 case "--check-config":
-    print("Konfiguration in Ordnung: \(config.people.count) Personen, \(accountCount) Konten")
+    print("Konfiguration in Ordnung: \(config.people.count) Personen, \(accountCount) Konten\(exportNote)")
 case "--secret-names":
     for person in config.people {
         for spec in person.accounts {
@@ -60,7 +63,7 @@ case "--secret-names":
 default:
     let once = args.first == "--once"
     let daemon = Daemon(config: config) { print($0) }
-    print("mailkeeperd: \(config.people.count) Personen, \(accountCount) Konten"
+    print("mailkeeperd: \(config.people.count) Personen, \(accountCount) Konten\(exportNote)"
           + (once ? ", ein Lauf" : ", alle \(config.intervalSeconds) s"))
     repeat {
         let clean = await daemon.runOnce()

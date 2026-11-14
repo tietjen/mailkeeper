@@ -12,14 +12,18 @@ public struct ServerConfig: Decodable, Sendable, Equatable {
     /// Last result per account, for probes and people (no mail content).
     public var statusFile: String
     public var people: [Person]
+    /// Attachments for Paperless (ADR-0016). Absent: the server only archives.
+    public var paperless: PaperlessExport?
 
     public struct Person: Decodable, Sendable, Equatable {
         public var id: String
         /// Archive folder of this person — one archive per person, never shared.
         public var archive: String
         public var accounts: [AccountSpec]
+        /// Where this person's attachments land in Paperless. Absent: archived, not exported.
+        public var paperless: PaperlessPerson?
 
-        enum CodingKeys: String, CodingKey, CaseIterable { case id, archive, accounts }
+        enum CodingKeys: String, CodingKey, CaseIterable { case id, archive, accounts, paperless }
 
         public init(from decoder: Decoder) throws {
             try requireKnownKeys(decoder, CodingKeys.self, in: "person")
@@ -27,6 +31,7 @@ public struct ServerConfig: Decodable, Sendable, Equatable {
             id = try c.decode(String.self, forKey: .id)
             archive = try c.decode(String.self, forKey: .archive)
             accounts = try c.decode([AccountSpec].self, forKey: .accounts)
+            paperless = try c.decodeIfPresent(PaperlessPerson.self, forKey: .paperless)
         }
     }
 
@@ -79,7 +84,7 @@ public struct ServerConfig: Decodable, Sendable, Equatable {
         }
     }
 
-    enum CodingKeys: String, CodingKey, CaseIterable { case intervalSeconds, secretsDirectory, statusFile, people }
+    enum CodingKeys: String, CodingKey, CaseIterable { case intervalSeconds, secretsDirectory, statusFile, people, paperless }
 
     public init(from decoder: Decoder) throws {
         try requireKnownKeys(decoder, CodingKeys.self, in: "configuration")
@@ -88,6 +93,7 @@ public struct ServerConfig: Decodable, Sendable, Equatable {
         secretsDirectory = try c.decode(String.self, forKey: .secretsDirectory)
         statusFile = try c.decode(String.self, forKey: .statusFile)
         people = try c.decode([Person].self, forKey: .people)
+        paperless = try c.decodeIfPresent(PaperlessExport.self, forKey: .paperless)
     }
 
     public static func load(from url: URL) throws -> ServerConfig {
@@ -135,8 +141,17 @@ public struct ServerConfig: Decodable, Sendable, Equatable {
                 }
             }
         }
-        // The status file and the secrets do not belong into anyone's archive.
-        for (what, file) in [("statusFile", statusFile), ("secretsDirectory", secretsDirectory)] {
+        // Paperless: the section and the people's mappings go together.
+        if let paperless {
+            try paperless.validate()
+            guard people.contains(where: { $0.paperless != nil }) else { throw ConfigError("paperless: no person has a paperless mapping") }
+            for person in people { try person.paperless?.validate(person: person.id) }
+        } else if let person = people.first(where: { $0.paperless != nil }) {
+            throw ConfigError("\(person.id): paperless mapping without the paperless section")
+        }
+        // The status file, the secrets and the ledgers do not belong into anyone's archive.
+        for (what, file) in [("statusFile", statusFile), ("secretsDirectory", secretsDirectory)]
+            + (paperless.map { [("paperless.ledgerDirectory", $0.ledgerDirectory)] } ?? []) {
             let path = Self.components(file)
             if let a = archives.first(where: { Self.isInside(path, $0.path) || path == $0.path }) {
                 throw ConfigError("\(what) lies inside the archive of \(a.person)")
@@ -215,7 +230,7 @@ private struct AnyKey: CodingKey {
     init?(intValue: Int) { nil }
 }
 
-private func requireKnownKeys<K: CodingKey & CaseIterable>(_ decoder: Decoder, _: K.Type, in what: String) throws {
+func requireKnownKeys<K: CodingKey & CaseIterable>(_ decoder: Decoder, _: K.Type, in what: String) throws {
     let known = Set(K.allCases.map(\.stringValue))
     let unknown = try decoder.container(keyedBy: AnyKey.self).allKeys.map(\.stringValue).filter { !known.contains($0) }
     guard unknown.isEmpty else { throw ConfigError("\(what): unknown field \(unknown.sorted().joined(separator: ", "))") }
