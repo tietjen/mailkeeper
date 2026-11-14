@@ -5,6 +5,26 @@ import Foundation
 public struct ServerStatus: Codable, Sendable, Equatable {
     public var updated: Date
     public var accounts: [String: AccountStatus]
+    /// The Paperless export per person (ADR-0016) — counts only.
+    public var exports: [String: ExportStatus]?
+
+    public struct ExportStatus: Codable, Sendable, Equatable {
+        /// "dryRun": decided and written down, nothing uploaded.
+        public var mode: String
+        /// The ledger file of the current settings (the fingerprint is in its name).
+        public var ledger: String?
+        public var lastAttempt: Date
+        public var lastSuccess: Date?
+        public var error: String?
+        /// A pass is under way (the first one reads every message with attachments).
+        public var running: Bool?
+        /// Not an error, but worth a look: messages not or not completely read (see the ledger).
+        public var warning: String?
+        /// The last pass that got through: messages decided anew and what became of their attachments.
+        public var pass: LedgerCounts?
+        /// Everything in the ledger.
+        public var totals: LedgerCounts?
+    }
 
     public struct AccountStatus: Codable, Sendable, Equatable {
         public var lastAttempt: Date
@@ -73,8 +93,40 @@ public struct ServerStatus: Codable, Sendable, Equatable {
 
     /// Only accounts the configuration still names: one dropped or renamed would otherwise keep
     /// its old `lastSuccess` and make a staleness alert fire for good (review S5).
-    mutating func keep(only keys: Set<String>) {
+    mutating func keep(only keys: Set<String>, exports people: Set<String>) {
         accounts = accounts.filter { keys.contains($0.key) }
+        exports = exports?.filter { people.contains($0.key) }
+        if exports?.isEmpty == true { exports = nil }
+    }
+
+    /// Like accounts: an export that failed keeps its last success and its last counts.
+    mutating func recordExport(_ person: String, mode: String, ledger: String, at time: Date,
+                               counts: (pass: LedgerCounts, totals: LedgerCounts)? = nil, error: String? = nil) {
+        var entry = exports?[person] ?? ExportStatus(mode: mode, lastAttempt: time)
+        entry.mode = mode
+        entry.ledger = ledger
+        entry.lastAttempt = time
+        entry.running = nil
+        entry.error = error
+        if let counts, error == nil {
+            entry.lastSuccess = time
+            entry.pass = counts.pass
+            entry.totals = counts.totals
+            entry.warning = counts.totals.problems > 0
+                ? "\(counts.totals.problems) Mails nicht oder nicht ganz gelesen — im Ledger unter problem" : nil
+        }
+        exports = (exports ?? [:]).merging([person: entry]) { $1 }
+        updated = Date()
+    }
+
+    mutating func markExportRunning(_ person: String, mode: String, ledger: String, at time: Date) {
+        var entry = exports?[person] ?? ExportStatus(mode: mode, lastAttempt: time)
+        entry.mode = mode
+        entry.ledger = ledger
+        entry.lastAttempt = time
+        entry.running = true
+        exports = (exports ?? [:]).merging([person: entry]) { $1 }
+        updated = Date()
     }
 
     /// A run that got through sets `lastSuccess`; one with an error keeps the last one, so a

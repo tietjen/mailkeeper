@@ -28,7 +28,8 @@ public struct Daemon: Sendable {
     public func runOnce() async -> Bool {
         let statusURL = URL(fileURLWithPath: config.statusFile)
         var status = ServerStatus.load(from: statusURL)
-        status.keep(only: Set(config.people.flatMap { person in person.accounts.map { "\(person.id)/\($0.id)" } }))
+        status.keep(only: Set(config.people.flatMap { person in person.accounts.map { "\(person.id)/\($0.id)" } }),
+                    exports: config.paperless == nil ? [] : Set(config.people.filter { $0.paperless != nil }.map(\.id)))
         var clean = true
         for person in config.people {
             do {
@@ -60,7 +61,45 @@ public struct Daemon: Sendable {
             guard let account = accounts.first(where: { $0.id == spec.id }) else { continue }
             clean = await fetch(account, key: "\(person.id)/\(account.id)", writer: writer, status: &status, statusURL: statusURL) && clean
         }
+        // After the fetch, over what the archive holds now — also when an account failed: what
+        // came in is complete (ADR-0001). Still under the archive's lock.
+        if let settings = config.paperless, let mapping = person.paperless {
+            clean = export(person.id, settings: settings, mapping: mapping, layout: layout, status: &status, statusURL: statusURL) && clean
+        }
         return clean
+    }
+
+    private func export(_ person: String, settings: PaperlessExport, mapping: PaperlessPerson, layout: ArchiveLayout,
+                        status: inout ServerStatus, statusURL: URL) -> Bool {
+        let start = Date()
+        let dryRun = PaperlessDryRun(settings: settings, person: mapping, personID: person)
+        let ledger = dryRun.ledgerURL.lastPathComponent, mode = settings.mode.rawValue
+        status.markExportRunning(person, mode: mode, ledger: ledger, at: start)
+        save(status, to: statusURL)
+        defer { save(status, to: statusURL) }
+        do {
+            let counts = try dryRun.run(layout: layout, now: start)
+            log(Self.exportSummary(person, counts.pass, totals: counts.totals, seconds: Date().timeIntervalSince(start)))
+            status.recordExport(person, mode: mode, ledger: ledger, at: start, counts: counts)
+            return true
+        } catch {
+            log("[\(person)] Paperless-Trockenlauf: Fehler: \(Self.clean(error))")
+            status.recordExport(person, mode: mode, ledger: ledger, at: start, error: Self.clean(error))
+            return false
+        }
+    }
+
+    /// Counts only — the ledger holds the details.
+    static func exportSummary(_ person: String, _ pass: LedgerCounts, totals: LedgerCounts, seconds: Double) -> String {
+        func reasons(_ c: LedgerCounts) -> String {
+            let parts = LedgerAttachment.Reason.allCases.compactMap { r in c.skipped[r.rawValue].map { "\(r.rawValue) \($0)" } }
+            return parts.isEmpty ? "keine" : parts.joined(separator: ", ")
+        }
+        var line = String(format: "[%@] Paperless-Trockenlauf: %d Mails neu entschieden · %d Anhänge würden übergeben · ausgelassen: %@",
+                          person, pass.messages, pass.upload, reasons(pass))
+        if pass.problems > 0 { line += " · \(pass.problems) Mails unlesbar" }
+        line += String(format: " · %.1f s — Ledger: %d Mails, %d würden übergeben", seconds, totals.messages, totals.upload)
+        return line
     }
 
     private func fetch(_ account: AccountConfig, key: String, writer: ArchiveWriter,

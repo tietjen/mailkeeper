@@ -61,7 +61,9 @@ Ersatz direkt daneben: SHA-256 aus swift-crypto, das SQLite des Systems, eine MI
 UTType. Zugangsdaten gehen über eine Schnittstelle, hinter der auf macOS der Schlüsselbund
 steht. Der Linux-Job der CI hält das so. Der Server selbst heißt `mailkeeperd` (ADR-0015): eine Schleife, die die
 konfigurierten Postfächer immer wieder in ein Archiv je Person abruft — nur lesend, mit denselben
-Verbindungen wie die App. Seine Passwörter liest er aus Dateien eines Kubernetes-Secrets.
+Verbindungen wie die App. Seine Passwörter liest er aus Dateien eines Kubernetes-Secrets. Nach dem
+Abruf entscheidet er je Anhang, ob er an Paperless ginge, und schreibt das mit Grund und Prüfsumme in
+ein Ledger je Person — im Trockenlauf, ohne etwas hochzuladen (ADR-0016).
 
 ## Das Archiv
 

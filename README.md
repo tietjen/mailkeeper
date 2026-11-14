@@ -51,6 +51,8 @@ docker run --rm -v "$PWD":/src -w /src swift:6.4-noble \
 
 `mailkeeperd` is the server built on it: it fetches the configured mailboxes into one archive per
 person, over and over, and only reads from mail servers ([ADR-0015](docs/adr/0015-mailkeeperd.md)).
+It can decide which attachments would go to Paperless and write that down per person, without
+uploading anything yet ([ADR-0016](docs/adr/0016-paperless-dry-run.md)).
 Its image comes from `packaging/server/Dockerfile`:
 
 ```bash
