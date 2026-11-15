@@ -63,7 +63,10 @@ steht. Der Linux-Job der CI hält das so. Der Server selbst heißt `mailkeeperd`
 konfigurierten Postfächer immer wieder in ein Archiv je Person abruft — nur lesend, mit denselben
 Verbindungen wie die App. Seine Passwörter liest er aus Dateien eines Kubernetes-Secrets. Nach dem
 Abruf entscheidet er je Anhang, ob er an Paperless ginge, und schreibt das mit Grund und Prüfsumme in
-ein Ledger je Person — im Trockenlauf, ohne etwas hochzuladen (ADR-0016).
+ein Ledger je Person — im Trockenlauf, ohne etwas hochzuladen (ADR-0016). Daneben läuft `mailkeeper-mcp` (ADR-0017), ein MCP-Connector,
+der die Archive nur liest: Suche, eine Mail, ihre Konversation, ihre Anhänge, Korrespondenten und
+Zusammenfassungen über LiteLLM — jede Person nur ihr eigenes Archiv, ausgewiesen über die signierte
+Assertion von Kastelain oder ein Token für TJs Geräte.
 
 ## Das Archiv
 

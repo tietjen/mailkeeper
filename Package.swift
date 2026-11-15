@@ -11,6 +11,8 @@ var products: [Product] = [
     .executable(name: "mkctl", targets: ["mkctl"]),
     // mailkeeper-server: fetches the configured mailboxes into one archive per person.
     .executable(name: "mailkeeperd", targets: ["mailkeeperd"]),
+    // ADR-0017: the archive as an MCP connector, a read-only sidecar next to mailkeeperd.
+    .executable(name: "mailkeeper-mcp", targets: ["mailkeeper-mcp"]),
 ]
 
 var dependencies: [Package.Dependency] = [
@@ -47,9 +49,18 @@ var targets: [Target] = [
     // the tests reach it; mailkeeperd is only the command line around it.
     .target(name: "MailKeeperServer", dependencies: ["MailKeeperKit", "MailKeeperIMAP"]),
     .executableTarget(name: "mailkeeperd", dependencies: ["MailKeeperKit", "MailKeeperServer"]),
+    .target(name: "MailKeeperMCP", dependencies: [
+        "MailKeeperKit", "MailKeeperAI", "MailKeeperServer", crypto,
+        .product(name: "NIOCore", package: "swift-nio"),
+        .product(name: "NIOPosix", package: "swift-nio"),
+        .product(name: "NIOHTTP1", package: "swift-nio"),
+    ]),
+    .executableTarget(name: "mailkeeper-mcp", dependencies: ["MailKeeperMCP", "MailKeeperServer", "MailKeeperAI", "MailKeeperKit"]),
     .testTarget(name: "MailKeeperKitTests", dependencies: ["MailKeeperKit"]),
     .testTarget(name: "MailKeeperIMAPTests", dependencies: ["MailKeeperIMAP", "MailKeeperKit"]),
     .testTarget(name: "MailKeeperServerTests", dependencies: ["MailKeeperServer", "MailKeeperKit"]),
+    .testTarget(name: "MailKeeperMCPTests", dependencies: ["MailKeeperMCP", "MailKeeperServer", "MailKeeperAI", "MailKeeperKit"],
+                resources: [.copy("Fixtures")]),
     // The gold mails are read through #filePath, not through Bundle.module — declaring
     // them excluded keeps SwiftPM from warning about "unhandled files" on every build.
     .testTarget(name: "MailKeeperAITests", dependencies: ["MailKeeperAI", "MailKeeperKit"],

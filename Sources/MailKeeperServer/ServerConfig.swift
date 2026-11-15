@@ -14,6 +14,8 @@ public struct ServerConfig: Decodable, Sendable, Equatable {
     public var people: [Person]
     /// Attachments for Paperless (ADR-0016). Absent: the server only archives.
     public var paperless: PaperlessExport?
+    /// mailkeeper-mcp (ADR-0017). Validated here, used only by the connector.
+    public var mcp: MCPSettings?
 
     public struct Person: Decodable, Sendable, Equatable {
         public var id: String
@@ -84,7 +86,7 @@ public struct ServerConfig: Decodable, Sendable, Equatable {
         }
     }
 
-    enum CodingKeys: String, CodingKey, CaseIterable { case intervalSeconds, secretsDirectory, statusFile, people, paperless }
+    enum CodingKeys: String, CodingKey, CaseIterable { case intervalSeconds, secretsDirectory, statusFile, people, paperless, mcp }
 
     public init(from decoder: Decoder) throws {
         try requireKnownKeys(decoder, CodingKeys.self, in: "configuration")
@@ -94,6 +96,7 @@ public struct ServerConfig: Decodable, Sendable, Equatable {
         statusFile = try c.decode(String.self, forKey: .statusFile)
         people = try c.decode([Person].self, forKey: .people)
         paperless = try c.decodeIfPresent(PaperlessExport.self, forKey: .paperless)
+        mcp = try c.decodeIfPresent(MCPSettings.self, forKey: .mcp)
     }
 
     public static func load(from url: URL) throws -> ServerConfig {
@@ -149,9 +152,10 @@ public struct ServerConfig: Decodable, Sendable, Equatable {
         } else if let person = people.first(where: { $0.paperless != nil }) {
             throw ConfigError("\(person.id): paperless mapping without the paperless section")
         }
-        // The status file, the secrets and the ledgers do not belong into anyone's archive.
+        try mcp?.validate(people: people.map(\.id))
+        // The status file, the secrets, the ledgers and the connector's keys do not belong into anyone's archive.
         for (what, file) in [("statusFile", statusFile), ("secretsDirectory", secretsDirectory)]
-            + (paperless.map { [("paperless.ledgerDirectory", $0.ledgerDirectory)] } ?? []) {
+            + (paperless.map { [("paperless.ledgerDirectory", $0.ledgerDirectory)] } ?? []) + (mcp?.files ?? []) {
             let path = Self.components(file)
             if let a = archives.first(where: { Self.isInside(path, $0.path) || path == $0.path }) {
                 throw ConfigError("\(what) lies inside the archive of \(a.person)")

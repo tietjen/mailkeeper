@@ -182,10 +182,19 @@ public struct MessageFilter: Sendable, Equatable {
     }
 }
 
+/// A read-only reader found an index of another schema version: its writer has not migrated it
+/// yet (or is newer). Nothing is read until the versions agree.
+public struct ArchiveSchemaMismatch: Error, CustomStringConvertible, Equatable {
+    public var found: Int
+    public var expected: Int
+    public var description: String { "index schema \(found), this reader knows \(expected) — waiting for the writer to migrate" }
+}
+
 /// Read side of the index for the UI and the CLI. One connection; confine to one thread
 /// (the main actor in the app). WAL lets it read while the writer imports.
 public final class ArchiveReader {
     public let layout: ArchiveLayout
+    private let readOnly: Bool
     private var connection: Database
     private var inode: UInt64
 
@@ -206,11 +215,32 @@ public final class ArchiveReader {
         try Schema.migrate(db)
     }
 
-    public init(layout: ArchiveLayout) throws {
+    public convenience init(layout: ArchiveLayout) throws {
+        try self.init(layout: layout, readOnly: false)
+    }
+
+    /// `readOnly`: a reader beside the writer of another process (mailkeeper-mcp, ADR-0017). It
+    /// opens the index with `SQLITE_OPEN_READONLY` and never migrates — an index of another
+    /// schema version is refused until its writer has migrated it. SQLite still needs to create
+    /// the `-shm` file of a WAL index, so the folder must be writable; the database is not.
+    public init(layout: ArchiveLayout, readOnly: Bool) throws {
         self.layout = layout
-        connection = try Database(path: layout.indexURL.path)
-        try Schema.migrate(connection)  // a fresh archive may not have been written yet
+        self.readOnly = readOnly
+        connection = try Self.connect(layout, readOnly: readOnly)
         inode = Self.inode(layout.indexURL.path)
+    }
+
+    private static func connect(_ layout: ArchiveLayout, readOnly: Bool) throws -> Database {
+        let db = try Database(path: layout.indexURL.path, readOnly: readOnly)
+        guard readOnly else {
+            try Schema.migrate(db)  // a fresh archive may not have been written yet
+            return db
+        }
+        let version = try db.queryOne("PRAGMA user_version", [], { $0.int(0) }) ?? 0
+        guard version == Int64(Schema.currentVersion) else {
+            throw ArchiveSchemaMismatch(found: Int(version), expected: Schema.currentVersion)
+        }
+        return db
     }
 
     /// The live connection; reopened when an index rebuild replaced the file underneath
@@ -219,7 +249,7 @@ public final class ArchiveReader {
         get throws {
             let now = Self.inode(layout.indexURL.path)
             if now != 0, now != inode {
-                connection = try Database(path: layout.indexURL.path)
+                connection = try Self.connect(layout, readOnly: readOnly)
                 inode = now
             }
             return connection

@@ -1,0 +1,108 @@
+{
+  "_comment": "Erzeugt von scratchpad/gen_fixture.py gegen kastelain.signing (tj/kastelain). Nicht von Hand aendern — neu erzeugen.",
+  "audience": "metrics",
+  "canonical_plain_b64": "eyJhdWRpZW5jZSI6Im1ldHJpY3MiLCJhdXRoX3N0cmVuZ3RoIjoic3Ryb25nX2F1dGgiLCJleHBpcmVzX2F0IjoiMjAyNi0wOC0xN1QxMDowMTowMCswMDowMCIsImdyb3VwcyI6WyJmYW1pbGllIiwiYWRtaW5zIl0sImlzc3VlZF9hdCI6IjIwMjYtMDgtMTdUMTA6MDA6MDArMDA6MDAiLCJub25jZSI6IlptOXZZbUZ5TVRJek5EVTJOemc1TUEiLCJydW5faWQiOiJydW4tMDE5N2YxYjIiLCJ1c2VyIjoiamFuIn0=",
+  "canonical_tricky_b64": "eyJBYSI6Ikdyb3NzYnVjaHN0YWJlIHNvcnRpZXJ0IHZvciBLbGVpbmJ1Y2hzdGFiZSIsImFhIjoidW5kIGRlciBoaWVyIGRhbmFjaCIsImF1ZGllbmNlIjoibWV0cmljcyIsImF1dGhfc3RyZW5ndGgiOiJzdHJvbmdfYXV0aCIsImNvdW50IjozLCJlbXB0eSI6W10sImV4cGlyZXNfYXQiOiIyMDI2LTA4LTE3VDEwOjAxOjAwKzAwOjAwIiwiZmxhZyI6dHJ1ZSwiZ3JvdXBzIjpbInp1bHUiLCJhbHBoYSIsIkLDvHJvIl0sImlzc3VlZF9hdCI6IjIwMjYtMDgtMTdUMTA6MDA6MDArMDA6MDAiLCJub25jZSI6Im4xIiwibm90ZSI6IlRhYlx0TkxcbkNSXHJCU1xiRkZcZlNPSFx1MDAwMVFcIlNcXCIsIm5vdGhpbmciOm51bGwsInJ1bl9pZCI6ImE8Yj5jJmQiLCJzZXAiOiJMU+KAqFBT4oCpZW5kZSIsInVzZXIiOiJqw7ZyZyJ9",
+  "issued_at": "2026-08-17T10:00:00+00:00",
+  "jwks": {
+    "keys": [
+      {
+        "alg": "EdDSA",
+        "crv": "Ed25519",
+        "kid": "k20260101-deadbeef",
+        "kty": "OKP",
+        "use": "sig",
+        "x": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+      },
+      {
+        "alg": "EdDSA",
+        "crv": "Ed25519",
+        "kid": "k20260817-aabbccdd",
+        "kty": "OKP",
+        "use": "sig",
+        "x": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+      }
+    ]
+  },
+  "tricky": {
+    "alg": "EdDSA",
+    "body": {
+      "Aa": "Grossbuchstabe sortiert vor Kleinbuchstabe",
+      "aa": "und der hier danach",
+      "audience": "metrics",
+      "auth_strength": "strong_auth",
+      "count": 3,
+      "empty": [],
+      "expires_at": "2026-08-17T10:01:00+00:00",
+      "flag": true,
+      "groups": [
+        "zulu",
+        "alpha",
+        "Büro"
+      ],
+      "issued_at": "2026-08-17T10:00:00+00:00",
+      "nonce": "n1",
+      "note": "Tab\tNL\nCR\rBS\bFF\fSOH\u0001Q\"S\\",
+      "nothing": null,
+      "run_id": "a<b>c&d",
+      "sep": "LS PS ende",
+      "user": "jörg"
+    },
+    "kid": "k20260817-aabbccdd",
+    "sig": "4aGpniUl7fnZS6K3S5Ay_gMEkCsoBg29AMIZa9JSV6FgyfjuJa6O-DODw71gF8U9mb9cAOYxrDFjdGencfLCBA"
+  },
+  "unknown_kid": {
+    "alg": "EdDSA",
+    "body": {
+      "audience": "metrics",
+      "auth_strength": "strong_auth",
+      "expires_at": "2026-08-17T10:01:00+00:00",
+      "groups": [
+        "familie",
+        "admins"
+      ],
+      "issued_at": "2026-08-17T10:00:00+00:00",
+      "nonce": "Zm9vYmFyMTIzNDU2Nzg5MA",
+      "run_id": "run-0197f1b2",
+      "user": "jan"
+    },
+    "kid": "k19700101-00000000",
+    "sig": "NMIwL3-a0Aq5FIDBoN72Dbq8ngVC-u3lG6514bqTIukPEKnuUxtXq1Ig9On8mQ6NKnGR9MAhdpSSTFvIW_KGAw"
+  },
+  "valid": {
+    "alg": "EdDSA",
+    "body": {
+      "audience": "metrics",
+      "auth_strength": "strong_auth",
+      "expires_at": "2026-08-17T10:01:00+00:00",
+      "groups": [
+        "familie",
+        "admins"
+      ],
+      "issued_at": "2026-08-17T10:00:00+00:00",
+      "nonce": "Zm9vYmFyMTIzNDU2Nzg5MA",
+      "run_id": "run-0197f1b2",
+      "user": "jan"
+    },
+    "kid": "k20260817-aabbccdd",
+    "sig": "NMIwL3-a0Aq5FIDBoN72Dbq8ngVC-u3lG6514bqTIukPEKnuUxtXq1Ig9On8mQ6NKnGR9MAhdpSSTFvIW_KGAw"
+  },
+  "wrong_key": {
+    "alg": "EdDSA",
+    "body": {
+      "audience": "metrics",
+      "auth_strength": "strong_auth",
+      "expires_at": "2026-08-17T10:01:00+00:00",
+      "groups": [
+        "familie",
+        "admins"
+      ],
+      "issued_at": "2026-08-17T10:00:00+00:00",
+      "nonce": "Zm9vYmFyMTIzNDU2Nzg5MA",
+      "run_id": "run-0197f1b2",
+      "user": "jan"
+    },
+    "kid": "k20260817-aabbccdd",
+    "sig": "Z0-SOvrdDakNNMnrgliE3ZCFp3UqrTaUq1iScLF6Ze2p6UiaNOpoOq1pIQoTHPjl6wu-mub5TXe-4Po_HENSCw"
+  }
+}
