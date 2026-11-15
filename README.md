@@ -53,6 +53,9 @@ docker run --rm -v "$PWD":/src -w /src swift:6.4-noble \
 person, over and over, and only reads from mail servers ([ADR-0015](docs/adr/0015-mailkeeperd.md)).
 It can decide which attachments would go to Paperless and write that down per person, without
 uploading anything yet ([ADR-0016](docs/adr/0016-paperless-dry-run.md)).
+Next to it, `mailkeeper-mcp` makes the archives readable as an MCP connector — search, a mail,
+its conversation, its attachments, correspondents, summaries — each person only their own, for
+Kastelain and Claude ([ADR-0017](docs/adr/0017-mailkeeper-mcp.md)).
 Its image comes from `packaging/server/Dockerfile`:
 
 ```bash
