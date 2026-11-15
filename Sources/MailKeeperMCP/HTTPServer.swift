@@ -44,9 +44,12 @@ public enum HTTPServer {
     /// Binds, calls `bound` with the port, serves until cancelled. `idle`: a connection that
     /// sends nothing for this long is closed (above the longest answer, which sends nothing
     /// either); `maxConnections`: more at a time are closed at once — a flood must not take the
-    /// process' file descriptors.
+    /// process' file descriptors. `requestTimeout`: a request must be complete within this time
+    /// after the connection opened or the last answer went out — dripping a byte at a time does
+    /// not hold a place.
     public static func run(host: String, port: Int, group: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton,
                            maxBody: Int = maxBody, idle: TimeAmount = .seconds(300), maxConnections: Int = 64,
+                           requestTimeout: Duration = .seconds(30),
                            bound: @Sendable (Int) -> Void = { _ in },
                            handler: @escaping @Sendable (HTTPRequest) async -> HTTPResponse) async throws {
         let server = try await ServerBootstrap(group: group)
@@ -72,7 +75,7 @@ public enum HTTPServer {
                         continue
                     }
                     tasks.addTask {
-                        await serve(connection, maxBody: maxBody, handler: handler)
+                        await serve(connection, maxBody: maxBody, requestTimeout: requestTimeout, handler: handler)
                         await open.leave()
                     }
                 }
@@ -81,7 +84,16 @@ public enum HTTPServer {
     }
 
     static func serve(_ connection: NIOAsyncChannel<HTTPServerRequestPart, HTTPServerResponsePart>, maxBody: Int,
-                      handler: @Sendable (HTTPRequest) async -> HTTPResponse) async {
+                      requestTimeout: Duration, handler: @Sendable (HTTPRequest) async -> HTTPResponse) async {
+        let channel = connection.channel
+        func watchdog() -> Task<Void, Never> {
+            Task {
+                try? await Task.sleep(for: requestTimeout)
+                if !Task.isCancelled { try? await channel.close() }
+            }
+        }
+        var watch = watchdog()  // until the first request is complete
+        defer { watch.cancel() }
         do {
             try await connection.executeThenClose { inbound, outbound in
                 var head: HTTPRequestHead?
@@ -107,6 +119,7 @@ public enum HTTPServer {
                     case .end:
                         guard let h = head else { continue }
                         head = nil
+                        watch.cancel()  // answering may take long (summaries); that is the idle timeout's
                         var headers: [String: String] = [:]
                         for (name, value) in h.headers {
                             let key = name.lowercased()
@@ -119,6 +132,7 @@ public enum HTTPServer {
                         let keepAlive = h.isKeepAlive && !tooLarge
                         try await respond(outbound, version: h.version, response, keepAlive: keepAlive)
                         if !keepAlive { return }
+                        watch = watchdog()  // the next request on this connection
                     }
                 }
             }

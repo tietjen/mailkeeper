@@ -86,3 +86,70 @@ struct HTTPTests {
         #expect(pingStatus == 200 && pong["result"] == [:])
     }
 }
+
+#if canImport(Glibc)
+import Glibc
+#else
+import Darwin
+#endif
+
+/// A plain TCP connection to 127.0.0.1 — for what URLSession cannot do (hold a place, drip).
+private func rawConnect(_ port: Int) -> Int32 {
+    #if canImport(Glibc)
+    let fd = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
+    #else
+    let fd = socket(AF_INET, SOCK_STREAM, 0)
+    #endif
+    var addr = sockaddr_in()
+    addr.sin_family = sa_family_t(AF_INET)
+    addr.sin_port = in_port_t(UInt16(port).bigEndian)
+    addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+    let ok = withUnsafePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
+    return ok == 0 ? fd : -1
+}
+
+@Suite("mailkeeper-mcp: Verbindungen begrenzt")
+struct ConnectionLimitTests {
+    func start(maxConnections: Int, requestTimeout: Duration) async throws -> (Task<Void, Error>, Int) {
+        let (ports, bound) = AsyncStream.makeStream(of: Int.self)
+        let task = Task {
+            try await HTTPServer.run(host: "127.0.0.1", port: 0, maxConnections: maxConnections, requestTimeout: requestTimeout,
+                                     bound: { bound.yield($0) }) { _ in .text(200, "ok") }
+        }
+        var it = ports.makeAsyncIterator()
+        return (task, try #require(await it.next()))
+    }
+
+    func get(_ port: Int) async -> Int? {
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/healthz")!, timeoutInterval: 3)
+        request.httpMethod = "GET"
+        guard let (_, response) = try? await URLSession.shared.data(for: request) else { return nil }
+        return (response as? HTTPURLResponse)?.statusCode
+    }
+
+    @Test func aHeldPlaceBlocksTheNextAndIsGivenBack() async throws {
+        let (task, port) = try await start(maxConnections: 1, requestTimeout: .seconds(30))
+        defer { task.cancel() }
+        let held = rawConnect(port)
+        #expect(held >= 0)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await get(port) != 200)  // over the limit: closed at once, the server lives on
+        close(held)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(await get(port) == 200)
+    }
+
+    @Test func aRequestThatNeverCompletesIsClosedAtItsDeadline() async throws {
+        let (task, port) = try await start(maxConnections: 4, requestTimeout: .milliseconds(300))
+        defer { task.cancel() }
+        let fd = rawConnect(port)
+        #expect(fd >= 0)
+        let partial = Array("GET /healthz HTTP/1.1\r\nHost: x\r\n".utf8)  // the head never ends
+        _ = partial.withUnsafeBytes { write(fd, $0.baseAddress!, $0.count) }
+        var buffer = [UInt8](repeating: 0, count: 64)
+        let started = ContinuousClock.now
+        let n = read(fd, &buffer, buffer.count)  // blocks until the server closes
+        close(fd)
+        #expect(n <= 0 && ContinuousClock.now - started < .seconds(3))
+    }
+}

@@ -116,7 +116,8 @@ do {
         }
         group.addTask {
             // reachable from the cluster: short idle and few connections, so a flood cannot starve the process
-            try await HTTPServer.run(host: health.host, port: health.port, maxBody: 0, idle: .seconds(10), maxConnections: 16) { request in
+            try await HTTPServer.run(host: health.host, port: health.port, maxBody: 0, idle: .seconds(10), maxConnections: 64,
+                                     requestTimeout: .seconds(5)) { request in
                 guard request.method == "GET", request.path == "/healthz" else { return .text(404, "not found") }
                 return await healthState.check(archives) ? .text(200, "ok") : .text(503, "archive or listener not ready")
             }

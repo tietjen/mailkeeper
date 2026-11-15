@@ -452,7 +452,8 @@ public enum MailTools {
             if pending == 0 || timedOut { break }
         }
         timer.cancel()
-        if timedOut { workers.forEach { $0.cancel() } }
+        // a deadline, or the caller gone (the loop ends early when this task is cancelled)
+        if timedOut || pending > 0 { workers.forEach { $0.cancel() } }
         sink.finish()
         guard results.contains(where: { if case .success = $0 { true } else { false } }) else {
             throw Refusal("ai_unavailable", timedOut ? "the language model did not answer in time" : "the language model did not answer")
@@ -465,7 +466,7 @@ public enum MailTools {
             switch result {
             case .success(let s)?: parts.append(s.plainText + (s.covered < s.total ? "\n(aus den letzten \(s.covered) von \(s.total) Mails)" : ""))
             case .failure(let e)?: parts.append("(Zusammenfassung fehlgeschlagen: \(kind(e)))")
-            case nil: parts.append("(nicht zusammengefasst: Zeitlimit des Aufrufs erreicht)")
+            case nil: parts.append(timedOut ? "(nicht zusammengefasst: Zeitlimit des Aufrufs erreicht)" : "(nicht zusammengefasst: abgebrochen)")
             }
         }
         if found.more { parts.append("Es gibt weitere Konversationen mit \(person); max_threads erhöhen oder den Zeitraum einschränken.") }

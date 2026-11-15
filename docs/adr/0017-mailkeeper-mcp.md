@@ -37,8 +37,11 @@ read API in front of them — two moving parts instead of one.
    the pod address answers `GET /healthz` (the kubelet cannot reach loopback): 200 when the MCP
    listener is up and every configured archive opens. Requests with an `Origin` header (a web
    page) are refused. Each listener closes connections that send nothing for a while (MCP 300 s,
-   above the longest answer; health 10 s) and takes a bounded number at a time (64 / 16), so a
-   flood from inside the cluster cannot take the process' file descriptors.
+   above the longest answer; health 10 s), wants a request complete within a deadline after the
+   connection opened or the last answer (MCP 30 s, health 5 s — dripping a byte at a time does
+   not hold a place) and takes a bounded number at a time (64 each), so a flood from inside the
+   cluster cannot take the process' file descriptors. (The CNI has no NetworkPolicy to narrow the
+   health port to the kubelet.)
 3. **Identity per path, fail-closed:**
    - **Broker (Kastelain):** `params._meta.kastelain.assertion` = `{kid, alg: "EdDSA", body,
      sig}`. Checked in this order: complete and EdDSA; key by `kid` from the gateway's JWKS
@@ -49,7 +52,10 @@ read API in front of them — two moving parts instead of one.
      store, refused when full). `user` (the LLDAP name) maps to a person through the
      configuration; no mapping → `unknown_user`. The JWKS is fetched at most every 30 s, failed
      attempts included, and refetched after an hour even for known kids (a revoked key goes
-     without a restart); a set without usable keys never replaces a good one. Its URL is the
+     without a restart); one fetch at a time, concurrent calls wait for it; a set without usable
+     keys never replaces a good one. Consequence, fail-closed by design: a gateway that stays
+     unreachable for more than an hour closes the broker path until it answers again; the direct
+     path does not depend on it. Its URL is the
      gateway's cluster address over plain HTTP, as for paperless-mcp and kavita-mcp: whoever can
      answer in its place inside the cluster could mint identities — the same trust as the
      broker's own network path.
@@ -140,6 +146,10 @@ causes were neither logged nor kept from the caller (AI server text); summaries 
 across calls and no deadline for the whole call; no idle timeout or connection limit; silent cuts
 (list without `offset`, caps without `truncated`, documents capped by characters). Also taken:
 key refetch after an hour, refusing `Origin`, `_exit` in the signal handler, no growing AI log in
-`/tmp`, stricter day and `\u` parsing; tests for each, the trash included. A Linux-only bug found
+`/tmp`, stricter day and `\u` parsing; tests for each, the trash included. The follow-up check
+closed all of them and found four small things, also fixed: the hourly JWKS refetch refused
+concurrent calls (now single-flight), a cancelled call left its model requests running, the
+health port could be held with 16 dripping connections (request deadline), and the connection
+limit had no test. A Linux-only bug found
 by the Linux run before the review: `.socketOption(.tcp_nodelay)` is `SO_DEBUG` on Linux
 (`EACCES` without `CAP_NET_ADMIN`).

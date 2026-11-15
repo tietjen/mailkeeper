@@ -56,6 +56,8 @@ public actor JWKSKeySource: KeySource {
     private var cached: [String: Data]?
     private var cachedAt: ContinuousClock.Instant?
     private var lastAttempt: ContinuousClock.Instant?
+    /// The fetch under way: concurrent callers wait for it instead of being refused.
+    private var inFlight: Task<[String: Data], Error>?
 
     public init(url: URL, minInterval: Duration = .seconds(30), maxAge: Duration = .seconds(3_600),
                 fetch: @escaping @Sendable (URL) async throws -> Data = JWKSKeySource.httpGet) {
@@ -69,20 +71,31 @@ public actor JWKSKeySource: KeySource {
         let now = ContinuousClock.now
         let fresh = cachedAt.map { now - $0 < maxAge } ?? false
         if let cached, fresh, !refresh { return cached }
+        if let inFlight {
+            _ = try? await inFlight.value
+            if let cached, isFresh { return cached }
+            throw JSONError("JWKS unavailable")
+        }
         if let last = lastAttempt, now - last < minInterval {
             if let cached, fresh { return cached }
             throw JSONError("JWKS fetch throttled")  // → key_unavailable: fail-closed
         }
         lastAttempt = now
-        let set = try Self.parse(try await fetch(url))
+        let (fetch, url) = (self.fetch, self.url)
+        let task = Task { try Self.parse(try await fetch(url)) }
+        inFlight = task
+        defer { inFlight = nil }
+        let set = try await task.value
         guard !set.isEmpty else {
-            if let cached, fresh { return cached }
+            if let cached, isFresh { return cached }
             throw JSONError("JWKS without usable keys")
         }
         cached = set
-        cachedAt = now
+        cachedAt = .now
         return set
     }
+
+    private var isFresh: Bool { cachedAt.map { ContinuousClock.now - $0 < maxAge } ?? false }
 
     static func parse(_ data: Data) throws -> [String: Data] {
         guard let keys = try JSONValue.parse(data)["keys"]?.array else { throw JSONError("JWKS without keys") }
