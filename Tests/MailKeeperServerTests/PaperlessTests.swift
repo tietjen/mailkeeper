@@ -171,6 +171,39 @@ struct PaperlessDryRunTests {
         #expect(dryRun(ledger) { $0.extensions.reverse() }.ledgerURL == first.ledgerURL)
     }
 
+    @Test func imagesCanHaveTheirOwnThreshold() async throws {
+        let (layout, ledger) = try await Self.archive()
+        _ = try await ArchiveWriter(layout: layout).ingest(mail(id: "<k@shop.test>", subject: "Quittung", parts: [
+            ("Quittung.pdf", "application/pdf", bytes(2_000, seed: 11), "attachment", nil),   // a small invoice: a document
+            ("Foto.JPG", "image/jpeg", bytes(5_000, seed: 12), "attachment", nil),            // a small picture, upper case
+            ("Plan.png", "image/png", bytes(12_000, seed: 13), "attachment", nil),
+        ]), at: inbox)
+        let run = dryRun(ledger) { $0.minBytes = 1_000; $0.minImageBytes = 10_000 }
+        let (pass, _) = try run.run(layout: layout)
+        #expect(pass.messages == 6)
+        let records = try Self.records(run.ledgerURL)
+        func decisions(_ id: String) -> [String: String] {
+            Dictionary(uniqueKeysWithValues: records.first { $0.messageId == id }!.attachments.map { ($0.filename, $0.reason?.rawValue ?? "upload") })
+        }
+        #expect(decisions("<k@shop.test>") == ["Quittung.pdf": "upload", "Foto.JPG": "small", "Plan.png": "upload"])
+        #expect(decisions("<a@shop.test>")["icon.png"] == "small")
+        // without it, minBytes holds for pictures too
+        let one = dryRun(ledger) { $0.minBytes = 1_000 }
+        #expect(one.settings.minimumBytes(forExtension: "jpg") == 1_000 && run.settings.minimumBytes(forExtension: "jpg") == 10_000)
+        #expect(run.settings.minimumBytes(forExtension: "pdf") == 1_000 && run.settings.minimumBytes(forExtension: "csv") == 1_000)
+    }
+
+    @Test func theImageThresholdKeepsOldLedgersWhenItChangesNothing() {
+        // the fingerprint these settings had before minImageBytes existed: their ledgers stay valid
+        #expect(settings.fingerprint(for: jan) == "eb0c8c12e9c3")
+        var same = settings
+        same.minImageBytes = settings.minBytes  // decides exactly the same
+        #expect(same.fingerprint(for: jan) == "eb0c8c12e9c3")
+        var other = settings
+        other.minImageBytes = 20_000
+        #expect(other.fingerprint(for: jan) != "eb0c8c12e9c3")
+    }
+
     @Test func sinceGoesByArrivalNotByTheSendersDate() async throws {
         let (layout, ledger) = try await Self.archive()
         var arrived = inbox
@@ -311,7 +344,9 @@ struct PaperlessConfigTests {
     @Test func aValidSectionLoads() throws {
         let c = try load(Self.config(paperless: Self.section))
         #expect(c.paperless?.mode == .dryRun && c.paperless?.extensions == ["pdf", "docx"] && c.people[0].paperless?.owner == "admin")
-        #expect(c.paperless?.maxMessageBytes == 64 << 20)
+        #expect(c.paperless?.maxMessageBytes == 64 << 20 && c.paperless?.minImageBytes == nil)
+        let images = try load(Self.config(paperless: Self.section.replacingOccurrences(of: #""minBytes": 10000"#, with: #""minBytes": 1024, "minImageBytes": 10240"#)))
+        #expect(images.paperless?.minBytes == 1024 && images.paperless?.minImageBytes == 10240)
         #expect(try c.paperless?.sinceDate() == Date(timeIntervalSince1970: 1_790_805_600))  // midnight in Berlin (CEST)
         #expect(try load(Self.config(paperless: nil, person: nil)).paperless == nil)  // Phase 1 configurations stay valid
         for rule in ["-is:list -is:junk", "-from:news@x.test -domain:werbung.test", "folder:INBOX OR folder:Archive", "-subject:\"newsletter\"", "-(is:list OR is:junk)"] {
@@ -337,6 +372,8 @@ struct PaperlessConfigTests {
         refused(with(#""timeZone": "Europe/Berlin""#, #""timeZone": "Mars/Olympus""#), "unknown zone")
         refused(with(#", "timeZone": "Europe/Berlin""#, ""), "the zone is required, not the container's TZ")
         refused(with(#""minBytes": 10000"#, #""minBytes": -1"#), "negative")
+        refused(with(#""minBytes": 10000"#, #""minBytes": 10000, "minImageBytes": -1"#), "negative image threshold")
+        refused(with(#""minBytes": 10000"#, #""minBytes": 10000, "minImageBytes": "10k""#), "not a number")
         refused(with(#""minBytes": 10000"#, #""minBytes": 10000, "maxMessageBytes": 1000"#), "below 1 MiB")
         refused(with(#""ledgerDirectory": "/data/export""#, #""ledgerDirectory": "/data/jan/export""#), "inside the archive")
         refused(with(#""ledgerDirectory": "/data/export""#, #""ledgerDirectory": "data/export""#), "relative")

@@ -16,9 +16,10 @@ the comparison can be exact without downloading anything.
 
 1. **A `paperless` section in the server configuration**, generic — names come from the
    deployment: `mode` (only `dryRun`; uploading is Phase 4, any other value is refused),
-   `ledgerDirectory`, `rule` (a query, ADR-0008, e.g. `-is:list -is:junk`), `since` (a day,
+   `ledgerDirectory`, `rule` (a query, ADR-0008, e.g. `-is:junk`), `since` (a day,
    optional), `timeZone` (IANA name, required), `extensions` (lower case, without dot),
-   `minBytes` and `maxMessageBytes` (default 64 MiB). Per person a `paperless` mapping: `owner`,
+   `minBytes`, optionally `minImageBytes` for pictures (amendment below) and `maxMessageBytes`
+   (default 64 MiB). Per person a `paperless` mapping: `owner`,
    `tags`, `storagePath`. A person without one is archived, not exported. Strict like the rest:
    an extension that is a program, macro document, web page or link file is refused, so no rule
    can ever hand those over; the section without any mapping, or a mapping without the section,
@@ -39,7 +40,8 @@ the comparison can be exact without downloading anything.
    same parser as everywhere.
 4. **One decision per attachment, the first reason that applies:** `unreadable` (the part cannot
    be found again), `empty`, `inline` (an image the HTML shows — the reader's notion), `risky`
-   (`AttachmentSafety`), `type` (extension not listed), `small` (below `minBytes`), `rule` (the
+   (`AttachmentSafety`), `type` (extension not listed), `small` (below `minBytes`, for pictures below
+   `minImageBytes` if set), `rule` (the
    message does not match), `duplicate` (the same bytes went before — Paperless would refuse them
    by checksum), else `upload`. The structural reasons come first, so `rule` and `duplicate` name
    exactly the files that would otherwise have gone — what the review has to look at.
@@ -52,7 +54,7 @@ the comparison can be exact without downloading anything.
    tree the parser does not follow to the end is decided as far as it was read (`truncated`).
 6. **The ledger:** one JSON line per message in `<ledgerDirectory>/<person>-<fingerprint>.jsonl`
    (0600, created in one step, appended with O_APPEND, never through a symbolic link). The
-   fingerprint covers what decides: rule, since, time zone, extensions, both sizes and the
+   fingerprint covers what decides: rule, since, time zone, extensions, the size limits and the
    person's mapping — a changed setting starts a new ledger and decides every message again, the
    old one stays as it was (review S3). Each line: version, fingerprint, the message's identity,
    Message-ID, date, sender, subject, places, whether the rule matched and whether it was sent,
@@ -97,3 +99,28 @@ the comparison can be exact without downloading anything.
   (mailkeeper-server, Phase 6).
 - Uploading (Phase 4) needs its own record of what Paperless accepted; the dry-run ledger stays
   what it is, a record of decisions.
+
+## Amendment: a threshold for pictures (TJ, 2026-11-15)
+
+The first pass over Jan's archive (4 342 messages with attachments), compared by checksum with
+what Paperless' mail rules imported, showed two settings that cost real documents:
+
+- **One `minBytes` for everything** either cuts small documents or lets signature logos in. At
+  10 KiB, invoices of 8–10 KiB, a BWA, a return label and small CSV/XLSX files stayed out — the
+  threshold exists for pictures. So `minImageBytes`, optional: for attachments whose extension is
+  a picture (`PaperlessExport.imageExtensions`: avif, bmp, gif, heic, heif, ico, jfif, jpe, jpeg,
+  jpg, png, tif, tiff, webp) it replaces `minBytes`. By extension, like the list itself, so a
+  ledger can be recomputed from its file names. Absent, `minBytes` holds for everything as before,
+  and the fingerprint stays what it was — existing ledgers remain valid; set to the value of
+  `minBytes` it decides the same and counts as absent.
+- **`is:list` is no newsletter filter for documents.** It matches every message with `List-Id`
+  or `List-Unsubscribe`, and receipts and invoices from mailing systems nearly always carry an
+  unsubscribe link: `-is:list` kept out 97 receipts Paperless had imported (supermarket
+  receipts, wholesale invoices, insurance mail). The headers do not separate the two either —
+  newsletters with only `List-Unsubscribe`, insurance mail with `List-Id`. A deployment
+  configuration matter, no code: the rule becomes `-is:junk`, single newsletter senders can be
+  left out by `-from:`.
+
+Played through on the ledger before deciding: `-is:junk` with documents from 1 KiB and pictures
+from 10 KiB hands over 1 254 of the 1 281 distinct files Paperless' rules imported (before: 1 137);
+what is left are signature pictures, Markdown files and mails no longer on the server.
