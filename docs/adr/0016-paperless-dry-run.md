@@ -102,17 +102,21 @@ the comparison can be exact without downloading anything.
 
 ## Amendment: a threshold for pictures (TJ, 2026-11-15)
 
-The first pass over Jan's archive (4 342 messages with attachments), compared by checksum with
-what Paperless' mail rules imported, showed two settings that cost real documents:
+The first pass over the first archive (one person, 4 342 messages with attachments), compared by
+checksum with what Paperless' mail rules imported, showed two settings that cost real documents:
 
 - **One `minBytes` for everything** either cuts small documents or lets signature logos in. At
   10 KiB, invoices of 8–10 KiB, a BWA, a return label and small CSV/XLSX files stayed out — the
   threshold exists for pictures. So `minImageBytes`, optional: for attachments whose extension is
   a picture (`PaperlessExport.imageExtensions`: avif, bmp, gif, heic, heif, ico, jfif, jpe, jpeg,
   jpg, png, tif, tiff, webp) it replaces `minBytes`. By extension, like the list itself, so a
-  ledger can be recomputed from its file names. Absent, `minBytes` holds for everything as before,
-  and the fingerprint stays what it was — existing ledgers remain valid; set to the value of
-  `minBytes` it decides the same and counts as absent.
+  ledger can be recomputed from its file names; picture formats outside the set (emf, jxl …)
+  take `minBytes`. It replaces `minBytes` in either direction — pictures may also be allowed
+  smaller than documents. Absent, `minBytes` holds for everything as before, and the fingerprint
+  stays what it was — existing ledgers remain valid; equal to `minBytes`, or with no picture
+  extension listed, it decides the same and counts as absent. Otherwise the fingerprint also
+  covers the picture extensions the setting lists (review S1), so a later change to the set
+  starts a new ledger exactly where it changes decisions.
 - **`is:list` is no newsletter filter for documents.** It matches every message with `List-Id`
   or `List-Unsubscribe`, and receipts and invoices from mailing systems nearly always carry an
   unsubscribe link: `-is:list` kept out 97 receipts Paperless had imported (supermarket

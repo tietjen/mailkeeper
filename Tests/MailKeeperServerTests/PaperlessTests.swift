@@ -177,20 +177,26 @@ struct PaperlessDryRunTests {
             ("Quittung.pdf", "application/pdf", bytes(2_000, seed: 11), "attachment", nil),   // a small invoice: a document
             ("Foto.JPG", "image/jpeg", bytes(5_000, seed: 12), "attachment", nil),            // a small picture, upper case
             ("Plan.png", "image/png", bytes(12_000, seed: 13), "attachment", nil),
+            ("Grenze.jpeg", "image/jpeg", bytes(10_000, seed: 14), "attachment", nil),        // exactly the threshold: goes
+            ("Scan.TIF", "image/tiff", bytes(9_999, seed: 15), "attachment", nil),
         ]), at: inbox)
-        let run = dryRun(ledger) { $0.minBytes = 1_000; $0.minImageBytes = 10_000 }
+        let run = dryRun(ledger) { $0.extensions += ["jpeg", "tif"]; $0.minBytes = 1_000; $0.minImageBytes = 10_000 }
         let (pass, _) = try run.run(layout: layout)
         #expect(pass.messages == 6)
         let records = try Self.records(run.ledgerURL)
         func decisions(_ id: String) -> [String: String] {
             Dictionary(uniqueKeysWithValues: records.first { $0.messageId == id }!.attachments.map { ($0.filename, $0.reason?.rawValue ?? "upload") })
         }
-        #expect(decisions("<k@shop.test>") == ["Quittung.pdf": "upload", "Foto.JPG": "small", "Plan.png": "upload"])
+        #expect(decisions("<k@shop.test>") == ["Quittung.pdf": "upload", "Foto.JPG": "small", "Plan.png": "upload",
+                                               "Grenze.jpeg": "upload", "Scan.TIF": "small"])
         #expect(decisions("<a@shop.test>")["icon.png"] == "small")
         // without it, minBytes holds for pictures too
         let one = dryRun(ledger) { $0.minBytes = 1_000 }
         #expect(one.settings.minimumBytes(forExtension: "jpg") == 1_000 && run.settings.minimumBytes(forExtension: "jpg") == 10_000)
         #expect(run.settings.minimumBytes(forExtension: "pdf") == 1_000 && run.settings.minimumBytes(forExtension: "csv") == 1_000)
+        // either direction: pictures may also be allowed smaller than documents
+        let generous = dryRun(ledger) { $0.minImageBytes = 100 }
+        #expect(generous.settings.minimumBytes(forExtension: "png") == 100 && generous.settings.minimumBytes(forExtension: "pdf") == 10_000)
     }
 
     @Test func theImageThresholdKeepsOldLedgersWhenItChangesNothing() {
@@ -199,6 +205,11 @@ struct PaperlessDryRunTests {
         var same = settings
         same.minImageBytes = settings.minBytes  // decides exactly the same
         #expect(same.fingerprint(for: jan) == "eb0c8c12e9c3")
+        var noPictures = settings
+        noPictures.extensions = ["pdf", "docx", "xlsx"]
+        let withoutPictures = noPictures.fingerprint(for: jan)
+        noPictures.minImageBytes = 20_000  // no picture listed: decides nothing
+        #expect(noPictures.fingerprint(for: jan) == withoutPictures)
         var other = settings
         other.minImageBytes = 20_000
         #expect(other.fingerprint(for: jan) != "eb0c8c12e9c3")
@@ -347,6 +358,11 @@ struct PaperlessConfigTests {
         #expect(c.paperless?.maxMessageBytes == 64 << 20 && c.paperless?.minImageBytes == nil)
         let images = try load(Self.config(paperless: Self.section.replacingOccurrences(of: #""minBytes": 10000"#, with: #""minBytes": 1024, "minImageBytes": 10240"#)))
         #expect(images.paperless?.minBytes == 1024 && images.paperless?.minImageBytes == 10240)
+        // the production path: loaded from JSON, the same fingerprint as built in code
+        let person = try #require(c.people[0].paperless)
+        let built = PaperlessExport(ledgerDirectory: "/data/export", rule: "-is:list -is:junk", since: "2026-10-01", timeZone: "Europe/Berlin",
+                                    extensions: ["pdf", "docx"], minBytes: 10000)
+        #expect(c.paperless?.fingerprint(for: person) == built.fingerprint(for: person))
         #expect(try c.paperless?.sinceDate() == Date(timeIntervalSince1970: 1_790_805_600))  // midnight in Berlin (CEST)
         #expect(try load(Self.config(paperless: nil, person: nil)).paperless == nil)  // Phase 1 configurations stay valid
         for rule in ["-is:list -is:junk", "-from:news@x.test -domain:werbung.test", "folder:INBOX OR folder:Archive", "-subject:\"newsletter\"", "-(is:list OR is:junk)"] {

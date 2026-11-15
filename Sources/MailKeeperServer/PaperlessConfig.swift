@@ -15,8 +15,8 @@ public struct PaperlessExport: Decodable, Sendable, Equatable {
     /// One ledger per person and setting (`<person>-<fingerprint>.jsonl`): every message with
     /// attachments, every attachment with its SHA-256, the decision and its reason.
     public var ledgerDirectory: String
-    /// Only messages this query (ADR-0008) matches, e.g. `-is:list -is:junk`. Absent: all. Field
-    /// terms only — see `ruleProblem`.
+    /// Only messages this query (ADR-0008) matches, e.g. `-is:junk`. Absent: all. Field terms
+    /// only — see `ruleProblem`. Not `is:list` for documents: receipts carry unsubscribe links too.
     public var rule: String?
     /// Only messages that arrived on or after this day (YYYY-MM-DD in `timeZone`). Absent: the
     /// whole archive.
@@ -72,7 +72,9 @@ public struct PaperlessExport: Decodable, Sendable, Equatable {
     }
 
     /// Extensions `minImageBytes` applies to — by name, like the list itself, so a ledger can be
-    /// recomputed from file names alone. SVG never gets here: it is refused as a web page.
+    /// recomputed from file names alone. SVG never gets here: it is refused as a web page. Picture
+    /// formats not in here (emf, jxl …) take `minBytes`. The ones a setting lists go into its
+    /// fingerprint, so changing this set starts a new ledger where it changes decisions.
     public static let imageExtensions: Set<String> = ["avif", "bmp", "gif", "heic", "heif", "ico", "jfif", "jpe", "jpeg", "jpg",
                                                       "png", "tif", "tiff", "webp"]
 
@@ -110,14 +112,18 @@ public struct PaperlessExport: Decodable, Sendable, Equatable {
             var v = 1
             var rule: String?, since: String?, timeZone: String, extensions: [String], minBytes: Int, maxMessageBytes: Int
             // nil is left out of the JSON, so settings without an image threshold keep their ledger
-            var minImageBytes: Int?
+            var minImageBytes: Int?, imageExtensions: [String]?
             var owner: String, tags: [String], storagePath: String?
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
+        // An image threshold that decides nothing differently — equal to minBytes, or no picture
+        // listed — counts as absent: the same decisions, the same ledger.
+        let images = extensions.filter(Self.imageExtensions.contains).sorted()
+        let imageThreshold = minImageBytes == minBytes || images.isEmpty ? nil : minImageBytes
         let canonical = Canonical(rule: rule?.trimmingCharacters(in: .whitespacesAndNewlines), since: since, timeZone: timeZone,
                                   extensions: extensions.sorted(), minBytes: minBytes, maxMessageBytes: maxMessageBytes,
-                                  minImageBytes: minImageBytes == minBytes ? nil : minImageBytes,  // the same decisions, the same ledger
+                                  minImageBytes: imageThreshold, imageExtensions: imageThreshold == nil ? nil : images,
                                   owner: person.owner, tags: person.tags, storagePath: person.storagePath)
         return String(sha256Hex((try? encoder.encode(canonical)) ?? Data()).prefix(12))
     }
