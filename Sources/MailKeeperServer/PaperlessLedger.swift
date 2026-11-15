@@ -58,7 +58,7 @@ public struct LedgerAttachment: Codable, Sendable, Equatable {
         case risky
         /// Extension not in the list.
         case type
-        /// Below `minBytes`.
+        /// Below `minBytes` (`minImageBytes` for images).
         case small
         /// Would have gone, but the rule does not match the message (newsletter, spam …).
         case rule
@@ -248,7 +248,7 @@ struct AttachmentDecider {
             else if info.isInline { attachment.reason = .inline }
             else if AttachmentSafety.isRisky(filename: filename, mimeType: info.mimeType) { attachment.reason = .risky }
             else if !extensions.contains(ext) { attachment.reason = .type }
-            else if bytes.count < settings.minBytes { attachment.reason = .small }
+            else if bytes.count < settings.minimumBytes(forExtension: ext) { attachment.reason = .small }
             else if !message.matchesRule { attachment.reason = .rule }
             else if uploaded.contains(sha) { attachment.reason = .duplicate }
             else {

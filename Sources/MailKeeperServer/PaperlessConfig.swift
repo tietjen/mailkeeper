@@ -15,8 +15,8 @@ public struct PaperlessExport: Decodable, Sendable, Equatable {
     /// One ledger per person and setting (`<person>-<fingerprint>.jsonl`): every message with
     /// attachments, every attachment with its SHA-256, the decision and its reason.
     public var ledgerDirectory: String
-    /// Only messages this query (ADR-0008) matches, e.g. `-is:list -is:junk`. Absent: all. Field
-    /// terms only — see `ruleProblem`.
+    /// Only messages this query (ADR-0008) matches, e.g. `-is:junk`. Absent: all. Field terms
+    /// only — see `ruleProblem`. Not `is:list` for documents: receipts carry unsubscribe links too.
     public var rule: String?
     /// Only messages that arrived on or after this day (YYYY-MM-DD in `timeZone`). Absent: the
     /// whole archive.
@@ -28,16 +28,21 @@ public struct PaperlessExport: Decodable, Sendable, Equatable {
     public var extensions: [String]
     /// Smaller attachments stay out — logos and icons in signatures.
     public var minBytes: Int
+    /// The same for images (`imageExtensions`), if they need another threshold: small invoices
+    /// and CSV files are real documents, small pictures are mostly signature logos. Absent:
+    /// `minBytes` for everything.
+    public var minImageBytes: Int?
     /// Larger messages are not read (noted in the ledger): parsing holds a message two or three
     /// times in memory, and one that kills the process would be tried again every run.
     public var maxMessageBytes: Int
 
     enum CodingKeys: String, CodingKey, CaseIterable {
-        case mode, ledgerDirectory, rule, since, timeZone, extensions, minBytes, maxMessageBytes
+        case mode, ledgerDirectory, rule, since, timeZone, extensions, minBytes, minImageBytes, maxMessageBytes
     }
 
     public init(mode: Mode = .dryRun, ledgerDirectory: String, rule: String? = nil, since: String? = nil,
-                timeZone: String = "UTC", extensions: [String], minBytes: Int, maxMessageBytes: Int = defaultMaxMessageBytes) {
+                timeZone: String = "UTC", extensions: [String], minBytes: Int, minImageBytes: Int? = nil,
+                maxMessageBytes: Int = defaultMaxMessageBytes) {
         self.mode = mode
         self.ledgerDirectory = ledgerDirectory
         self.rule = rule
@@ -45,6 +50,7 @@ public struct PaperlessExport: Decodable, Sendable, Equatable {
         self.timeZone = timeZone
         self.extensions = extensions
         self.minBytes = minBytes
+        self.minImageBytes = minImageBytes
         self.maxMessageBytes = maxMessageBytes
     }
 
@@ -61,7 +67,20 @@ public struct PaperlessExport: Decodable, Sendable, Equatable {
                   timeZone: try c.decode(String.self, forKey: .timeZone),
                   extensions: try c.decode([String].self, forKey: .extensions),
                   minBytes: try c.decode(Int.self, forKey: .minBytes),
+                  minImageBytes: try c.decodeIfPresent(Int.self, forKey: .minImageBytes),
                   maxMessageBytes: try c.decodeIfPresent(Int.self, forKey: .maxMessageBytes) ?? Self.defaultMaxMessageBytes)
+    }
+
+    /// Extensions `minImageBytes` applies to — by name, like the list itself, so a ledger can be
+    /// recomputed from file names alone. SVG never gets here: it is refused as a web page. Picture
+    /// formats not in here (emf, jxl …) take `minBytes`. The ones a setting lists go into its
+    /// fingerprint, so changing this set starts a new ledger where it changes decisions.
+    public static let imageExtensions: Set<String> = ["avif", "bmp", "gif", "heic", "heif", "ico", "jfif", "jpe", "jpeg", "jpg",
+                                                      "png", "tif", "tiff", "webp"]
+
+    /// The threshold for an attachment with this extension (lower case, without dot).
+    public func minimumBytes(forExtension ext: String) -> Int {
+        Self.imageExtensions.contains(ext) ? (minImageBytes ?? minBytes) : minBytes
     }
 
     /// Gregorian in `timeZone` — never the locale's calendar (a Buddhist one would read 2026 as 1483).
@@ -92,12 +111,19 @@ public struct PaperlessExport: Decodable, Sendable, Equatable {
         struct Canonical: Encodable {
             var v = 1
             var rule: String?, since: String?, timeZone: String, extensions: [String], minBytes: Int, maxMessageBytes: Int
+            // nil is left out of the JSON, so settings without an image threshold keep their ledger
+            var minImageBytes: Int?, imageExtensions: [String]?
             var owner: String, tags: [String], storagePath: String?
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
+        // An image threshold that decides nothing differently — equal to minBytes, or no picture
+        // listed — counts as absent: the same decisions, the same ledger.
+        let images = extensions.filter(Self.imageExtensions.contains).sorted()
+        let imageThreshold = minImageBytes == minBytes || images.isEmpty ? nil : minImageBytes
         let canonical = Canonical(rule: rule?.trimmingCharacters(in: .whitespacesAndNewlines), since: since, timeZone: timeZone,
                                   extensions: extensions.sorted(), minBytes: minBytes, maxMessageBytes: maxMessageBytes,
+                                  minImageBytes: imageThreshold, imageExtensions: imageThreshold == nil ? nil : images,
                                   owner: person.owner, tags: person.tags, storagePath: person.storagePath)
         return String(sha256Hex((try? encoder.encode(canonical)) ?? Data()).prefix(12))
     }
@@ -156,6 +182,7 @@ public struct PaperlessExport: Decodable, Sendable, Equatable {
             }
         }
         guard minBytes >= 0 else { throw ConfigError("paperless: minBytes must not be negative") }
+        if let minImageBytes, minImageBytes < 0 { throw ConfigError("paperless: minImageBytes must not be negative") }
         guard maxMessageBytes >= 1 << 20 else { throw ConfigError("paperless: maxMessageBytes must be at least 1 MiB") }
     }
 }
