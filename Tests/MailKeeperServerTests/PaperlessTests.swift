@@ -212,7 +212,8 @@ struct PaperlessDryRunTests {
         #expect(noPictures.fingerprint(for: jan) == withoutPictures)
         var other = settings
         other.minImageBytes = 20_000
-        #expect(other.fingerprint(for: jan) != "eb0c8c12e9c3")
+        // pinned as well: the picture extensions in use belong to it (review S1)
+        #expect(other.fingerprint(for: jan) == "c92f2b6075a9")
     }
 
     @Test func sinceGoesByArrivalNotByTheSendersDate() async throws {
