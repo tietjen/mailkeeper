@@ -41,9 +41,13 @@ public struct HTTPResponse: Sendable {
 public enum HTTPServer {
     public static let maxBody = 1 << 20
 
-    /// Binds, calls `bound` with the port, serves until cancelled.
+    /// Binds, calls `bound` with the port, serves until cancelled. `idle`: a connection that
+    /// sends nothing for this long is closed (above the longest answer, which sends nothing
+    /// either); `maxConnections`: more at a time are closed at once — a flood must not take the
+    /// process' file descriptors.
     public static func run(host: String, port: Int, group: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton,
-                           maxBody: Int = maxBody, bound: @Sendable (Int) -> Void = { _ in },
+                           maxBody: Int = maxBody, idle: TimeAmount = .seconds(300), maxConnections: Int = 64,
+                           bound: @Sendable (Int) -> Void = { _ in },
                            handler: @escaping @Sendable (HTTPRequest) async -> HTTPResponse) async throws {
         let server = try await ServerBootstrap(group: group)
             .serverChannelOption(.backlog, value: 64)
@@ -52,15 +56,25 @@ public enum HTTPServer {
             // SO_DEBUG and needs CAP_NET_ADMIN (EACCES); NIO enables TCP_NODELAY on accepted channels itself
             .bind(host: host, port: port) { channel in
                 channel.eventLoop.makeCompletedFuture {
+                    try channel.pipeline.syncOperations.addHandler(IdleStateHandler(readTimeout: idle))
+                    try channel.pipeline.syncOperations.addHandler(CloseWhenIdle())
                     try channel.pipeline.syncOperations.configureHTTPServerPipeline(withErrorHandling: true)
                     return try NIOAsyncChannel<HTTPServerRequestPart, HTTPServerResponsePart>(wrappingChannelSynchronously: channel)
                 }
             }
         bound(server.channel.localAddress?.port ?? port)
+        let open = ConnectionCount()
         try await withThrowingDiscardingTaskGroup { tasks in
             try await server.executeThenClose { connections in
                 for try await connection in connections {
-                    tasks.addTask { await serve(connection, maxBody: maxBody, handler: handler) }
+                    guard await open.enter(max: maxConnections) else {
+                        try? await connection.channel.close()
+                        continue
+                    }
+                    tasks.addTask {
+                        await serve(connection, maxBody: maxBody, handler: handler)
+                        await open.leave()
+                    }
                 }
             }
         }
@@ -123,5 +137,23 @@ public enum HTTPServer {
         try await outbound.write(.head(HTTPResponseHead(version: version, status: HTTPResponseStatus(statusCode: response.status), headers: out)))
         if !response.body.isEmpty { try await outbound.write(.body(.byteBuffer(ByteBuffer(bytes: response.body)))) }
         try await outbound.write(.end(nil))
+    }
+}
+
+actor ConnectionCount {
+    private var open = 0
+    func enter(max: Int) -> Bool {
+        guard open < max else { return false }
+        open += 1
+        return true
+    }
+    func leave() { open -= 1 }
+}
+
+/// Closes a connection on `IdleStateHandler`'s read timeout.
+final class CloseWhenIdle: ChannelInboundHandler, @unchecked Sendable {
+    typealias InboundIn = NIOAny
+    func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+        if event is IdleStateHandler.IdleStateEvent { context.close(promise: nil) } else { context.fireUserInboundEventTriggered(event) }
     }
 }

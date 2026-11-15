@@ -31,6 +31,19 @@ public struct ArchiveLayout: Sendable {
     }
 
     /// Opens an archive, creating it when `create` is set and the folder holds no archive yet.
+    /// An existing archive, opened without touching it: reads the marker and checks the format,
+    /// creates no folder and changes no mode (a reader beside the writer, ADR-0017; `open`
+    /// tightens and creates what it owns, which a read-only reader must not).
+    public static func openExisting(at root: URL) throws -> ArchiveLayout {
+        let layout = ArchiveLayout(root: root)
+        guard let data = try? Data(contentsOf: layout.markerURL),
+              let marker = try? JSONDecoder().decode(Marker.self, from: data) else {
+            throw ArchiveError.notAnArchive(path: root.path)
+        }
+        guard marker.format <= formatVersion else { throw ArchiveError.unsupportedFormat(marker.format) }
+        return layout
+    }
+
     public static func open(at root: URL, create: Bool) throws -> ArchiveLayout {
         let layout = ArchiveLayout(root: root)
         let fm = FileManager.default

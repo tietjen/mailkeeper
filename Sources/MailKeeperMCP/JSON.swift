@@ -130,7 +130,9 @@ extension JSONValue {
         }
 
         mutating func hex4() throws -> UInt32 {
-            guard i + 4 <= bytes.count, let v = UInt32(String(decoding: bytes[i..<i + 4], as: UTF8.self), radix: 16) else {
+            let hex = Set("0123456789abcdefABCDEF".utf8)
+            guard i + 4 <= bytes.count, bytes[i..<i + 4].allSatisfy(hex.contains),
+                  let v = UInt32(String(decoding: bytes[i..<i + 4], as: UTF8.self), radix: 16) else {
                 throw JSONError("bad \\u escape at \(i)")
             }
             i += 4

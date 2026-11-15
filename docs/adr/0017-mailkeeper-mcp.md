@@ -24,17 +24,21 @@ read API in front of them — two moving parts instead of one.
 
 1. **A third executable, `mailkeeper-mcp`, from this repository,** on a library target
    `MailKeeperMCP` (MailKeeperKit + MailKeeperAI + NIO). It runs as a sidecar next to
-   `mailkeeperd`, from the same image, and **only reads**: the index is opened read-only, without
-   migrating (a schema it does not know is refused until `mailkeeperd` has migrated), blobs are
-   read, the archive lock is never taken. Nothing it does changes the archive or a mail server
-   (§14.7).
+   `mailkeeperd`, from the same image, and **only reads**: the archive is opened without touching
+   it (`ArchiveLayout.openExisting` — no folder created, no mode tightened), the index read-only
+   and without migrating (a schema it does not know is refused until `mailkeeperd` has migrated),
+   blobs are read, the archive lock is never taken. Nothing it does changes the archive or a mail
+   server (§14.7).
 2. **Transport:** MCP over streamable HTTP, stateless, answers as `application/json` (no SSE), on
    `127.0.0.1` only — reachable through a Ziti sidecar, never through a ClusterIP (a ClusterIP
    bypasses the dial policy). Methods: `initialize`, `notifications/initialized`, `ping`,
    `tools/list`, `tools/call`; anything else is a JSON-RPC error. The `Host` header must be one
    of the configured names (DNS rebinding); bodies above 1 MiB are refused. A second listener on
    the pod address answers `GET /healthz` (the kubelet cannot reach loopback): 200 when the MCP
-   listener is up and every configured archive opens.
+   listener is up and every configured archive opens. Requests with an `Origin` header (a web
+   page) are refused. Each listener closes connections that send nothing for a while (MCP 300 s,
+   above the longest answer; health 10 s) and takes a bounded number at a time (64 / 16), so a
+   flood from inside the cluster cannot take the process' file descriptors.
 3. **Identity per path, fail-closed:**
    - **Broker (Kastelain):** `params._meta.kastelain.assertion` = `{kid, alg: "EdDSA", body,
      sig}`. Checked in this order: complete and EdDSA; key by `kid` from the gateway's JWKS
@@ -43,7 +47,12 @@ read API in front of them — two moving parts instead of one.
      `kastelain.audit.canonical_json`); not expired (5 s leeway); lifetime at most 5 minutes;
      `audience` = the register id (`mail`); a nonce not seen before (kept until expiry, bounded
      store, refused when full). `user` (the LLDAP name) maps to a person through the
-     configuration; no mapping → `unknown_user`.
+     configuration; no mapping → `unknown_user`. The JWKS is fetched at most every 30 s, failed
+     attempts included, and refetched after an hour even for known kids (a revoked key goes
+     without a restart); a set without usable keys never replaces a good one. Its URL is the
+     gateway's cluster address over plain HTTP, as for paperless-mcp and kavita-mcp: whoever can
+     answer in its place inside the cluster could mint identities — the same trust as the
+     broker's own network path.
    - **Direct (TJ's devices):** `Authorization: Bearer <direct token>`, compared in constant
      time, acts as one configured person. An assertion, when present, wins.
    - Neither → refused. "No assertion" never means a default person. An empty or short token is
@@ -62,15 +71,17 @@ read API in front of them — two moving parts instead of one.
    |---|---|---|---|
    | `search` | `query` (ADR-0008, lenient like the search field), `date_from`/`date_to` (day in the configured zone), `person` (address or name: sender or recipient), `type` (`received`, `sent`, `attachment`), `limit`, `offset` | `result-list` | `limit` ≤ 50, `offset` ≤ 10 000, `query` ≤ 500 characters |
    | `fetch` | `id`, `max_tokens`, `query` (comma keywords: best paragraphs in order) | `document` | `max_tokens` 200–20 000, about 4 characters per token |
-   | `list_persons` | `date_from`/`date_to`, `limit` | `table` | `limit` ≤ 200 |
+   | `list_persons` | `date_from`/`date_to`, `limit`, `offset` | `table` | `limit` ≤ 200, `offset` ≤ 10 000 |
    | `mail_thread` | `id` or `query`, `max_mails` | `result-list` | `max_mails` ≤ 100 |
    | `mail_attachments` | `id` | `table` | — |
-   | `summarize_correspondence` | `person`, `date_from`/`date_to`, `focus`, `max_threads` | `document` | `max_threads` ≤ 10, 25 newest mails per conversation, 3 conversations at a time, 180 s per call |
+   | `summarize_correspondence` | `person`, `date_from`/`date_to`, `max_threads` | `document` | `max_threads` ≤ 10, 25 newest mails per conversation, 3 model requests at a time per process, 180 s per call |
 
    Every item carries the minimum metadata (v1 §4): `id` (the archive identity — stable across
    index rebuilds, unlike row ids), `title` (subject), `date`, `type`, `person`, `deep_link`
    (`mid:` URL, RFC 2392, as in the Paperless ledger of ADR-0016). Trashed messages never appear.
-   `search` returns briefs, never full text. The three tools paperless-mcp has keep their names,
+   `search` returns briefs, never full text. The free query and the filters (dates, person, type)
+   are parsed apart and AND-ed, so a query cannot lift a filter. Whatever a limit leaves out is
+   said in the text and marked `truncated` on the card; documents are capped by bytes. The three tools paperless-mcp has keep their names,
    so prompts and habits carry over.
 5. **Envelope and refusals (v2.2 §10.3, §14.5):** `content: [{type: text}]` plus
    `structuredContent: {text, card?, data_class, served_from: "source", as_of, stale: false}`,
@@ -84,11 +95,15 @@ read API in front of them — two moving parts instead of one.
    time range and summarises each with `MailSummarizer` (fenced mail, instructions to an AI
    removed, no to-dos from a mail that looks like a scam), **through LiteLLM only** — no
    on-device model on a server, and no silent fallback when the endpoint is gone (ADR-0004):
-   then the tool refuses with `ai_unavailable`. The summary is model output from external content
-   and stays tainted (`output_trust: external`).
+   then the tool refuses with `ai_unavailable`. At most three model requests run at a time in
+   the whole process, and a call ends after 180 s as a whole; conversations still open then are
+   named as such, a failure only by its kind (never the server's text, which can echo the prompt).
+   The summary is model output from external content and stays tainted (`output_trust: external`).
 7. **Logging:** one line per call, `mcp: <tool> path=<broker|direct> user=<u> run=<id>
    session=<id> ms=<n> result=<ok|code>`, values outside `[A-Za-z0-9._:@-]{1,80}` dropped (forged
-   log lines); refusals too. No subjects, addresses or text in the log.
+   log lines); refusals too, an internal failure with `cause=` (error type and SQLite code — no
+   message, SQL or path). No subjects, addresses or text in the log, and no internal cause to the
+   caller.
 8. **Configuration:** a section `mcp` in the server configuration (ADR-0015) — the same
    ConfigMap, so people and archives are named once. `mailkeeperd` validates it and ignores it;
    `mailkeeper-mcp` reads the people, their archives and its section: listen and health
@@ -115,3 +130,16 @@ read API in front of them — two moving parts instead of one.
   It comes as its own step before Phase 4; until then `deep_link` is the Message-ID.
 - Moving the Rechnungs-Abgleich (direct sends to DATEV from the archive's sent mail) and the tag
   healing to the archive is the second part of Phase 3, after this connector runs.
+
+## Review (code-review-fable, 2026-11-15)
+
+No blocker, no identity bypass, no way into another archive. Fixed before the first release:
+the reader tightened folder modes through `ArchiveLayout.open` (now `openExisting`); a failing
+JWKS fetch was not throttled; a free query could lift the other filters as one text; internal
+causes were neither logged nor kept from the caller (AI server text); summaries had no limit
+across calls and no deadline for the whole call; no idle timeout or connection limit; silent cuts
+(list without `offset`, caps without `truncated`, documents capped by characters). Also taken:
+key refetch after an hour, refusing `Origin`, `_exit` in the signal handler, no growing AI log in
+`/tmp`, stricter day and `\u` parsing; tests for each, the trash included. A Linux-only bug found
+by the Linux run before the review: `.socketOption(.tcp_nodelay)` is `SO_DEBUG` on Linux
+(`EACCES` without `CAP_NET_ADMIN`).

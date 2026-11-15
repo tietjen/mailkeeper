@@ -76,8 +76,8 @@ var summarizer: (any ConversationSummarizer)?
 if let ai = settings.ai, let url = URL(string: ai.url) {
     let key = ai.keyFile.map { secret($0, "AI key") }
     let aiConfig = AIConfig(enabled: true, endpoint: url, models: [.summarize: ai.model], onDevice: false, timeout: Double(ai.timeoutSeconds))
-    // metadata only (task, model, seconds, outcome) — never prompt or answer
-    let callLog = AICallLog(url: URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "mailkeeper-mcp/ai.jsonl"))
+    // the connector's own log line covers each call; a file in /tmp would only grow (emptyDir limit)
+    let callLog = AICallLog(url: URL(fileURLWithPath: "/dev/null"))
     summarizer = MailSummarizer(router: AIRouter(config: aiConfig, apiKey: key, log: callLog))
 }
 
@@ -99,8 +99,10 @@ actor Health {
 }
 let healthState = Health()
 
-signal(SIGTERM) { _ in exit(0) }
-signal(SIGINT) { _ in exit(0) }
+// _exit, not exit: async-signal-safe (no atexit handlers, no locks); nothing to flush — the
+// archive is only read
+signal(SIGTERM) { _ in _exit(0) }
+signal(SIGINT) { _ in _exit(0) }
 
 log("mailkeeper-mcp \(MCPServer.version): \(config.people.count) Archive, Broker-Audience \(settings.audience), "
     + "direkt als \(settings.directPerson), \(settings.ai == nil ? "ohne KI" : "KI \(settings.ai!.model)"), lauscht auf \(settings.listen)")
@@ -113,7 +115,8 @@ do {
             }
         }
         group.addTask {
-            try await HTTPServer.run(host: health.host, port: health.port, maxBody: 0) { request in
+            // reachable from the cluster: short idle and few connections, so a flood cannot starve the process
+            try await HTTPServer.run(host: health.host, port: health.port, maxBody: 0, idle: .seconds(10), maxConnections: 16) { request in
                 guard request.method == "GET", request.path == "/healthz" else { return .text(404, "not found") }
                 return await healthState.check(archives) ? .text(200, "ok") : .text(503, "archive or listener not ready")
             }

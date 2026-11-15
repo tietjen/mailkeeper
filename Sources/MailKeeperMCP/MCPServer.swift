@@ -15,10 +15,12 @@ public struct MCPServer: Sendable {
     let allowedHosts: Set<String>
     let log: @Sendable (String) -> Void
     let now: @Sendable () -> Date
+    let summaryDeadline: Duration
 
     public init(tools: [Tool] = MailTools.all, identity: IdentityResolver, archives: ArchiveAccess,
                 summarizer: (any ConversationSummarizer)?, timeZone: TimeZone, allowedHosts: [String],
-                log: @escaping @Sendable (String) -> Void, now: @escaping @Sendable () -> Date = Date.init) {
+                log: @escaping @Sendable (String) -> Void, now: @escaping @Sendable () -> Date = Date.init,
+                summaryDeadline: Duration = .seconds(180)) {
         self.tools = Dictionary(uniqueKeysWithValues: tools.map { ($0.name, $0) })
         order = tools.map(\.name)
         self.identity = identity
@@ -28,6 +30,7 @@ public struct MCPServer: Sendable {
         self.allowedHosts = Set(allowedHosts.map { $0.lowercased() })
         self.log = log
         self.now = now
+        self.summaryDeadline = summaryDeadline
     }
 
     // MARK: HTTP
@@ -39,6 +42,8 @@ public struct MCPServer: Sendable {
             return .text(421, "Invalid Host header")
         }
         guard request.method == "POST" else { return .text(405, "only POST: this server sends no event stream", extra: [("Allow", "POST")]) }
+        // no browser talks to this server; a page that tries is turned away before anything else
+        guard request.header("origin") == nil else { return .text(403, "requests from a web page are not accepted") }
         if let version = request.header("mcp-protocol-version"), !Self.protocolVersions.contains(version) {
             return .text(400, "unsupported MCP-Protocol-Version")
         }
@@ -104,17 +109,20 @@ public struct MCPServer: Sendable {
             if let run = principal.runID { logged.run = run }  // the signed value wins over the unsigned one
             guard params["arguments"].map({ $0.object != nil || $0.isNull }) ?? true else { throw Refusal("invalid", "arguments must be an object") }
             let args = try Args(params["arguments"]?.object ?? [:], allowed: Set(tool.inputSchema["properties"]?.object?.keys.map { $0 } ?? []))
-            let context = ToolContext(principal: principal, archives: archives, summarizer: summarizer, timeZone: timeZone, now: now())
+            let context = ToolContext(principal: principal, archives: archives, summarizer: summarizer, timeZone: timeZone, now: now(),
+                                      summaryDeadline: summaryDeadline)
             let result = try await tool.run(context, args)
             output = envelope(result)
             logged.result = "ok"
         } catch let refusal as Refusal {
             output = envelope(refusal)
             logged.result = refusal.code
+            if ["source_unreachable", "internal"].contains(refusal.code) { logged.cause = refusal.hint }
         } catch {
             let refusal = Refusal("internal", "the tool failed")
             output = envelope(refusal)
             logged.result = refusal.code
+            logged.cause = cause(error)
         }
         logged.ms = Int((ContinuousClock.now - started) / .milliseconds(1))
         log(logged.line)
@@ -160,6 +168,8 @@ struct LogFields {
     var session: String?
     var ms = 0
     var result = "-"
+    /// Type and code of an internal error (`cause()`), only for source_unreachable/internal.
+    var cause: String?
 
     static func safe(_ s: String?) -> String {
         guard let s, s.range(of: #"^[A-Za-z0-9._:@-]{1,80}$"#, options: .regularExpression) != nil else { return "-" }
@@ -168,6 +178,6 @@ struct LogFields {
 
     var line: String {
         "mcp: \(Self.safe(tool)) path=\(Self.safe(path)) user=\(Self.safe(user)) run=\(Self.safe(run)) "
-            + "session=\(Self.safe(session)) ms=\(ms) result=\(Self.safe(result))"
+            + "session=\(Self.safe(session)) ms=\(ms) result=\(Self.safe(result))" + (cause.map { " cause=\(Self.safe($0))" } ?? "")
     }
 }

@@ -12,12 +12,12 @@ public actor ArchiveAccess {
     }
 
     /// Runs `body` with the person's reader. An archive that cannot be opened is
-    /// `source_unreachable` (with the cause for the log, not for the caller).
+    /// `source_unreachable`; its cause goes to the log, never to the caller.
     public func read<T: Sendable>(_ person: String, _ body: @Sendable (ArchiveReader) throws -> T) throws -> T {
         let reader = try reader(person)
         do { return try body(reader) } catch let refusal as Refusal { throw refusal } catch {
             readers[person] = nil  // a broken connection is not kept
-            throw Refusal("source_unreachable", "the archive could not be read", hint: "\(error)")
+            throw Refusal("source_unreachable", "the archive could not be read", hint: cause(error))
         }
     }
 
@@ -25,11 +25,11 @@ public actor ArchiveAccess {
         if let r = readers[person] { return r }
         guard let url = archives[person] else { throw Refusal("misconfigured", "no archive for this person") }
         do {
-            let r = try ArchiveReader(layout: try ArchiveLayout.open(at: url, create: false), readOnly: true)
+            let r = try ArchiveReader(layout: try ArchiveLayout.openExisting(at: url), readOnly: true)
             readers[person] = r
             return r
         } catch {
-            throw Refusal("source_unreachable", "the archive is not readable right now", hint: "\(error)")
+            throw Refusal("source_unreachable", "the archive is not readable right now", hint: cause(error))
         }
     }
 
@@ -42,5 +42,15 @@ public actor ArchiveAccess {
             }
         }
         return true
+    }
+}
+
+/// The kind of an internal error, for the log: its type and, for SQLite, the code — never a
+/// message, SQL or a path (they can name the person's folder or echo content).
+func cause(_ error: Error) -> String {
+    switch error {
+    case let e as SQLiteError: return "SQLiteError:\(e.code)"
+    case let e as ArchiveSchemaMismatch: return "schema:\(e.found)-\(e.expected)"
+    default: return String(describing: type(of: error))
     }
 }

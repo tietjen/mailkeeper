@@ -20,6 +20,8 @@ public struct ToolContext: Sendable {
     public var summarizer: (any ConversationSummarizer)?
     public var timeZone: TimeZone
     public var now: Date
+    /// `summarize_correspondence` ends here as a whole (ADR-0017: 180 s per call).
+    public var summaryDeadline: Duration = .seconds(180)
 }
 
 /// A tool's answer before the envelope: the model's text and the card.
@@ -86,7 +88,7 @@ public struct Args: Sendable {
     func day(_ key: String) throws -> String? {
         guard let s = try string(key, max: 10) else { return nil }
         let parts = s.split(separator: "-")
-        guard parts.count == 3, parts[0].count == 4, parts[1].count == 2, parts[2].count == 2,
+        guard s.range(of: #"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"#, options: .regularExpression) != nil,
               let y = Int(parts[0]), let m = Int(parts[1]), let d = Int(parts[2]) else {
             throw Refusal("invalid", "\(key) must be a day like 2026-11-01")
         }
@@ -113,8 +115,11 @@ public enum MailTools {
 
     static let dataClass: JSONValue = "personal"
     static let maxCardItems = 100
+    static let maxCardRows = 20
     static let maxCardString = 300
-    static let maxDocument = 64 << 10
+    static let maxDocumentBytes = 64 << 10
+    /// Model requests at a time across all calls (standard v2.2 §14.10: the endpoint is shared).
+    static let modelGate = ModelGate(limit: 3)
 
     static func schema(_ properties: [String: JSONValue], required: [String] = []) -> JSONValue {
         ["type": "object", "properties": .object(properties), "required": .array(required.map { .string($0) }),
@@ -126,28 +131,40 @@ public enum MailTools {
         "date_to": ["type": "string", "description": "Letzter Tag (YYYY-MM-DD), einschließlich"],
     ]
 
-    /// Query text from the shared filters; values are checked before they reach the language.
-    static func filterQuery(query: String?, dateFrom: String?, dateTo: String?, person: String?, type: String?) throws -> String {
-        var parts: [String] = []
-        if let query { parts.append("(\(query))") }
-        if let dateFrom { parts.append("after:\(dateFrom)") }
-        if let dateTo { parts.append("until:\(dateTo)") }
+    /// The shared filters as a `MessageFilter`: the free query and each filter are parsed on
+    /// their own and AND-ed (`also`), so a query like `a) OR (b` cannot lift a date, person or
+    /// type. Values are checked before they reach the language.
+    static func messageFilter(query: String?, dateFrom: String?, dateTo: String?, person: String?, type: String?) throws -> MessageFilter {
+        var also: [String] = []
+        if let dateFrom { also.append("after:\(dateFrom)") }
+        if let dateTo { also.append("until:\(dateTo)") }
         if let person {
             let p = person.filter { !"\"()\\".contains($0) }.trimmingCharacters(in: .whitespaces)
             guard !p.isEmpty else { throw Refusal("invalid", "person is empty") }
-            parts.append("(from:\"\(p)\" OR to:\"\(p)\")")
+            also.append("from:\"\(p)\" OR to:\"\(p)\"")
         }
         switch type {
-        case "received": parts.append("-is:sent")
-        case "sent": parts.append("is:sent")
-        case "attachment": parts.append("has:attachment")
+        case "received": also.append("-is:sent")
+        case "sent": also.append("is:sent")
+        case "attachment": also.append("has:attachment")
         default: break
         }
-        let text = parts.joined(separator: " ")
-        if !text.isEmpty {
+        for text in (query.map { [$0] } ?? []) + also {
             do { _ = try QueryParser.parse(text) } catch { throw Refusal("invalid", "the query cannot be read: \(error)") }
         }
-        return text + " "
+        return MessageFilter(text: query.map { $0 + " " }, also: also.map { $0 + " " })
+    }
+
+    /// The first row of each of up to `max` conversations among `hits` (newest first), and
+    /// whether there are more conversations than that.
+    static func conversationSeeds(_ hits: [Int64], max: Int, reader: ArchiveReader) throws -> (seeds: [Int64], more: Bool) {
+        let keys = try reader.conversationKeys(hits)
+        var seen = Set<Int64>(), seeds: [Int64] = []
+        for hit in hits where seen.insert(keys[hit] ?? -hit).inserted {
+            guard seeds.count < max else { return (seeds, true) }
+            seeds.append(hit)
+        }
+        return (seeds, false)
     }
 
     // MARK: search
@@ -165,12 +182,12 @@ public enum MailTools {
         ]) { $1 }),
         presentation: "result-list"
     ) { ctx, a in
-        let text = try filterQuery(query: try a.string("query", max: 500), dateFrom: try a.day("date_from"), dateTo: try a.day("date_to"),
-                                   person: try a.string("person", max: 200), type: try a.choice("type", ["received", "sent", "attachment"]))
+        let filter = try messageFilter(query: try a.string("query", max: 500), dateFrom: try a.day("date_from"), dateTo: try a.day("date_to"),
+                                       person: try a.string("person", max: 200), type: try a.choice("type", ["received", "sent", "attachment"]))
         let limit = try a.int("limit", default: 20, range: 1...50)
         let offset = try a.int("offset", default: 0, range: 0...10_000)
         let (total, briefs, sent) = try await ctx.archives.read(ctx.principal.person) { reader in
-            let ids = try reader.messageIDs(MessageFilter(text: text))
+            let ids = try reader.messageIDs(filter)
             let page = Array(ids.dropFirst(offset).prefix(limit))
             return (ids.count, try reader.connectorBriefs(page), Set(try reader.messageIDs(MessageFilter(text: "is:sent ", ids: page))))
         }
@@ -187,7 +204,7 @@ public enum MailTools {
         if offset + briefs.count < total { lines.append("Weitere mit offset \(offset + briefs.count).") }
         return ToolOutput(text: lines.joined(separator: "\n"),
                           card: ["type": "result-list", "title": .string("Mails (\(total))"),
-                                 "items": .array(briefs.prefix(maxCardItems).map { f.item($0, sent: sent.contains($0.row)) })])
+                                 "items": .array(briefs.map { f.item($0, sent: sent.contains($0.row)) })])
     }
 
     // MARK: fetch
@@ -230,10 +247,10 @@ public enum MailTools {
         let budget = maxTokens * Budget.charsPerToken - header.count - 2
         let body = Budget.select(mail.parsed.text, maxChars: max(200, budget), keywords: keywords)
         let text = header + "\n\n" + body.text
-        let cardText = String(text.prefix(maxDocument))
+        let card = utf8Prefix(text, maxBytes: maxDocumentBytes)
         return ToolOutput(text: text, card: [
             "type": "document", "title": .string(oneLine(mail.parsed.subject ?? "(ohne Betreff)", maxCardString)), "format": "plain",
-            "text": .string(cardText), "truncated": .bool(body.truncated || cardText.count < text.count),
+            "text": .string(card.text), "truncated": .bool(body.truncated || card.cut),
         ])
     }
 
@@ -246,25 +263,36 @@ public enum MailTools {
 
     static let listPersons = Tool(
         name: "list_persons", title: "Korrespondenten",
-        description: "Wer dem Archiv-Inhaber geschrieben hat, mit Anzahl und letzter Mail, optional in einem Zeitraum.",
-        inputSchema: schema(dateProps.merging(["limit": ["type": "integer", "minimum": 1, "maximum": 200, "default": 50]]) { $1 }),
+        description: "Wer dem Archiv-Inhaber geschrieben hat, mit Anzahl und letzter Mail, meiste zuerst, optional in einem Zeitraum.",
+        inputSchema: schema(dateProps.merging([
+            "limit": ["type": "integer", "minimum": 1, "maximum": 200, "default": 50],
+            "offset": ["type": "integer", "minimum": 0, "maximum": 10_000, "default": 0],
+        ]) { $1 }),
         presentation: "table"
     ) { ctx, a in
-        let text = try filterQuery(query: nil, dateFrom: try a.day("date_from"), dateTo: try a.day("date_to"), person: nil, type: "received")
+        let filter = try messageFilter(query: nil, dateFrom: try a.day("date_from"), dateTo: try a.day("date_to"), person: nil, type: "received")
         let limit = try a.int("limit", default: 50, range: 1...200)
+        let offset = try a.int("offset", default: 0, range: 0...10_000)
         let groups = try await ctx.archives.read(ctx.principal.person) { reader in
-            try reader.groups(MessageFilter(text: text), by: .sender, limit: limit)
+            try reader.groups(filter, by: .sender, limit: offset + limit + 1)  // most mails first
         }
+        let page = Array(groups.dropFirst(offset).prefix(limit))
+        let more = groups.count > offset + limit
         let f = Formats(ctx.timeZone)
-        let sorted = groups.sorted { $0.count != $1.count ? $0.count > $1.count : $0.key < $1.key }.prefix(limit)
-        guard !sorted.isEmpty else { return ToolOutput(text: "Keine Korrespondenten im Zeitraum.", card: ["type": "table", "columns": ["Name", "Adresse", "Mails", "zuletzt"], "rows": []]) }
-        let rows = sorted.map { g -> [String] in
-            [oneLine(g.name ?? "", 80), g.key, String(g.count), g.newest.map(f.day) ?? ""]
+        let columns: JSONValue = ["Name", "Adresse", "Mails", "zuletzt"]
+        guard !page.isEmpty else {
+            return ToolOutput(text: offset == 0 ? "Keine Korrespondenten im Zeitraum." : "Keine weiteren Korrespondenten.",
+                              card: ["type": "table", "columns": columns, "rows": []])
         }
-        let text2 = (["\(sorted.count) Korrespondenten (Name · Adresse · Mails · zuletzt):"]
-            + rows.map { $0.filter { !$0.isEmpty }.joined(separator: " · ") }).joined(separator: "\n")
-        return ToolOutput(text: text2, card: ["type": "table", "columns": ["Name", "Adresse", "Mails", "zuletzt"],
-                                               "rows": .array(rows.prefix(20).map { .array($0.map { .string(String($0.prefix(maxCardString))) }) })])
+        let rows = page.map { g -> [String] in [oneLine(g.name ?? "", 80), g.key, String(g.count), g.newest.map(f.day) ?? ""] }
+        var lines = ["Korrespondenten \(offset + 1)–\(offset + page.count) (Name · Adresse · Mails · zuletzt):"]
+        lines += rows.map { $0.filter { !$0.isEmpty }.joined(separator: " · ") }
+        if more { lines.append("Weitere mit offset \(offset + page.count).") }
+        return ToolOutput(text: lines.joined(separator: "\n"), card: [
+            "type": "table", "columns": columns,
+            "rows": .array(rows.prefix(maxCardRows).map { .array($0.map { .string(String($0.prefix(maxCardString))) }) }),
+            "truncated": .bool(rows.count > maxCardRows || more),
+        ])
     }
 
     // MARK: mail_thread
@@ -285,39 +313,44 @@ public enum MailTools {
         guard (id == nil) != (query == nil) else { throw Refusal("invalid", "give either id or query") }
         let maxThreads = try a.int("max_threads", default: 3, range: 1...5)
         let maxMails = try a.int("max_mails", default: 40, range: 1...100)
-        let text = try query.map { try filterQuery(query: $0, dateFrom: nil, dateTo: nil, person: nil, type: nil) }
-        let threads = try await ctx.archives.read(ctx.principal.person) { reader -> [[ConnectorBrief]]? in
-            var seeds: [Int64] = []
+        let found = try query.map { try messageFilter(query: $0, dateFrom: nil, dateTo: nil, person: nil, type: nil) }
+        struct Found: Sendable { var threads: [[ConnectorBrief]]; var more: Bool; var capped: Bool }
+        let result = try await ctx.archives.read(ctx.principal.person) { reader -> Found? in
+            var seeds: [Int64] = [], more = false, capped = false
             if let id {
                 guard let row = try reader.rowID(identity: id) else { return nil }
                 seeds = [row]
-            } else if let text {
-                let hits = Array(try reader.messageIDs(MessageFilter(text: text)).prefix(500))
-                let keys = try reader.conversationKeys(hits)
-                var seen = Set<Int64>()
-                for hit in hits where seeds.count < maxThreads {
-                    if seen.insert(keys[hit] ?? -hit).inserted { seeds.append(hit) }
-                }
+            } else if let found {
+                let all = try reader.messageIDs(found)
+                capped = all.count > 500
+                (seeds, more) = try conversationSeeds(Array(all.prefix(500)), max: maxThreads, reader: reader)
             }
-            return try seeds.map { seed in try reader.connectorBriefs(try reader.thread(of: seed, limit: maxMails).map(\.id)) }
+            return Found(threads: try seeds.map { try reader.connectorBriefs(try reader.thread(of: $0, limit: maxMails).map(\.id)) },
+                         more: more, capped: capped)
         }
-        guard let threads else { throw notFound }
-        guard !threads.isEmpty else { return ToolOutput(text: "Keine Konversation gefunden.", card: ["type": "result-list", "title": "Konversationen", "items": []]) }
+        guard let result else { throw notFound }
+        guard !result.threads.isEmpty else {
+            return ToolOutput(text: "Keine Konversation gefunden.", card: ["type": "result-list", "title": "Konversationen", "items": []])
+        }
         let f = Formats(ctx.timeZone)
         var lines: [String] = []
         var items: [JSONValue] = []
-        for (n, mails) in threads.enumerated() {
+        for (n, mails) in result.threads.enumerated() {
             let first = mails.first, last = mails.last
             let who = Array(Set(mails.compactMap { $0.fromName ?? $0.fromAddress })).sorted().prefix(6).joined(separator: ", ")
             let span = [first?.date, last?.date].compactMap { $0.map(f.day) }
             lines.append("Konversation \(n + 1): \(oneLine(first?.subject ?? "(ohne Betreff)", 200)) — \(mails.count) Mails"
                 + (span.isEmpty ? "" : ", \(span.first!)–\(span.last!)") + (who.isEmpty ? "" : ", Beteiligte: \(who)"))
             for (m, b) in mails.enumerated() { lines.append("  \(m + 1). " + f.line(b, sent: false)) }
-            if let more = first?.threadCount, more > mails.count { lines.append("  (die Konversation hat \(more) Mails; max_mails erhöhen für mehr)") }
+            if let all = first?.threadCount, all > mails.count { lines.append("  (die Konversation hat \(all) Mails; max_mails erhöhen für mehr)") }
             items += mails.map { f.item($0, sent: false) }
         }
-        return ToolOutput(text: lines.joined(separator: "\n"),
-                          card: ["type": "result-list", "title": "Konversationen", "items": .array(Array(items.prefix(maxCardItems)))])
+        if result.more { lines.append("Weitere Konversationen passen zur Suche; max_threads erhöhen oder die Suche enger fassen.") }
+        if result.capped { lines.append("Gesucht wurde in den neuesten 500 Treffern.") }
+        return ToolOutput(text: lines.joined(separator: "\n"), card: [
+            "type": "result-list", "title": "Konversationen", "items": .array(Array(items.prefix(maxCardItems))),
+            "truncated": .bool(items.count > maxCardItems || result.more || result.capped),
+        ])
     }
 
     // MARK: mail_attachments
@@ -340,12 +373,18 @@ public enum MailTools {
         }
         guard let rows else { throw notFound }
         let f = Formats(ctx.timeZone)
-        guard !rows.isEmpty else { return ToolOutput(text: "Die Mail hat keine Anhänge.", card: ["type": "table", "columns": ["Datei", "Typ", "Größe", "SHA-256", "im Text", "riskant"], "rows": []]) }
+        let columns: JSONValue = ["Datei", "Typ", "Größe", "SHA-256", "im Text", "riskant"]
+        guard !rows.isEmpty else { return ToolOutput(text: "Die Mail hat keine Anhänge.", card: ["type": "table", "columns": columns, "rows": []]) }
         let text = (["\(rows.count) Anhänge (Datei · Typ · Größe · SHA-256 · im Text gezeigt · riskant):"] + rows.map { r in
             "\(r[0]) · \(r[1]) · \(f.size(Int(r[2]) ?? 0)) · \(r[3]) · \(r[4]) · \(r[5])"
         }).joined(separator: "\n")
-        return ToolOutput(text: text, card: ["type": "table", "columns": ["Datei", "Typ", "Größe", "SHA-256", "im Text", "riskant"],
-                                              "rows": .array(rows.prefix(20).map { r in .array([r[0], r[1], f.size(Int(r[2]) ?? 0), String(r[3].prefix(16)), r[4], r[5]].map { .string(String($0.prefix(maxCardString))) }) })])
+        return ToolOutput(text: text, card: [
+            "type": "table", "columns": columns,
+            "rows": .array(rows.prefix(maxCardRows).map { r in
+                .array([r[0], r[1], f.size(Int(r[2]) ?? 0), String(r[3].prefix(16)), r[4], r[5]].map { .string(String($0.prefix(maxCardString))) })
+            }),
+            "truncated": .bool(rows.count > maxCardRows),
+        ])
     }
 
     // MARK: summarize_correspondence
@@ -363,45 +402,60 @@ public enum MailTools {
             throw Refusal("ai_unavailable", "no language model is configured for summaries")
         }
         let person = try a.string("person", max: 200, required: true)!
-        let text = try filterQuery(query: nil, dateFrom: try a.day("date_from"), dateTo: try a.day("date_to"), person: person, type: nil)
+        let filter = try messageFilter(query: nil, dateFrom: try a.day("date_from"), dateTo: try a.day("date_to"), person: person, type: nil)
         let maxThreads = try a.int("max_threads", default: 5, range: 1...10)
         struct Conversation: Sendable { var subject: String; var count: Int; var from: Date?; var to: Date?; var messages: [SummaryMessage]; var total: Int; var flagged: Bool }
-        let conversations = try await ctx.archives.read(ctx.principal.person) { reader -> [Conversation] in
-            let hits = Array(try reader.messageIDs(MessageFilter(text: text)).prefix(2_000))
-            let keys = try reader.conversationKeys(hits)
-            var seen = Set<Int64>(), seeds: [Int64] = []
-            for hit in hits where seeds.count < maxThreads {
-                if seen.insert(keys[hit] ?? -hit).inserted { seeds.append(hit) }
-            }
-            return try seeds.map { seed in
+        struct Found: Sendable { var conversations: [Conversation]; var more: Bool; var capped: Bool }
+        let found = try await ctx.archives.read(ctx.principal.person) { reader -> Found in
+            let all = try reader.messageIDs(filter)
+            let (seeds, more) = try conversationSeeds(Array(all.prefix(2_000)), max: maxThreads, reader: reader)
+            let conversations = try seeds.map { seed in
                 let thread = try reader.thread(of: seed, limit: 500)
                 let (messages, total, flagged) = try MailSummarizer.messages(thread.map(\.id), reader: reader)
                 return Conversation(subject: thread.first?.subject ?? "(ohne Betreff)", count: thread.count,
                                     from: thread.first?.date, to: thread.last?.date, messages: messages, total: total, flagged: flagged)
             }
+            return Found(conversations: conversations, more: more, capped: all.count > 2_000)
         }
+        let conversations = found.conversations
         guard !conversations.isEmpty else { return ToolOutput(text: "Keine Mails mit \(person) gefunden.", card: nil) }
-        // three at a time: the endpoint is shared (standard v2.2 §14.10)
-        var results = [Result<MailSummary, Error>?](repeating: nil, count: conversations.count)
-        try await withThrowingTaskGroup(of: (Int, Result<MailSummary, Error>).self) { group in
-            var next = 0
-            func start() {
-                guard next < conversations.count else { return }
-                let i = next, c = conversations[i]
-                next += 1
-                group.addTask {
-                    do { return (i, .success(try await summarizer.summarize(c.messages, total: c.total, flagged: c.flagged))) }
-                    catch { return (i, .failure(error)) }
+
+        // Each conversation through the process-wide gate; the call as a whole ends at its
+        // deadline — what is still open then is said, not dropped (§14.3), and a model that
+        // does not stop on cancellation keeps only its gate slot, not this answer.
+        enum Event: Sendable { case done(Int, Result<MailSummary, Error>), deadline }
+        let (events, sink) = AsyncStream.makeStream(of: Event.self)
+        let gate = modelGate
+        let workers = conversations.enumerated().map { i, c in
+            Task {
+                let result: Result<MailSummary, Error>
+                do {
+                    try await gate.acquire()
+                    do { result = .success(try await summarizer.summarize(c.messages, total: c.total, flagged: c.flagged)) }
+                    catch { result = .failure(error) }
+                    await gate.release()
+                } catch {
+                    result = .failure(error)  // cancelled while waiting for the gate
                 }
-            }
-            for _ in 0..<min(3, conversations.count) { start() }
-            while let (i, result) = try await group.next() {
-                results[i] = result
-                start()
+                sink.yield(.done(i, result))
             }
         }
+        let deadline = ctx.summaryDeadline
+        let timer = Task { try? await Task.sleep(for: deadline); sink.yield(.deadline) }
+        var results = [Result<MailSummary, Error>?](repeating: nil, count: conversations.count)
+        var pending = conversations.count, timedOut = false
+        for await event in events {
+            switch event {
+            case .done(let i, let r): results[i] = r; pending -= 1
+            case .deadline: timedOut = true
+            }
+            if pending == 0 || timedOut { break }
+        }
+        timer.cancel()
+        if timedOut { workers.forEach { $0.cancel() } }
+        sink.finish()
         guard results.contains(where: { if case .success = $0 { true } else { false } }) else {
-            throw Refusal("ai_unavailable", "the language model did not answer")
+            throw Refusal("ai_unavailable", timedOut ? "the language model did not answer in time" : "the language model did not answer")
         }
         let f = Formats(ctx.timeZone)
         var parts = ["Korrespondenz mit \(person): \(conversations.count) Konversation(en), neueste zuerst. Zusammenfassung durch ein Sprachmodell aus den Mails — Aussagen der Absender sind ihre Behauptungen."]
@@ -410,21 +464,85 @@ public enum MailTools {
             parts.append("## \(oneLine(c.subject, 200)) (\(c.count) Mails" + (span.isEmpty ? "" : ", \(span.first!)–\(span.last!)") + ")")
             switch result {
             case .success(let s)?: parts.append(s.plainText + (s.covered < s.total ? "\n(aus den letzten \(s.covered) von \(s.total) Mails)" : ""))
-            case .failure(let e)?: parts.append("(Zusammenfassung fehlgeschlagen: \(Self.kind(e)))")
-            case nil: parts.append("(nicht zusammengefasst)")
+            case .failure(let e)?: parts.append("(Zusammenfassung fehlgeschlagen: \(kind(e)))")
+            case nil: parts.append("(nicht zusammengefasst: Zeitlimit des Aufrufs erreicht)")
             }
         }
+        if found.more { parts.append("Es gibt weitere Konversationen mit \(person); max_threads erhöhen oder den Zeitraum einschränken.") }
+        if found.capped { parts.append("Berücksichtigt wurden die neuesten 2 000 Mails mit \(person).") }
         let out = parts.joined(separator: "\n\n")
+        let card = utf8Prefix(out, maxBytes: maxDocumentBytes)
         return ToolOutput(text: out, card: ["type": "document", "title": .string(oneLine("Korrespondenz mit \(person)", maxCardString)),
-                                             "format": "plain", "text": .string(String(out.prefix(maxDocument))), "truncated": .bool(out.count > maxDocument)])
+                                             "format": "plain", "text": .string(card.text), "truncated": .bool(card.cut)])
     }
 
+    /// A failure as a fixed category — never the server's text, which can echo the prompt or
+    /// name internal hosts (as `AICallLog` keeps it out).
     static func kind(_ error: Error) -> String {
-        if let e = error as? AIError { return String(describing: e).prefix(120).description }
-        return "Fehler"
+        switch error {
+        case let e as AIError:
+            switch e {
+            case .timeout: return "keine Antwort in der Zeit"
+            case .connection, .unavailable, .notConfigured: return "Modell nicht erreichbar"
+            case .server(let code, _): return "Modell meldet Fehler \(code)"
+            case .badAnswer, .truncated: return "unbrauchbare Antwort"
+            }
+        case is CancellationError: return "abgebrochen"
+        default: return "Fehler"
+        }
     }
 
     static let notFound = Refusal("not_found", "this mail does not exist or is not visible to this user")
+}
+
+/// At most `limit` holders at a time; waiters are served in order and leave when cancelled.
+public actor ModelGate {
+    let limit: Int
+    private var running = 0
+    private var waiting: [(id: UUID, continuation: CheckedContinuation<Void, Error>)] = []
+
+    public init(limit: Int) { self.limit = limit }
+
+    public func acquire() async throws {
+        try Task.checkCancellation()
+        if running < limit {
+            running += 1
+            return
+        }
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                waiting.append((id, continuation))
+            }
+        } onCancel: {
+            Task { await self.cancel(id) }
+        }
+    }
+
+    private func cancel(_ id: UUID) {
+        guard let index = waiting.firstIndex(where: { $0.id == id }) else { return }
+        waiting.remove(at: index).continuation.resume(throwing: CancellationError())
+    }
+
+    /// Hands the slot to the next waiter, or frees it.
+    public func release() {
+        if waiting.isEmpty { running -= 1 } else { waiting.removeFirst().continuation.resume() }
+    }
+}
+
+/// At most `maxBytes` of UTF-8 (the standard caps `document` cards by bytes), cut at a
+/// character boundary; whether something was cut.
+func utf8Prefix(_ text: String, maxBytes: Int) -> (text: String, cut: Bool) {
+    guard text.utf8.count > maxBytes else { return (text, false) }
+    var bytes = 0
+    var end = text.startIndex
+    for index in text.indices {
+        let size = text[index].utf8.count
+        if bytes + size > maxBytes { break }
+        bytes += size
+        end = text.index(after: index)
+    }
+    return (String(text[..<end]), true)
 }
 
 /// One line of text, at most `max` characters.

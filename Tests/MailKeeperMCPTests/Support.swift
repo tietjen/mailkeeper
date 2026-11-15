@@ -90,7 +90,9 @@ func twoArchives() async throws -> (root: URL, archives: [String: URL]) {
 
 struct FakeSummarizer: ConversationSummarizer {
     var fail = false
+    var delay: Duration?
     func summarize(_ messages: [SummaryMessage], total: Int, flagged: Bool) async throws -> MailSummary {
+        if let delay { try await Task.sleep(for: delay) }
         if fail { throw AIError.timeout(1) }
         return MailSummary(summary: "Zusammenfassung von \(messages.count) Mails.", points: ["42 Euro"], todo: [], caution: nil,
                            covered: messages.count, total: total, path: .endpoint, model: "fake", seconds: 0.1)
@@ -100,11 +102,13 @@ struct FakeSummarizer: ConversationSummarizer {
 let directToken = String(repeating: "t", count: 40)
 
 func testServer(archives: [String: URL], summarizer: (any ConversationSummarizer)? = FakeSummarizer(), signer: TestSigner = TestSigner(),
-                lines: LockedLines = LockedLines(), now: @escaping @Sendable () -> Date = Date.init) throws -> MCPServer {
+                lines: LockedLines = LockedLines(), now: @escaping @Sendable () -> Date = Date.init,
+                summaryDeadline: Duration = .seconds(180)) throws -> MCPServer {
     let identity = try IdentityResolver(verifier: AssertionVerifier(audience: "mail", keys: signer.keys, now: now),
                                         users: ["jan": "jan", "katja": "katja"], directToken: directToken, directPerson: "jan")
     return MCPServer(identity: identity, archives: ArchiveAccess(archives: archives), summarizer: summarizer,
-                     timeZone: TimeZone(identifier: "Europe/Berlin")!, allowedHosts: ["mcp.mail.ziti:8727"], log: { lines.append($0) }, now: now)
+                     timeZone: TimeZone(identifier: "Europe/Berlin")!, allowedHosts: ["mcp.mail.ziti:8727"], log: { lines.append($0) }, now: now,
+                     summaryDeadline: summaryDeadline)
 }
 
 /// One JSON-RPC request through the server's HTTP entry; returns the decoded answer.

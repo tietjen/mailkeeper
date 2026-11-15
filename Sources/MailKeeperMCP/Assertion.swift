@@ -44,27 +44,43 @@ public protocol KeySource: Sendable {
     func keys(refresh: Bool) async throws -> [String: Data]
 }
 
-/// The gateway's JWKS (`OKP`/`Ed25519`), refetched on an unknown kid at most every 30 s and
-/// replaced as a whole, so a revoked key disappears.
+/// The gateway's JWKS (`OKP`/`Ed25519`): fetched at most once per `minInterval` — failed
+/// attempts included, so a dead gateway is not hammered by every forged call — replaced as a
+/// whole (a revoked key disappears), and refetched after `maxAge` even for known kids. A set
+/// without usable keys does not replace a good one.
 public actor JWKSKeySource: KeySource {
     let url: URL
     let fetch: @Sendable (URL) async throws -> Data
     let minInterval: Duration
+    let maxAge: Duration
     private var cached: [String: Data]?
-    private var lastFetch: ContinuousClock.Instant?
+    private var cachedAt: ContinuousClock.Instant?
+    private var lastAttempt: ContinuousClock.Instant?
 
-    public init(url: URL, minInterval: Duration = .seconds(30),
+    public init(url: URL, minInterval: Duration = .seconds(30), maxAge: Duration = .seconds(3_600),
                 fetch: @escaping @Sendable (URL) async throws -> Data = JWKSKeySource.httpGet) {
         self.url = url
         self.fetch = fetch
         self.minInterval = minInterval
+        self.maxAge = maxAge
     }
 
     public func keys(refresh: Bool) async throws -> [String: Data] {
-        if let cached, !refresh || (lastFetch.map { ContinuousClock.now - $0 < minInterval } ?? false) { return cached }
-        lastFetch = .now
+        let now = ContinuousClock.now
+        let fresh = cachedAt.map { now - $0 < maxAge } ?? false
+        if let cached, fresh, !refresh { return cached }
+        if let last = lastAttempt, now - last < minInterval {
+            if let cached, fresh { return cached }
+            throw JSONError("JWKS fetch throttled")  // → key_unavailable: fail-closed
+        }
+        lastAttempt = now
         let set = try Self.parse(try await fetch(url))
+        guard !set.isEmpty else {
+            if let cached, fresh { return cached }
+            throw JSONError("JWKS without usable keys")
+        }
         cached = set
+        cachedAt = now
         return set
     }
 
@@ -91,6 +107,8 @@ public actor JWKSKeySource: KeySource {
 }
 
 /// Nonces seen, kept until their assertion expires (§14.1); bounded, refused when full.
+/// Swift compares String keys by canonical equivalence, so an NFC/NFD variant of a nonce is the
+/// same key — a replay cannot slip through by re-spelling it (tested; a byte-wise store would).
 public actor NonceStore {
     let capacity: Int
     private var seen: [String: Date] = [:]
