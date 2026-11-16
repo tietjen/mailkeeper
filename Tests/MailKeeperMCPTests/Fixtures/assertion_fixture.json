@@ -1,5 +1,5 @@
 {
-  "_comment": "Erzeugt von scratchpad/gen_fixture.py gegen kastelain.signing (tj/kastelain). Nicht von Hand aendern — neu erzeugen.",
+  "_comment": "Erzeugt von internal/mcp/testdata/gen_fixture.py (tj/wiki-mcp) gegen kastelain.signing (tj/kastelain). Nicht von Hand aendern — neu erzeugen.",
   "audience": "metrics",
   "canonical_plain_b64": "eyJhdWRpZW5jZSI6Im1ldHJpY3MiLCJhdXRoX3N0cmVuZ3RoIjoic3Ryb25nX2F1dGgiLCJleHBpcmVzX2F0IjoiMjAyNi0wOC0xN1QxMDowMTowMCswMDowMCIsImdyb3VwcyI6WyJmYW1pbGllIiwiYWRtaW5zIl0sImlzc3VlZF9hdCI6IjIwMjYtMDgtMTdUMTA6MDA6MDArMDA6MDAiLCJub25jZSI6IlptOXZZbUZ5TVRJek5EVTJOemc1TUEiLCJydW5faWQiOiJydW4tMDE5N2YxYjIiLCJ1c2VyIjoiamFuIn0=",
   "canonical_tricky_b64": "eyJBYSI6Ikdyb3NzYnVjaHN0YWJlIHNvcnRpZXJ0IHZvciBLbGVpbmJ1Y2hzdGFiZSIsImFhIjoidW5kIGRlciBoaWVyIGRhbmFjaCIsImF1ZGllbmNlIjoibWV0cmljcyIsImF1dGhfc3RyZW5ndGgiOiJzdHJvbmdfYXV0aCIsImNvdW50IjozLCJlbXB0eSI6W10sImV4cGlyZXNfYXQiOiIyMDI2LTA4LTE3VDEwOjAxOjAwKzAwOjAwIiwiZmxhZyI6dHJ1ZSwiZ3JvdXBzIjpbInp1bHUiLCJhbHBoYSIsIkLDvHJvIl0sImlzc3VlZF9hdCI6IjIwMjYtMDgtMTdUMTA6MDA6MDArMDA6MDAiLCJub25jZSI6Im4xIiwibm90ZSI6IlRhYlx0TkxcbkNSXHJCU1xiRkZcZlNPSFx1MDAwMVFcIlNcXCIsIm5vdGhpbmciOm51bGwsInJ1bl9pZCI6ImE8Yj5jJmQiLCJzZXAiOiJMU+KAqFBT4oCpZW5kZSIsInVzZXIiOiJqw7ZyZyJ9",
@@ -23,6 +23,42 @@
         "x": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
       }
     ]
+  },
+  "nfc_replay": {
+    "alg": "EdDSA",
+    "body": {
+      "audience": "metrics",
+      "auth_strength": "strong_auth",
+      "expires_at": "2026-08-17T10:01:00+00:00",
+      "groups": [
+        "familie",
+        "admins"
+      ],
+      "issued_at": "2026-08-17T10:00:00+00:00",
+      "nonce": "aK1",
+      "run_id": "run-0197f1b2",
+      "user": "jan"
+    },
+    "kid": "k20260817-aabbccdd",
+    "sig": "U1cWkqpZUNi9uow695E2rP7s-tcMOhLUY1jJU_0h_FiQuc4LKBUjUhdU07VLYyJ3B3Vtjngh-OA3IgiGtwSWCQ"
+  },
+  "nfc_replay_variant": {
+    "alg": "EdDSA",
+    "body": {
+      "audience": "metrics",
+      "auth_strength": "strong_auth",
+      "expires_at": "2026-08-17T10:01:00+00:00",
+      "groups": [
+        "familie",
+        "admins"
+      ],
+      "issued_at": "2026-08-17T10:00:00+00:00",
+      "nonce": "aK1",
+      "run_id": "run-0197f1b2",
+      "user": "jan"
+    },
+    "kid": "k20260817-aabbccdd",
+    "sig": "U1cWkqpZUNi9uow695E2rP7s-tcMOhLUY1jJU_0h_FiQuc4LKBUjUhdU07VLYyJ3B3Vtjngh-OA3IgiGtwSWCQ"
   },
   "tricky": {
     "alg": "EdDSA",
