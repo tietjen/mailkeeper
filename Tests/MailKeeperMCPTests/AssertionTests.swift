@@ -52,6 +52,30 @@ struct AssertionTests {
         await #expect(throws: Refusal("key_unavailable", "no usable public key for this kid")) { try await verifier(f).verify(f["unknown_kid"]) }
     }
 
+    /// v2.2 §14.1 as a contract case: `nfc_replay_variant` is `nfc_replay` with U+212A KELVIN SIGN for the "K" of
+    /// the nonce, under the very same signature (it covers the NFC form). Signed by kastelain.signing like the rest of
+    /// the fixture, so every verifier checks the attack against the same key. Both orders: a store normalising only
+    /// one side of the comparison would pass one of them. NonceStore keys are Strings, which Swift hashes and compares
+    /// canonically, so today this guards against a later switch to byte keys; "variant first" also shows that the
+    /// canonical form accepts the KELVIN spelling under Kastelain's key.
+    @Test func aUnicodeVariantOfTheFixtureNonceIsAReplay() async throws {
+        let f = try fixture()
+        let variant = try #require(f["nfc_replay_variant"]?["body"]?["nonce"]?.string)
+        let original = try #require(f["nfc_replay"]?["body"]?["nonce"]?.string)
+        // unicodeScalars, not Characters: String.contains compares canonically and would find "K" either way.
+        // Only the variant may carry it: lost there, or present in both, this is an ordinary replay.
+        let kelvin = Unicode.Scalar(UInt32(0x212A))!
+        #expect(variant.unicodeScalars.contains(kelvin), "the parser normalised the variant away")
+        #expect(!original.unicodeScalars.contains(kelvin), "the original carries a KELVIN SIGN too")
+        for (first, second) in [("nfc_replay", "nfc_replay_variant"), ("nfc_replay_variant", "nfc_replay")] {
+            let v = try verifier(f)
+            #expect(try await v.verify(f[first]).user == "jan")
+            await #expect(throws: Refusal("replay", "nonce has already been redeemed"), "\(first) then \(second)") {
+                try await v.verify(f[second])
+            }
+        }
+    }
+
     @Test func everyCheckRefusesWithItsCode() async throws {
         let s = TestSigner()
         let now = Date(timeIntervalSince1970: 1_800_000_000)
