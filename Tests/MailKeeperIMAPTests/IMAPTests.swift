@@ -57,19 +57,26 @@ struct ReadOnlyGuardTests {
 
     @Test("2026-11-23: the bound is never shorter than the real ESEARCH line")
     func esearchBoundHolds() throws {
+        // Light on purpose. The first version (200 sets of up to 5 000 UIDs, drawn into a Set
+        // until full) took 0.4 s here but 7 s on GitHub's three-core runner, and the timing
+        // tests running beside it missed their 5 s (CI run 45241474510, release 0.3.2).
         var rng = SplitMix64(seed: 0x6D61_696C)
         var shapes: [[UInt32]] = [
-            Array(1...2_500),                                   // dense
-            (1...4_000).filter { $0 % 2 == 1 },                 // every other UID gone
-            (899_000...900_000).filter { $0 % 2 == 0 },         // isolated, long numbers
-            Array(1...10) + Array(999_990...999_999),           // two runs far apart
+            Array(1...2_500),                                       // dense
+            Array(stride(from: 1, through: 3_999, by: 2)),          // every other UID gone
+            Array(stride(from: 899_000, through: 900_000, by: 2)),  // isolated, long numbers
+            Array(1...10) + Array(999_990...999_999),               // two runs far apart
         ]
-        for _ in 0..<200 {                                       // random sets, sparse to dense
-            let highest = UInt32.random(in: 1...2_000_000, using: &rng)
-            let count = Int.random(in: 1...min(5_000, Int(highest)), using: &rng)
-            var set = Set<UInt32>()
-            while set.count < count { set.insert(UInt32.random(in: 1...highest, using: &rng)) }
-            shapes.append(set.sorted())
+        for maxGap: UInt32 in [1, 2, 3, 10, 1_000, 100_000] {      // dense to sparse, built sorted
+            for _ in 0..<5 {
+                var uid = UInt32.random(in: 1...1_000, using: &rng)
+                var uids: [UInt32] = []
+                for _ in 0..<Int.random(in: 1...1_500, using: &rng) {
+                    uids.append(uid)
+                    uid += UInt32.random(in: 1...maxGap, using: &rng)
+                }
+                shapes.append(uids)
+            }
         }
         for uids in shapes {
             let uidNext = try #require(uids.last) + 1
