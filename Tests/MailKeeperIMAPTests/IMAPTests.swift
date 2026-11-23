@@ -39,6 +39,49 @@ struct ReadOnlyGuardTests {
         #expect(IMAPSession.isReadOnly(IMAPSession.presenceCommand(esearch: true)))
     }
 
+    @Test("2026-11-23: ESEARCH for the presence list only where its line provably fits")
+    func esearchOnlyWhereItFits() {
+        #expect(IMAPSession.esearchLineBudget < IMAPSession.responseLineLimit)
+        // Dense folders keep the compact answer: one range, or a few hundred gaps.
+        #expect(IMAPSession.esearchFits(uidNext: 2_501, exists: 2_500))
+        #expect(IMAPSession.esearchFits(uidNext: 900_001, exists: 899_700))
+        // The finding: Gmail "Alle Nachrichten", 42 536 messages with UIDs far apart → FETCH.
+        #expect(!IMAPSession.esearchFits(uidNext: 900_000, exists: 42_536))
+        // Every other UID gone, as in the integration folder (--fragment).
+        #expect(!IMAPSession.esearchFits(uidNext: 14_001, exists: 7_000))
+        // No UIDNEXT, or one that cannot be right: no bound, so no ESEARCH.
+        #expect(!IMAPSession.esearchFits(uidNext: nil, exists: 10))
+        #expect(!IMAPSession.esearchFits(uidNext: 1, exists: 10))
+        #expect(IMAPSession.esearchLineBound(uidNext: 100, exists: 0) == nil)
+    }
+
+    @Test("2026-11-23: the bound is never shorter than the real ESEARCH line")
+    func esearchBoundHolds() throws {
+        var rng = SplitMix64(seed: 0x6D61_696C)
+        var shapes: [[UInt32]] = [
+            Array(1...2_500),                                   // dense
+            (1...4_000).filter { $0 % 2 == 1 },                 // every other UID gone
+            (899_000...900_000).filter { $0 % 2 == 0 },         // isolated, long numbers
+            Array(1...10) + Array(999_990...999_999),           // two runs far apart
+        ]
+        for _ in 0..<200 {                                       // random sets, sparse to dense
+            let highest = UInt32.random(in: 1...2_000_000, using: &rng)
+            let count = Int.random(in: 1...min(5_000, Int(highest)), using: &rng)
+            var set = Set<UInt32>()
+            while set.count < count { set.insert(UInt32.random(in: 1...highest, using: &rng)) }
+            shapes.append(set.sorted())
+        }
+        for uids in shapes {
+            let uidNext = try #require(uids.last) + 1
+            let bound = try #require(IMAPSession.esearchLineBound(uidNext: uidNext, exists: uids.count))
+            let line = esearchLine(uids).utf8.count
+            #expect(line <= bound, "uidNext \(uidNext), \(uids.count) UIDs: line \(line) > bound \(bound)")
+            if IMAPSession.esearchFits(uidNext: uidNext, exists: uids.count) {
+                #expect(line <= IMAPSession.responseLineLimit)
+            }
+        }
+    }
+
     @Test("7.1: the XOAUTH2 initial response is Google's SASL format, and the token stays out of logs")
     func xoauth2InitialResponse() {
         let sasl = IMAPSession.xoauth2(user: "tj@gmail.example", token: "ya29.a0-TOKEN")
@@ -339,6 +382,37 @@ struct IntegrationTests {
                                                     policy: SyncPolicy(mode: .standard, include: ["MailKeeper-Bulk"]))
         #expect(first.failures.isEmpty, "\(first.failures)")
         #expect(first.newMessages >= 2_000, "seed the folder: Scripts/seed-test-mailbox.py")
+        #expect(second.failures.isEmpty, "\(second.failures)")
+        #expect(second.fetched == 0 && second.gone == 0)
+        #expect(try ArchiveReader(layout: layout).stats().locations == first.newMessages + first.newLocations)
+    }
+
+    /// 2026-11-23 regression: a fragmented mailbox, where even ESEARCH's compact ranges need
+    /// far more than one 8 KiB line (Gmail "Alle Nachrichten" broke with PayloadTooLargeError in
+    /// the deletions step). Synced twice, so the second run reaches that step with known mail.
+    /// The line must span several TLS records: one arriving whole slips past the limit (a
+    /// first version of this folder, ~10 KiB, passed even without the fix).
+    /// Seed with Scripts/seed-test-mailbox.py --fragment.
+    @Test func mailcowFragmentedMailbox() async throws {
+        let a = try account("mailcow")
+        let endpoint = IMAPEndpoint(host: a.host, port: a.port, security: .tls)
+        // The case is real: the server offers ESEARCH, and its answer would not fit.
+        let s = try await IMAPSession.connect(endpoint, username: a.username, password: try password(a))
+        let box = try #require(try await s.mailboxes().first { $0.name == "MailKeeper-Fragmented" },
+                               "seed the folder: Scripts/seed-test-mailbox.py --fragment")
+        let status = try await s.examine(box)
+        let uids = try await s.allUIDs().sorted()
+        let caps = await s.serverCapabilities
+        await s.close()
+        #expect(caps.contains("ESEARCH"))
+        #expect(uids.count == status.exists)
+        #expect(esearchLine(uids).utf8.count > 4 * IMAPSession.responseLineLimit, "seed: --fragment tops up")
+        #expect(!IMAPSession.esearchFits(uidNext: status.uidNext, exists: status.exists))
+
+        let (layout, first, second) = try await run("mailcow", endpoint: endpoint,
+                                                    policy: SyncPolicy(mode: .standard, include: ["MailKeeper-Fragmented"]))
+        #expect(first.failures.isEmpty, "\(first.failures)")
+        #expect(first.newMessages >= 6_900)
         #expect(second.failures.isEmpty, "\(second.failures)")
         #expect(second.fetched == 0 && second.gone == 0)
         #expect(try ArchiveReader(layout: layout).stats().locations == first.newMessages + first.newLocations)

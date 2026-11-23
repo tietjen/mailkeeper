@@ -11,6 +11,8 @@
   --inbox-spam-test  "INBOX": add 1 fresh lure (6.4 "Ist Spam → Spam-Ordner"; removed by --cleanup-junk)
   --origin-spam-test "MailKeeper-SpamOrigin": add 1 legitimate mail (6.8 "Kein Spam" back where it lay;
                    removed by --cleanup-junk)
+  --fragment       "MailKeeper-Fragmented": tops up to 7 000 tiny messages, every other UID expunged
+                   (fragmented-mailbox sync test; prints the folder's state on every call)
 
 Credentials come from ~/.config/mailkeeper/test-accounts.json and the login keychain via
 /usr/bin/security; nothing secret is printed. Never point this at a real mailbox — it writes.
@@ -121,6 +123,43 @@ if "--cleanup-trash" in sys.argv:
         m.uid("STORE", b",".join(uids), "+FLAGS.SILENT", r"(\Deleted)")
         m.uid("EXPUNGE", b",".join(uids))  # UIDPLUS: only these, never other \Deleted mail
     print(f"Trash: {len(uids)} delete-test messages removed")
+    m.logout()
+    sys.exit(0)
+
+if "--fragment" in sys.argv:
+    # Every other UID expunged: ESEARCH's ranges degrade to single UIDs and the one
+    # "* ESEARCH … UID ALL" line outgrows swift-nio-imap's 8 KiB buffer (finding 2026-11-23,
+    # Gmail). Only a line still incomplete beyond 8 KiB breaks — one that arrives whole in a
+    # single TLS record (≤ 16 KiB) passes — so the folder aims at ~40 KiB: 7 000 runs.
+    folder, runs_wanted = "MailKeeper-Fragmented", 7000
+    m.create(folder)  # fails harmlessly if it exists
+    typ, data = m.select(folder)
+    have = int(data[0])  # earlier runs left alternating UIDs; tops up from there
+    if have < runs_wanted:
+        typ, st = m.status(folder, "(UIDNEXT)")
+        first_new = int(st[0].decode().split("UIDNEXT")[1].strip(" )"))
+        stamp = int(time.time())
+        add = 2 * (runs_wanted - have)
+        for n in range(1, add + 1):
+            msg = (f"From: fragment@mailkeeper.test\r\nTo: inbox@mailkeeper.test\r\nSubject: Fragment {n}\r\n"
+                   f"Date: Thu, 14 Mar 2019 10:00:00 +0100\r\nMessage-ID: <mk-frag-{stamp}-{n}@mailkeeper.test>\r\n\r\n"
+                   f"Synthetic message {n}.\r\n")
+            m.append(folder, None, imaplib.Time2Internaldate(time.time()), msg.encode())
+            if n % 1000 == 0:
+                print(f"  {n}/{add}")
+        m.select(folder)
+        typ, found = m.uid("SEARCH", None, "UID", f"{first_new}:*")
+        new = sorted((u for u in found[0].split() if int(u) >= first_new), key=int)
+        drop = new[1::2]  # keep the 1st, 3rd, …: no two new UIDs stay adjacent
+        for i in range(0, len(drop), 500):
+            chunk = b",".join(drop[i:i + 500])
+            m.uid("STORE", chunk, "+FLAGS.SILENT", r"(\Deleted)")
+            m.uid("EXPUNGE", chunk)  # UIDPLUS: only these
+    typ, data = m.select(folder)
+    typ, found = m.uid("SEARCH", None, "ALL")
+    uids = sorted(int(u) for u in found[0].split())
+    runs = sum(1 for i, u in enumerate(uids) if i == 0 or u != uids[i - 1] + 1)
+    print(f"{folder}: {int(data[0])} messages in {runs} runs of UIDs")
     m.logout()
     sys.exit(0)
 
