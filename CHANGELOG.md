@@ -3,7 +3,9 @@
 Diese Datei hält fest, was sich für Benutzerinnen und Benutzer ändert. Die Entscheidungen
 dahinter stehen in [docs/adr/](docs/adr/).
 
-## [Unveröffentlicht]
+## [0.3.2] — 2026-11-23
+
+Der Abruf übersteht Ordner, aus denen über die Jahre viel gelöscht wurde.
 
 - **„Protokollfehler: PayloadTooLargeError()“ bei großen Ordnern:** In einem Ordner, aus dem
   über die Jahre viele Mails gelöscht wurden (etwa Gmails „Alle Nachrichten“), brach der Abruf
