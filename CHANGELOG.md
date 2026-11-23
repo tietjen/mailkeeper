@@ -5,6 +5,11 @@ dahinter stehen in [docs/adr/](docs/adr/).
 
 ## [Unveröffentlicht]
 
+- **„Protokollfehler: PayloadTooLargeError()“ bei großen Ordnern:** In einem Ordner, aus dem
+  über die Jahre viele Mails gelöscht wurden (etwa Gmails „Alle Nachrichten“), brach der Abruf
+  mit diesem Fehler ab. Neue Mails kamen noch an, aber was auf dem Server gelöscht war, wurde
+  für diesen Ordner nicht mehr erkannt. MailKeeper fragt die Liste der vorhandenen Mails in
+  solchen Ordnern jetzt so ab, dass die Antwort nie zu lang wird.
 - **Pfad der Protokolle:** *Einstellungen › KI*, das Ergebnis eines Auftrags und die Meldung zur
   Einordnung nannten `~/Library/Logs/MailKeeper/`. Die App schreibt ihre Protokolle aber in
   ihren Container; jetzt steht dort der echte Pfad. Ein Archiv in deinem Benutzerordner erscheint

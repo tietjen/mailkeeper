@@ -118,6 +118,8 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
     private var busy = false
     private var mailboxNames: [String: MailboxName] = [:]
     private var currentExists = 0
+    /// UIDNEXT of the examined mailbox, if the server sent it: bounds the ESEARCH answer (`allUIDs`).
+    private var currentUIDNext: UInt32?
     private var gmail = false
     private var condstore = false
     /// The SPECIAL-USE \Trash mailbox, once looked up: the only destination a move may name.
@@ -363,6 +365,7 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
         if case .uidValidity(let v)? = result.code { validity = UInt32(v) }
         guard let validity else { throw IMAPError.protocolError("keine UIDVALIDITY für \(mailbox)") }
         currentExists = exists
+        currentUIDNext = next
         return MailKeeperKit.MailboxStatus(uidValidity: validity, uidNext: next, exists: exists, highestModSeq: modseq)
     }
 
@@ -375,11 +378,15 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
 
     /// Every UID of the examined mailbox. Never plain `UID SEARCH ALL`: servers answer it with
     /// one line, and swift-nio-imap caps response lines at 8 KiB (~1 700 UIDs) — the
-    /// connection would die. ESEARCH returns compact ranges; otherwise one short FETCH line
-    /// per message.
+    /// connection would die. ESEARCH returns compact ranges, but only while the UIDs lie close
+    /// together: every expunged message can add a range, and a fragmented mailbox breaks the
+    /// same limit (2026-11-23, Gmail "Alle Nachrichten", 42 536 messages:
+    /// `PayloadTooLargeError`). So ESEARCH only where its line provably fits
+    /// (`esearchFits`); otherwise one short FETCH line per message.
     public func allUIDs() async throws -> [UInt32] {
         guard currentExists > 0 else { return [] }
         let esearch = serverCapabilities.contains("ESEARCH")
+            && Self.esearchFits(uidNext: currentUIDNext, exists: currentExists)
         let result = try await run(Self.presenceCommand(esearch: esearch))
         if esearch {
             var uids: [UInt32] = []
@@ -395,6 +402,40 @@ public actor IMAPSession: MailboxSource, ServerTrashActions, ServerRestoreAction
             return try await run(Self.presenceCommand(esearch: false)).fetches.compactMap(\.uid)
         }
         return result.fetches.compactMap(\.uid)
+    }
+
+    /// The longest response line swift-nio-imap 0.4.0 reliably accepts: `IMAPClientHandler`
+    /// fixes its buffer at `IMAPDefaults.lineLengthLimit` (8 192 bytes), parser options cannot
+    /// raise it. NIO throws once a line is still incomplete with more than that buffered, so a
+    /// longer line survives only when it happens to arrive in one piece (one TLS record) —
+    /// nothing to count on; past ~16 KiB it never does.
+    static let responseLineLimit = IMAPDefaults.lineLengthLimit
+
+    /// What an ESEARCH line may take by the bound below. The rest is slack for the response
+    /// prefix and for messages that arrive between EXAMINE and the search (each adds at most
+    /// one range above UIDNEXT).
+    static let esearchLineBudget = responseLineLimit - 1_024
+
+    /// Upper bound, in bytes, for `* ESEARCH (TAG "…") UID ALL <set>` of a mailbox with
+    /// `exists` messages below `uidNext`, or nil when there is none. Every present UID lies
+    /// in 1..<UIDNEXT, so at most `uidNext - 1 - exists` of those UIDs are missing; each run
+    /// of present UIDs needs a gap before the next one, which caps the ranges at
+    /// gaps + 1 (and at `exists`). A range is at most "a:b," with both numbers below
+    /// UIDNEXT. Like the ESEARCH path before it, this counts on the server joining
+    /// consecutive UIDs into ranges, as RFC 4731's sequence-set is meant to.
+    static func esearchLineBound(uidNext: UInt32, exists: Int) -> Int? {
+        let highest = Int(uidNext) - 1
+        guard exists > 0, highest >= 1 else { return nil }
+        let digits = String(highest).count
+        let gaps = max(0, highest - exists)
+        let ranges = min(exists, gaps + 1)
+        return 64 + ranges * (2 * digits + 2)
+    }
+
+    /// ESEARCH is safe when the server sent UIDNEXT and the bound stays within the budget.
+    static func esearchFits(uidNext: UInt32?, exists: Int) -> Bool {
+        guard let uidNext, let bound = esearchLineBound(uidNext: uidNext, exists: exists) else { return false }
+        return bound <= esearchLineBudget
     }
 
     static func presenceCommand(esearch: Bool) -> Command {
