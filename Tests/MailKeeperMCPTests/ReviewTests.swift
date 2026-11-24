@@ -54,10 +54,11 @@ struct ReviewTests {
 
     @Test func summariesEndAtTheirDeadline() async throws {
         let (_, archives) = try await twoArchives()
-        let slow = try testServer(archives: archives, summarizer: FakeSummarizer(delay: .seconds(30)), summaryDeadline: .milliseconds(200))
+        let slow = try testServer(archives: archives, summarizer: FakeSummarizer(delay: .seconds(300)), summaryDeadline: .milliseconds(200))
+        // the bound below (50 s on CI) stays far below the 300 s a missing deadline would take
         let started = ContinuousClock.now
         let result = try await callTool(slow, "summarize_correspondence", ["person": "rechnung@shop.test"])
-        #expect(code(result) == "ai_unavailable" && ContinuousClock.now - started < .seconds(5))
+        #expect(code(result) == "ai_unavailable" && ContinuousClock.now - started < TimeBudget.linear(.seconds(5)))
         #expect(text(result).contains("in time"))
     }
 

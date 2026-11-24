@@ -150,6 +150,6 @@ struct ConnectionLimitTests {
         let started = ContinuousClock.now
         let n = read(fd, &buffer, buffer.count)  // blocks until the server closes
         close(fd)
-        #expect(n <= 0 && ContinuousClock.now - started < .seconds(3))
+        #expect(n <= 0 && ContinuousClock.now - started < TimeBudget.linear(.seconds(3)))
     }
 }

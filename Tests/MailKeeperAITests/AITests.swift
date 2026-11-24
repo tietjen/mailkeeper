@@ -57,7 +57,7 @@ func completion(_ content: String?, finish: String = "stop") -> String {
 @Suite("KI-Anbindung (ADR-0004)", .serialized)
 struct AITests {
     let base = URL(string: "http://llm.example.ziti:4000/v1")!
-    var provider: OpenAICompatibleProvider { OpenAICompatibleProvider(baseURL: base, apiKey: "sk-test", timeout: 5, protocolClasses: [StubProtocol.self]) }
+    var provider: OpenAICompatibleProvider { OpenAICompatibleProvider(baseURL: base, apiKey: "sk-test", timeout: TimeBudget.providerTimeout, protocolClasses: [StubProtocol.self]) }
     let request = ChatRequest(task: .search, system: "sys", user: "Mailinhalt GEHEIM",
                               schema: .object(name: "q", properties: [.init("query", .string()), .init("why", .string(), optional: true)]))
 
@@ -116,7 +116,7 @@ struct AITests {
         _ = try await provider.chat(request, model: "llm-fast", attempt: 1)
         #expect(StubProtocol.seen.withLock { $0.count } == 2)
         StubProtocol.load([.init(status: 0, body: "", error: .timedOut), .init(status: 200, body: completion("{}"))])
-        await #expect(throws: AIError.timeout(5)) { _ = try await provider.chat(request, model: "llm-fast", attempt: 1) }
+        await #expect(throws: AIError.timeout(TimeBudget.providerTimeout)) { _ = try await provider.chat(request, model: "llm-fast", attempt: 1) }
         #expect(StubProtocol.seen.withLock { $0.count } == 1)  // the server is still generating: no second request
     }
 
@@ -213,7 +213,7 @@ struct EmbeddingIndexerTests {
         batch.append((sampleMessage(id: "<g@t.test>", subject: "Grillen am Samstag"), LocationInfo(account: "x", mailbox: "INBOX", providerID: "g")))
         _ = try await writer.ingest(batch)
         _ = try await writer.classifyHeuristically()
-        let provider = OpenAICompatibleProvider(baseURL: URL(string: "http://llm.example.ziti:4000/v1")!, apiKey: "sk", timeout: 5,
+        let provider = OpenAICompatibleProvider(baseURL: URL(string: "http://llm.example.ziti:4000/v1")!, apiKey: "sk", timeout: TimeBudget.providerTimeout,
                                                 protocolClasses: [EmbedStubProtocol.self])
         let router = AIRouter(config: AIConfig(enabled: true, endpoint: URL(string: "http://llm.example.ziti:4000/v1")!), endpoint: provider, onDevice: nil,
                               log: AICallLog(url: tempDir().appending(path: "l.jsonl")))
@@ -238,7 +238,7 @@ struct EmbeddingRetryTests {
             (sampleMessage(id: "<r\(n)@t.test>", subject: "Mail \(n)"), LocationInfo(account: "x", mailbox: "INBOX", providerID: "r\(n)"))
         })
         let base = URL(string: "http://llm.example.ziti:4000/v1")!
-        let provider = OpenAICompatibleProvider(baseURL: base, apiKey: "sk", timeout: 5, protocolClasses: [FlakyEmbedStubProtocol.self])
+        let provider = OpenAICompatibleProvider(baseURL: base, apiKey: "sk", timeout: TimeBudget.providerTimeout, protocolClasses: [FlakyEmbedStubProtocol.self])
         let router = AIRouter(config: AIConfig(enabled: true, endpoint: base), endpoint: provider, onDevice: nil,
                               log: AICallLog(url: tempDir().appending(path: "l.jsonl")))
         var indexer = EmbeddingIndexer(router: router, writer: writer)
@@ -331,7 +331,7 @@ final class EmbedStubProtocol: URLProtocol, @unchecked Sendable {
 @Suite("Embeddings in Paketen", .serialized)
 struct EmbeddingBatchTests {
     @Test func moreThan32TextsGoInSeveralRequestsAndEmptyOnesAreReplaced() async throws {
-        let provider = OpenAICompatibleProvider(baseURL: URL(string: "http://llm.example.ziti:4000/v1")!, apiKey: "sk", timeout: 5,
+        let provider = OpenAICompatibleProvider(baseURL: URL(string: "http://llm.example.ziti:4000/v1")!, apiKey: "sk", timeout: TimeBudget.providerTimeout,
                                                 protocolClasses: [EmbedStubProtocol.self])
         let texts = (0..<70).map { $0 == 5 ? "  " : "Newsletter \($0)" }
         let vectors = try await provider.embed(texts, model: "embedding")
@@ -346,7 +346,7 @@ struct RouterReviewTests {
     func aPausedEndpointSaysWhy() async throws {
         let base = URL(string: "http://127.0.0.1:9/v1")!  // nothing listens: connection refused
         let router = AIRouter(config: AIConfig(enabled: true, endpoint: base, onDevice: false),
-                              endpoint: OpenAICompatibleProvider(baseURL: base, apiKey: nil, timeout: 5), onDevice: nil,
+                              endpoint: OpenAICompatibleProvider(baseURL: base, apiKey: nil, timeout: TimeBudget.providerTimeout), onDevice: nil,
                               log: AICallLog(url: tempDir().appending(path: "l.jsonl")))
         let request = ChatRequest(task: .classify, system: "s", user: "u")
         for _ in 0..<2 {  // the first call pauses the endpoint, the second meets the pause
@@ -378,7 +378,7 @@ struct RouterReviewTests {
             }
         }
         defer { server.stop() }
-        let provider = OpenAICompatibleProvider(baseURL: URL(string: "http://127.0.0.1:\(server.port)/v1")!, apiKey: nil, timeout: 5)
+        let provider = OpenAICompatibleProvider(baseURL: URL(string: "http://127.0.0.1:\(server.port)/v1")!, apiKey: nil, timeout: TimeBudget.providerTimeout)
         await #expect(throws: AIError.badAnswer(String(localized: "Antwort zu groß"))) {
             _ = try await provider.chat(ChatRequest(task: .classify, system: "s", user: "u"), model: "m", attempt: 1)
         }
@@ -388,7 +388,7 @@ struct RouterReviewTests {
     @Test("C4: an oversized answer is refused while it arrives")
     func anOversizedAnswerIsRefused() async throws {
         let base = URL(string: "http://litellm.example.ziti:4000/v1")!
-        let provider = OpenAICompatibleProvider(baseURL: base, apiKey: nil, timeout: 5, protocolClasses: [HugeStubProtocol.self])
+        let provider = OpenAICompatibleProvider(baseURL: base, apiKey: nil, timeout: TimeBudget.providerTimeout, protocolClasses: [HugeStubProtocol.self])
         await #expect(throws: AIError.badAnswer(String(localized: "Antwort zu groß"))) {
             _ = try await provider.chat(ChatRequest(task: .classify, system: "s", user: "u"), model: "m", attempt: 1)
         }
